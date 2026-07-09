@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core import storage
-from app.api import achievements, chat, projects, snapshot, tasks, ws
+from app.api import achievements, chat, llm, projects, snapshot, tasks, ws
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -54,4 +54,5 @@ app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
 app.include_router(achievements.router, prefix="/api/achievements", tags=["achievements"])
 app.include_router(snapshot.router, prefix="/api/snapshot", tags=["snapshot"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(llm.router, prefix="/api/llm", tags=["llm"])
 app.include_router(ws.router, tags=["ws"])

@@ -60,8 +60,26 @@ def test_task_default_draft_true():
 
 def test_task_checklist_default():
     """checklist 默认空列表。"""
-    t = Task(project="proj_xxx", title="x", checklist=["a", "b"])
-    assert t.checklist == ["a", "b"]
+    t = Task(project="proj_xxx", title="x", checklist=[])
+    assert t.checklist == []
+
+
+def test_task_checklist_with_items():
+    """checklist 接受 ChecklistItem 列表。"""
+    from app.core.models import ChecklistItem
+    items = [ChecklistItem(text="a", done=False), ChecklistItem(text="b", done=True)]
+    t = Task(project="proj_xxx", title="x", checklist=items)
+    assert len(t.checklist) == 2
+    assert t.checklist[0].text == "a"
+    assert t.checklist[1].done is True
+
+
+def test_checklist_item_default_done_false():
+    """ChecklistItem 默认 done=False。"""
+    from app.core.models import ChecklistItem
+    item = ChecklistItem(text="buy milk")
+    assert item.text == "buy milk"
+    assert item.done is False
 
 
 def test_achievement_cv_status_default():

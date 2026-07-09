@@ -91,6 +91,36 @@ async def test_add_task_defaults(temp_db):
 
 
 @pytest.mark.asyncio
+async def test_checklist_add_toggle_remove(temp_db):
+    """checklist 增删改。"""
+    from app.core.models import ChecklistItem
+    p = await storage.add_project(ProjectCreate(name="x"))
+    t = await storage.add_task(
+        TaskCreate(project=p.id, title="x", checklist=[ChecklistItem(text="a"), ChecklistItem(text="b")])
+    )
+    assert len(t.checklist) == 2
+
+    # append
+    t = await storage.checklist_add(t.id, "c")
+    assert t is not None
+    assert len(t.checklist) == 3
+    assert t.checklist[2].text == "c"
+    assert t.checklist[2].done is False
+
+    # toggle
+    t = await storage.checklist_toggle(t.id, 0)
+    assert t is not None
+    assert t.checklist[0].done is True
+
+    # remove
+    t = await storage.checklist_remove(t.id, 1)
+    assert t is not None
+    assert len(t.checklist) == 2
+    assert t.checklist[0].text == "a"
+    assert t.checklist[1].text == "c"
+
+
+@pytest.mark.asyncio
 async def test_update_task_partial(temp_db):
     p = await storage.add_project(ProjectCreate(name="x"))
     t = await storage.add_task(TaskCreate(project=p.id, title="x"))

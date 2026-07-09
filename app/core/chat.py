@@ -1,47 +1,54 @@
-"""简化版对话命令解析器（无 LLM 阶段）。
+"""拾光对话引擎：LLM 优先 + 关键词兜底。
 
-匹配规则：
-- 关键词 + 动作 → 调用对应 API
-- 不能识别时返回 help
+调用流程：
+1. 尝试 LLM（如果可用）
+2. LLM 失败/无 client → 走关键词解析
+3. 关键词解析用于离线/无 key 场景
 
-LLM 接入后会被替换（app/llm/），但接口保持一致。
+注意：关键词解析器作为 fallback 保留，保证产品在无 LLM 时仍可用。
 """
+from __future__ import annotations
+
+import logging
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Optional
 
 from app.core import storage
 from app.core.models import CVStatus, ProjectCreate, TaskCreate
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ChatResponse:
     """对话响应。"""
-    text: str  # 展示给用户的话
-    action: Optional[str] = None  # 动作标识（前端可触发高亮/动画）
-    data: Optional[dict[str, Any]] = None  # 附加数据
+    text: str
+    action: Optional[str] = None
+    data: Optional[dict[str, Any]] = None
+    used_llm: bool = False
+    tool_calls: list[dict[str, Any]] = None  # type: ignore
+
+    def __post_init__(self):
+        if self.tool_calls is None:
+            self.tool_calls = []
 
 
-# 命令处理函数签名
-Handler = Callable[[str], Awaitable[ChatResponse]]
+# ===== 关键词解析器（兜底）=====
 
 
-# 关键词 → 处理器路由表
-# 顺序很重要：先匹配具体，再匹配通用
-KEYWORD_ROUTES: list[tuple[list[str], Handler]] = []
+Handler = "callable"  # type alias for readability
 
 
-def register(*keywords: str):
-    """注册关键词路由的装饰器。"""
-    def decorator(handler: Handler) -> Handler:
-        KEYWORD_ROUTES.append((list(keywords), handler))
-        return handler
-    return decorator
+def _extract_after_keyword(text: str, keywords: list[str]) -> str:
+    """从 text 中提取关键词后面的内容。"""
+    for kw in keywords:
+        if kw in text:
+            return text.split(kw, 1)[1].strip().lstrip("：:").strip()
+    return ""
 
 
-@register("我现在该干啥", "现在该干啥", "该干啥", "现在做什么", "现在做啥", "focus")
 async def cmd_focus(text: str) -> ChatResponse:
-    """返回今日聚焦 + 建议。"""
     snap = await storage.build_snapshot()
     focus = snap.focus
     if not focus:
@@ -55,13 +62,11 @@ async def cmd_focus(text: str) -> ChatResponse:
         due = f" · 截止 {item.due}" if item.due else ""
         blocked_tag = " [阻塞中]" if item.blocked else ""
         lines.append(f"{i}. {icon} **{item.title}**{due}{blocked_tag}")
-    lines.append(f"\n共 {len(focus)} 项。" if len(focus) == 5 else f"\n共 {len(focus)} 项。")
+    lines.append(f"\n共 {len(focus)} 项。")
     return ChatResponse(text="\n".join(lines), action="show_focus", data={"count": len(focus)})
 
 
-@register("添加任务", "新建任务", "加个任务", "加任务", "创建任务")
 async def cmd_add_task(text: str) -> ChatResponse:
-    """从 text 提取任务标题并创建。"""
     title = _extract_after_keyword(
         text, ["添加任务", "新建任务", "加个任务", "加任务", "创建任务"]
     )
@@ -70,7 +75,6 @@ async def cmd_add_task(text: str) -> ChatResponse:
             text="💡 用法：添加任务 <标题>\n例如：添加任务 修登录 bug",
             action="show_help",
         )
-    # 用第一个 active project 作为默认
     projects = await storage.list_projects(include_archived=False)
     if not projects:
         project = await storage.add_project(ProjectCreate(name="日常"))
@@ -87,9 +91,7 @@ async def cmd_add_task(text: str) -> ChatResponse:
     )
 
 
-@register("完成了", "做完了", "done", "搞定")
 async def cmd_complete(text: str) -> ChatResponse:
-    """匹配「<任务关键词>完成了」格式。"""
     keyword = next((k for k in ["完成了", "做完了", "done", "搞定"] if k in text), "")
     if not keyword:
         return ChatResponse(text="💡 用法：<任务关键词>完成了\n例如：修 bug 完成了")
@@ -109,11 +111,7 @@ async def cmd_complete(text: str) -> ChatResponse:
     task = matches[0]
     cv = f"完成「{task.title}」"
     achievement = await storage.complete_task(
-        task.id,
-        outcome="",
-        reflection="",
-        cv=cv,
-        cv_status=CVStatus.READY,
+        task.id, outcome="", reflection="", cv=cv, cv_status=CVStatus.READY,
     )
     return ChatResponse(
         text=f"✨ 已沉淀进成就库\n**{task.title}**\n\nCV: {cv}\n（可在成就库补充细节）",
@@ -122,9 +120,7 @@ async def cmd_complete(text: str) -> ChatResponse:
     )
 
 
-@register("整理周报", "周报", "weekly")
 async def cmd_weekly(text: str) -> ChatResponse:
-    """整理本周周报。"""
     today = date.today()
     monday = today - timedelta(days=today.weekday())
     items = await storage.list_achievements(since=monday)
@@ -147,9 +143,7 @@ async def cmd_weekly(text: str) -> ChatResponse:
     )
 
 
-@register("述职", "答辩", "promotion", "复盘")
 async def cmd_promotion(text: str) -> ChatResponse:
-    """整理述职材料（只取 ready 状态）。"""
     items = await storage.list_achievements(only_ready=True)
     if not items:
         return ChatResponse(text="📭 成就库里还没有 ready 的成就，先去完成一些任务吧！")
@@ -170,7 +164,6 @@ async def cmd_promotion(text: str) -> ChatResponse:
     )
 
 
-@register("确认", "confirm")
 async def cmd_confirm(text: str) -> ChatResponse:
     count = await storage.confirm_all_drafts()
     return ChatResponse(
@@ -179,7 +172,6 @@ async def cmd_confirm(text: str) -> ChatResponse:
     )
 
 
-@register("帮助", "help", "怎么用", "你能做什么")
 async def cmd_help(text: str) -> ChatResponse:
     return ChatResponse(
         text=(
@@ -197,19 +189,69 @@ async def cmd_help(text: str) -> ChatResponse:
     )
 
 
-async def dispatch(text: str) -> ChatResponse:
-    """调度：匹配关键词 → 调用处理器。"""
+# 关键词路由表
+KEYWORD_ROUTES: list[tuple[list[str], Any]] = [
+    (["我现在该干啥", "现在该干啥", "该干啥", "现在做什么", "现在做啥", "focus"], cmd_focus),
+    (["添加任务", "新建任务", "加个任务", "加任务", "创建任务"], cmd_add_task),
+    (["完成了", "做完了", "done", "搞定"], cmd_complete),
+    (["整理周报", "周报", "weekly"], cmd_weekly),
+    (["述职", "答辩", "promotion", "复盘"], cmd_promotion),
+    (["确认", "confirm"], cmd_confirm),
+    (["帮助", "help", "怎么用", "你能做什么"], cmd_help),
+]
+
+
+async def dispatch_keyword(text: str) -> ChatResponse:
+    """关键词解析器（无 LLM 时的兜底）。"""
     text_lower = text.strip().lower()
     for keywords, handler in KEYWORD_ROUTES:
         for kw in keywords:
             if kw.lower() in text_lower:
                 return await handler(text)
-    return cmd_help(text)
+    return await cmd_help(text)
 
 
-def _extract_after_keyword(text: str, keywords: list[str]) -> str:
-    """从 text 中提取关键词后面的内容。"""
-    for kw in keywords:
-        if kw in text:
-            return text.split(kw, 1)[1].strip().lstrip("：:").strip()
-    return ""
+# ===== 主入口 =====
+
+
+async def dispatch(
+    text: str,
+    history: list | None = None,
+    prefer_llm: bool = True,
+) -> ChatResponse:
+    """主调度：LLM 优先，失败时关键词兜底。
+
+    Args:
+        text: 用户输入
+        history: 对话历史（LLM 模式时用）
+        prefer_llm: 是否优先 LLM（默认 True）
+
+    Returns:
+        ChatResponse
+    """
+    if prefer_llm:
+        try:
+            from app.llm.chat_engine import run_chat
+            from app.llm.router import get_verified_client
+
+            client = await get_verified_client()
+            if client is not None:
+                result = await run_chat(text, history=history, client=client)
+                if result.error:
+                    logger.warning(f"LLM failed, falling back to keyword: {result.error}")
+                else:
+                    return ChatResponse(
+                        text=result.text,
+                        action="llm_response",
+                        data={
+                            "tool_calls_made": result.tool_calls_made,
+                            "usage": result.usage,
+                        },
+                        used_llm=True,
+                        tool_calls=result.tool_calls_made,
+                    )
+        except Exception as e:
+            logger.exception("LLM dispatch failed, falling back to keyword")
+
+    # 兜底：关键词
+    return await dispatch_keyword(text)

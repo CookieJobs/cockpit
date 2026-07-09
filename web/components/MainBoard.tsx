@@ -1,21 +1,20 @@
 "use client";
 
-import useSWR from "swr";
-import { api, type Snapshot, type Project, type Task } from "@/lib/api";
 import { useState, useEffect } from "react";
-import { Check, Trash2, ChevronRight, Plus } from "lucide-react";
+import useSWR from "swr";
+import { api, type Snapshot, type Project, type Task, statusIcon, dueColor, dueLabel } from "@/lib/api";
+import { Check, Trash2, ChevronRight, Plus, CheckSquare, Square, X, Edit2 } from "lucide-react";
 import { ChatWindow } from "./ChatWindow";
 import Link from "next/link";
 
 export function MainBoard({ refreshKey }: { refreshKey: number }) {
   const { data: snapshot, mutate: refreshSnapshot } = useSWR<Snapshot>(
     "/api/snapshot",
-    () => api.getSnapshot(),
-    { refreshInterval: 0 }
+    () => api.getSnapshot()
   );
-  const { data: projects } = useSWR<Project[]>("/api/projects", () =>
-    api.listProjects()
-  );
+  const { data: llmStatus } = useSWR("/api/llm/status", () => api.llmStatus(), {
+    refreshInterval: 30000,
+  });
 
   useEffect(() => {
     refreshSnapshot();
@@ -25,28 +24,55 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
     refreshSnapshot();
   };
 
+  const readyCount = snapshot?.counts.achievementsReady ?? 0;
+  const pendingCount = snapshot?.counts.achievementsPending ?? 0;
+  const focusCount = snapshot?.focus.length ?? 0;
+
   return (
     <div className="flex h-screen bg-bg">
       {/* 左栏：项目 + 任务 */}
-      <div className="w-[32%] border-r border-border flex flex-col bg-bg-secondary">
+      <div className="w-[34%] border-r border-border flex flex-col bg-bg-secondary">
         <div className="p-4 border-b border-border flex items-center justify-between">
           <h1 className="text-lg font-semibold text-fg">拾光</h1>
-          <Link
-            href="/achievements"
-            className="text-xs text-fg-secondary hover:text-fg transition"
-          >
-            成就库 →
-          </Link>
+          <div className="flex items-center gap-2">
+            {/* LLM 状态徽章 */}
+            {llmStatus && (
+              <span
+                className={`text-[10px] px-1.5 py-0.5 rounded ${
+                  llmStatus.available
+                    ? "bg-success/10 text-success"
+                    : "bg-fg-muted/10 text-fg-muted"
+                }`}
+                title={llmStatus.available ? `LLM: ${llmStatus.model}` : "无 LLM，使用关键词模式"}
+              >
+                {llmStatus.available ? "● LLM" : "○ 关键词"}
+              </span>
+            )}
+            <Link
+              href="/achievements"
+              className="text-xs text-fg-secondary hover:text-fg transition"
+            >
+              成就 →
+            </Link>
+          </div>
         </div>
+
+        {/* 累计计数 */}
+        <div className="px-4 py-2 border-b border-border flex items-center gap-3 text-xs text-fg-secondary">
+          <span>本期已沉淀 <strong className="text-accent">{readyCount}</strong> 条成就</span>
+          {pendingCount > 0 && (
+            <span className="text-fg-muted">· <strong className="text-warning">{pendingCount}</strong> 条待补</span>
+          )}
+          {snapshot && focusCount > 0 && (
+            <span className="text-fg-muted">· {focusCount} 项待办</span>
+          )}
+        </div>
+
         <div className="flex-1 overflow-y-auto p-3 space-y-3">
           {snapshot && (
             <>
               <FocusSection snapshot={snapshot} onChange={refresh} />
-              <ProjectsSection
-                projects={projects || []}
-                snapshot={snapshot}
-                onChange={refresh}
-              />
+              <ProjectsSection snapshot={snapshot} onChange={refresh} />
             </>
           )}
         </div>
@@ -111,6 +137,7 @@ function FocusItem({
       : item.priority === "中"
       ? "text-warning"
       : "text-fg-muted";
+  const dueCls = dueColor(item.due);
   return (
     <div
       className={`group flex items-center gap-2 rounded-md px-2 py-2 text-sm transition cursor-pointer ${
@@ -123,26 +150,24 @@ function FocusItem({
       {hover ? (
         <Check size={14} className="text-success flex-shrink-0" />
       ) : (
-        <span
-          className={`w-3.5 h-3.5 flex-shrink-0 ${priorityColor}`}
-        >
+        <span className={`text-xs flex-shrink-0 ${item.blocked ? "" : priorityColor}`}>
           {item.blocked ? "🚧" : "▸"}
         </span>
       )}
       <span className="flex-1 truncate text-fg">{item.title}</span>
       {item.due && (
-        <span className="text-xs text-fg-muted flex-shrink-0">{item.due}</span>
+        <span className={`text-xs flex-shrink-0 text-${dueCls}`}>
+          {dueLabel(item.due)}
+        </span>
       )}
     </div>
   );
 }
 
 function ProjectsSection({
-  projects,
   snapshot,
   onChange,
 }: {
-  projects: Project[];
   snapshot: Snapshot;
   onChange: () => void;
 }) {
@@ -201,7 +226,7 @@ function ProjectsSection({
             onChange={onChange}
           />
         ))}
-        {projects.length === 0 && (
+        {snapshot.projects.length === 0 && (
           <div className="text-xs text-fg-muted px-2 py-2">
             还没有项目。点击 + 新建一个。
           </div>
@@ -259,12 +284,17 @@ function ProjectCard({
 
 function TaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
   const [confirming, setConfirming] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [newChecklistText, setNewChecklistText] = useState("");
+
   const priorityDot =
     task.priority === "高"
       ? "bg-danger"
       : task.priority === "中"
       ? "bg-warning"
       : "bg-fg-muted";
+
+  const dueCls = dueColor(task.due);
 
   const complete = async () => {
     await api.completeTask(task.id, { cv: `完成「${task.title}」` });
@@ -279,39 +309,154 @@ function TaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
     }
   };
 
+  const addChecklistItem = async () => {
+    if (!newChecklistText.trim()) return;
+    await api.checklistAdd(task.id, newChecklistText.trim());
+    setNewChecklistText("");
+    onChange();
+  };
+
+  const toggleChecklistItem = async (index: number) => {
+    await api.checklistToggle(task.id, index);
+    onChange();
+  };
+
+  const removeChecklistItem = async (index: number) => {
+    await api.checklistRemove(task.id, index);
+    onChange();
+  };
+
+  const doneCount = task.checklist.filter((c) => c.done).length;
+  const totalCount = task.checklist.length;
+
   return (
-    <div
-      className={`group flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-bg-tertiary transition ${
-        task.draft ? "bg-accent/5" : ""
-      }`}
-    >
-      <span className={`w-1.5 h-1.5 rounded-full ${priorityDot} flex-shrink-0`} />
-      <span
-        className={`flex-1 truncate ${task.blocked ? "line-through text-fg-muted" : "text-fg"}`}
-        onClick={() => {
-          if (!confirming) {
-            setConfirming(true);
-            setTimeout(() => setConfirming(false), 2000);
-          } else {
-            complete();
-          }
-        }}
-        title="单击：标记完成"
+    <div className="group border-b border-border last:border-b-0">
+      <div
+        className={`flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-bg-tertiary transition ${
+          task.draft ? "bg-accent/5" : ""
+        }`}
       >
-        {task.title}
-        {task.draft && (
-          <span className="ml-2 text-[10px] text-accent">草稿</span>
+        {/* 状态图标（单击切换/完成）*/}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!confirming) {
+              setConfirming(true);
+              setTimeout(() => setConfirming(false), 2000);
+            } else {
+              complete();
+            }
+          }}
+          className={`text-xs w-4 flex-shrink-0 ${
+            confirming ? "text-success" : "text-fg-muted hover:text-fg"
+          }`}
+          title="单击：标记完成"
+        >
+          {confirming ? "✓" : statusIcon(task.status)}
+        </button>
+        <span className={`w-1.5 h-1.5 rounded-full ${priorityDot} flex-shrink-0`} />
+
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          className="flex-1 text-left truncate flex items-center gap-1.5"
+        >
+          <span
+            className={`truncate ${task.blocked ? "line-through text-fg-muted" : "text-fg"}`}
+          >
+            {task.title}
+          </span>
+          {task.draft && (
+            <span className="text-[10px] px-1 py-0 rounded bg-accent/20 text-accent flex-shrink-0">
+              草稿
+            </span>
+          )}
+          {task.blocked && (
+            <span className="text-[10px] px-1 py-0 rounded bg-warning/20 text-warning flex-shrink-0">
+              阻塞
+            </span>
+          )}
+        </button>
+
+        {task.due && (
+          <span className={`text-[10px] flex-shrink-0 text-${dueCls}`}>
+            {dueLabel(task.due)}
+          </span>
         )}
-        {task.blocked && (
-          <span className="ml-2 text-[10px] text-warning">阻塞</span>
+
+        {totalCount > 0 && (
+          <span className="text-[10px] text-fg-muted flex-shrink-0">
+            {doneCount}/{totalCount}
+          </span>
         )}
-      </span>
-      <button
-        onClick={remove}
-        className="opacity-0 group-hover:opacity-100 text-fg-muted hover:text-danger transition"
-      >
-        <Trash2 size={12} />
-      </button>
+
+        {task.next_action && (
+          <span className="text-[10px] text-fg-muted truncate max-w-[120px]" title={task.next_action}>
+            ▸ {task.next_action}
+          </span>
+        )}
+
+        <button
+          onClick={remove}
+          className="opacity-0 group-hover:opacity-100 text-fg-muted hover:text-danger transition"
+        >
+          <Trash2 size={12} />
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="px-3 py-2 bg-bg/50 text-xs space-y-1">
+          {task.checklist.length > 0 && (
+            <div className="space-y-0.5 mb-2">
+              {task.checklist.map((item, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-2 group/item px-1 py-0.5 rounded hover:bg-bg-tertiary transition"
+                >
+                  <button onClick={() => toggleChecklistItem(i)} className="flex-shrink-0">
+                    {item.done ? (
+                      <CheckSquare size={12} className="text-success" />
+                    ) : (
+                      <Square size={12} className="text-fg-muted" />
+                    )}
+                  </button>
+                  <span
+                    className={`flex-1 truncate ${item.done ? "line-through text-fg-muted" : "text-fg"}`}
+                  >
+                    {item.text}
+                  </span>
+                  <button
+                    onClick={() => removeChecklistItem(i)}
+                    className="opacity-0 group-hover/item:opacity-100 text-fg-muted hover:text-danger"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              addChecklistItem();
+            }}
+            className="flex items-center gap-1"
+          >
+            <input
+              value={newChecklistText}
+              onChange={(e) => setNewChecklistText(e.target.value)}
+              placeholder="添加子项..."
+              className="flex-1 bg-bg border border-border rounded px-2 py-0.5 text-[11px] text-fg placeholder-fg-muted focus:outline-none focus:border-accent"
+            />
+            <button
+              type="submit"
+              disabled={!newChecklistText.trim()}
+              className="p-1 text-fg-muted hover:text-fg disabled:opacity-30"
+            >
+              <Plus size={11} />
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

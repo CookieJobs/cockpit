@@ -22,6 +22,7 @@ from app.core.focus import sort_focus
 from app.core.models import (
     Achievement,
     AchievementUpdate,
+    ChecklistItem,
     CVStatus,
     FocusItem,
     Priority,
@@ -155,6 +156,14 @@ def _project_to_pydantic(p: ProjectORM) -> Project:
 
 
 def _task_to_pydantic(t: TaskORM) -> Task:
+    raw = json.loads(t.checklist_json or "[]")
+    # 兼容旧数据格式：list[str] → list[ChecklistItem]
+    items: list[ChecklistItem] = []
+    for x in raw:
+        if isinstance(x, str):
+            items.append(ChecklistItem(text=x, done=False))
+        elif isinstance(x, dict):
+            items.append(ChecklistItem(text=x.get("text", ""), done=x.get("done", False)))
     return Task(
         id=t.id,
         project=t.project_id,
@@ -167,7 +176,7 @@ def _task_to_pydantic(t: TaskORM) -> Task:
         draft=t.draft,
         created_at=t.created_at,
         completed_at=t.completed_at,
-        checklist=json.loads(t.checklist_json or "[]"),
+        checklist=items,
     )
 
 
@@ -254,6 +263,9 @@ async def add_task(data: TaskCreate) -> Task:
         result = await session.execute(select(ProjectORM).where(ProjectORM.id == data.project))
         if not result.scalar_one_or_none():
             raise ValueError(f"Project {data.project} not found")
+        # 序列化 checklist
+        checklist_data = [item.model_dump() if hasattr(item, "model_dump") else item
+                          for item in data.checklist]
         task = TaskORM(
             id=_new_id("task"),
             project_id=data.project,
@@ -265,7 +277,7 @@ async def add_task(data: TaskCreate) -> Task:
             blocked=data.blocked,
             draft=True,
             created_at=date.today(),
-            checklist_json=json.dumps(data.checklist, ensure_ascii=False),
+            checklist_json=json.dumps(checklist_data, ensure_ascii=False),
         )
         session.add(task)
         await session.flush()
@@ -309,7 +321,9 @@ async def update_task(tid: str, data: TaskUpdate) -> Optional[Task]:
         if data.draft is not None:
             t.draft = data.draft
         if data.checklist is not None:
-            t.checklist_json = json.dumps(data.checklist, ensure_ascii=False)
+            checklist_data = [item.model_dump() if hasattr(item, "model_dump") else item
+                              for item in data.checklist]
+            t.checklist_json = json.dumps(checklist_data, ensure_ascii=False)
         await session.flush()
         return _task_to_pydantic(t)
 
@@ -448,6 +462,61 @@ async def undo_completion(aid: str) -> Optional[Task]:
         # 再删 achievement
         await session.delete(achievement)
         return _task_to_pydantic(task)
+
+
+# ===== Checklist =====
+
+
+async def checklist_add(tid: str, text: str) -> Optional[Task]:
+    """追加一个 checklist item 到任务。"""
+    if not text.strip():
+        return None
+    async with get_session() as session:
+        result = await session.execute(select(TaskORM).where(TaskORM.id == tid))
+        t = result.scalar_one_or_none()
+        if not t:
+            return None
+        items = json.loads(t.checklist_json or "[]")
+        items.append({"text": text.strip(), "done": False})
+        t.checklist_json = json.dumps(items, ensure_ascii=False)
+        await session.flush()
+        return _task_to_pydantic(t)
+
+
+async def checklist_toggle(tid: str, index: int) -> Optional[Task]:
+    """切换 checklist item 的 done 状态。"""
+    async with get_session() as session:
+        result = await session.execute(select(TaskORM).where(TaskORM.id == tid))
+        t = result.scalar_one_or_none()
+        if not t:
+            return None
+        items = json.loads(t.checklist_json or "[]")
+        if index < 0 or index >= len(items):
+            return None
+        if isinstance(items[index], dict):
+            items[index]["done"] = not items[index].get("done", False)
+        else:
+            # 旧格式：list[str]
+            items[index] = {"text": str(items[index]), "done": True}
+        t.checklist_json = json.dumps(items, ensure_ascii=False)
+        await session.flush()
+        return _task_to_pydantic(t)
+
+
+async def checklist_remove(tid: str, index: int) -> Optional[Task]:
+    """删除一个 checklist item。"""
+    async with get_session() as session:
+        result = await session.execute(select(TaskORM).where(TaskORM.id == tid))
+        t = result.scalar_one_or_none()
+        if not t:
+            return None
+        items = json.loads(t.checklist_json or "[]")
+        if index < 0 or index >= len(items):
+            return None
+        items.pop(index)
+        t.checklist_json = json.dumps(items, ensure_ascii=False)
+        await session.flush()
+        return _task_to_pydantic(t)
 
 
 # ===== Snapshot =====

@@ -60,6 +60,16 @@ class CVStatus(str, Enum):
     READY = "ready"       # 数据充分、可用
 
 
+# ===== Checklist =====
+
+
+# 注意：ChecklistItem 在 ShiguangModel 之前定义，因此先用一个最小类
+# 然后等 ShiguangModel 定义后再升级
+class _ChecklistItemPending:
+    """占位，定义后会被覆盖。"""
+    pass
+
+
 # ===== Base =====
 
 
@@ -70,6 +80,12 @@ class ShiguangModel(BaseModel):
         validate_assignment=True,
         use_enum_values=False,
     )
+
+
+class ChecklistItem(ShiguangModel):
+    """任务子项（清单项）。"""
+    text: str = Field(..., min_length=1, max_length=500)
+    done: bool = False
 
 
 # ===== Project =====
@@ -106,7 +122,7 @@ class TaskBase(ShiguangModel):
     due: Optional[date] = None
     next_action: str = Field(default="", max_length=500)
     blocked: bool = False
-    checklist: list[str] = Field(default_factory=list)
+    checklist: List[ChecklistItem] = Field(default_factory=list)
 
 
 class TaskCreate(TaskBase):

@@ -2,6 +2,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from app.core import storage
 from app.core.models import CVStatus, TaskCreate, TaskUpdate
@@ -82,3 +83,41 @@ async def complete_task(
     if not achievement:
         raise HTTPException(404, "Task not found")
     return achievement.model_dump(mode="json")
+
+
+# ===== Checklist 子端点 =====
+
+
+class ChecklistAddRequest(BaseModel):
+    text: str
+
+
+class ChecklistIndexRequest(BaseModel):
+    index: int
+
+
+@router.post("/{tid}/checklist/add")
+async def checklist_add(tid: str, data: ChecklistAddRequest):
+    """追加 checklist item。"""
+    task = await storage.checklist_add(tid, data.text)
+    if not task:
+        raise HTTPException(404, "Task not found or empty text")
+    return task.model_dump(mode="json")
+
+
+@router.post("/{tid}/checklist/toggle")
+async def checklist_toggle(tid: str, data: ChecklistIndexRequest):
+    """切换 checklist item 的 done 状态。"""
+    task = await storage.checklist_toggle(tid, data.index)
+    if not task:
+        raise HTTPException(404, "Task not found or invalid index")
+    return task.model_dump(mode="json")
+
+
+@router.post("/{tid}/checklist/remove")
+async def checklist_remove(tid: str, data: ChecklistIndexRequest):
+    """删除 checklist item。"""
+    task = await storage.checklist_remove(tid, data.index)
+    if not task:
+        raise HTTPException(404, "Task not found or invalid index")
+    return task.model_dump(mode="json")

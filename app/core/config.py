@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = Field(
         default="http://127.0.0.1:11434", alias="OLLAMA_BASE_URL"
     )
-    ollama_model: str = Field(default="qwen2.5:14b", alias="OLLAMA_MODEL")
+    ollama_model: str = Field(default="qwen2.5:3b", alias="OLLAMA_MODEL")
 
     # OpenAI 兼容
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
