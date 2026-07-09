@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, ForeignKey, String, Text, delete, select
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -89,6 +89,22 @@ class AchievementORM(Base):
     cv: Mapped[str] = mapped_column(Text, default="", nullable=False)
     cv_status: Mapped[str] = mapped_column(String(20), nullable=False, default=CVStatus.READY.value)
     tags_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+
+
+class SettingsORM(Base):
+    """全局设置表（key-value 形式）。
+
+    用于存储运行时配置（LLM API key、用户偏好等）。
+    key: 配置项名
+    value: JSON 序列化值
+    """
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
 
 
 # ===== Engine & Session =====
@@ -517,6 +533,39 @@ async def checklist_remove(tid: str, index: int) -> Optional[Task]:
         t.checklist_json = json.dumps(items, ensure_ascii=False)
         await session.flush()
         return _task_to_pydantic(t)
+
+
+# ===== Settings (key-value 存储) =====
+
+
+async def get_setting(key: str) -> Optional[str]:
+    """读取一个 setting（返回 JSON 字符串）。"""
+    async with get_session() as session:
+        result = await session.execute(select(SettingsORM).where(SettingsORM.key == key))
+        row = result.scalar_one_or_none()
+        return row.value if row else None
+
+
+async def set_setting(key: str, value: str) -> None:
+    """设置一个 setting（upsert）。"""
+    async with get_session() as session:
+        result = await session.execute(select(SettingsORM).where(SettingsORM.key == key))
+        row = result.scalar_one_or_none()
+        if row:
+            row.value = value
+        else:
+            session.add(SettingsORM(key=key, value=value))
+
+
+async def delete_setting(key: str) -> bool:
+    """删除一个 setting。"""
+    async with get_session() as session:
+        result = await session.execute(select(SettingsORM).where(SettingsORM.key == key))
+        row = result.scalar_one_or_none()
+        if not row:
+            return False
+        await session.delete(row)
+        return True
 
 
 # ===== Snapshot =====

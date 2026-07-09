@@ -1,33 +1,89 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, AlertCircle, RefreshCw, Wrench } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  AlertCircle,
+  RefreshCw,
+  Wrench,
+  Trash2,
+  Save,
+  Eye,
+  EyeOff,
+  ChevronDown,
+} from "lucide-react";
 import useSWR from "swr";
-import { api } from "@/lib/api";
-import { useState } from "react";
+import { api, type ChatMessage } from "@/lib/api";
+import { useState, useEffect } from "react";
+
+type Backend = "anthropic" | "openai" | "ollama" | "custom";
+
+interface LLMSettingsPublic {
+  backend: Backend;
+  model: string;
+  api_key_masked: string | null;
+  base_url: string | null;
+  has_key: boolean;
+  source: string;
+}
+
+interface LLMSettingsResponse {
+  db_config: LLMSettingsPublic | null;
+  env_config: LLMSettingsPublic;
+  active_source: string;
+  available: boolean;
+  active_backend: string | null;
+  active_model: string | null;
+}
+
+const BACKEND_LABELS: Record<Backend, { name: string; desc: string; needsKey: boolean; needsBaseUrl: boolean }> = {
+  anthropic: {
+    name: "Anthropic Claude",
+    desc: "推荐，tool calling 强，中文好",
+    needsKey: true,
+    needsBaseUrl: false,
+  },
+  openai: {
+    name: "OpenAI 兼容",
+    desc: "支持 OpenAI / DeepSeek / Moonshot / 自定义 endpoint",
+    needsKey: true,
+    needsBaseUrl: true,
+  },
+  ollama: {
+    name: "Ollama 本地",
+    desc: "免费本地运行，需要 ollama serve + 已拉取模型",
+    needsKey: false,
+    needsBaseUrl: false,
+  },
+  custom: {
+    name: "自定义",
+    desc: "任意 OpenAI 兼容 endpoint（要 key + URL）",
+    needsKey: true,
+    needsBaseUrl: true,
+  },
+};
+
+const DEFAULT_BASE_URLS: Record<Backend, string> = {
+  anthropic: "https://api.anthropic.com",
+  openai: "https://api.openai.com/v1",
+  ollama: "http://127.0.0.1:11434",
+  custom: "",
+};
+
+const PRESETS: Record<Backend, string[]> = {
+  anthropic: ["claude-sonnet-4-5", "claude-opus-4-5", "claude-3-5-haiku-20241022"],
+  openai: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "deepseek-chat", "moonshot-v1-128k"],
+  ollama: ["qwen2.5:3b", "qwen2.5:14b", "qwen2.5:32b", "llama3.2:3b"],
+  custom: [],
+};
 
 export default function SettingsPage() {
   const { data: health } = useSWR("/api/health", () => api.health());
-  const { data: llmStatus, mutate: refreshLLM } = useSWR(
-    "/api/llm/status",
-    () => api.llmStatus(),
-    { refreshInterval: 0 }
+  const { data: settings, mutate: refreshSettings } = useSWR<LLMSettingsResponse>(
+    "/api/settings/llm",
+    () => api.getLLMSettings()
   );
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
-
-  const runTest = async () => {
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const r = await api.llmTest();
-      setTestResult({ ok: r.ok, msg: `${r.backend} (${r.model}) 连接成功` });
-    } catch (e) {
-      setTestResult({ ok: false, msg: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setTesting(false);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-bg text-fg">
@@ -57,102 +113,354 @@ export default function SettingsPage() {
           )}
         </section>
 
-        {/* LLM 配置 */}
-        <section className="rounded-lg border border-border bg-bg-secondary p-4 mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-fg-secondary uppercase tracking-wider">
-              LLM 配置
-            </h2>
-            <button
-              onClick={() => refreshLLM()}
-              className="text-fg-muted hover:text-fg transition"
-              title="刷新"
-            >
-              <RefreshCw size={14} />
-            </button>
-          </div>
+        {/* LLM 配置（用户可编辑） */}
+        <LLMConfigForm
+          settings={settings}
+          onSaved={refreshSettings}
+        />
 
-          {llmStatus?.available ? (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm">
-                <CheckCircle2 size={14} className="text-success" />
-                <span>已连接 · {llmStatus.backend?.replace("Client", "")} ({llmStatus.model})</span>
-              </div>
-              <div className="text-xs text-fg-muted">
-                配置后端：<code className="text-fg">{llmStatus.configured_backend}</code>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm text-warning">
-                <AlertCircle size={14} />
-                <span>未连接 LLM · 当前使用关键词模式</span>
-              </div>
-            </div>
-          )}
-
-          {/* 测试连接 */}
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              onClick={runTest}
-              disabled={testing}
-              className="text-xs px-3 py-1.5 bg-bg border border-border rounded text-fg hover:border-accent disabled:opacity-50 transition flex items-center gap-1"
-            >
-              <Wrench size={12} />
-              {testing ? "测试中..." : "测试连接"}
-            </button>
-            {testResult && (
-              <span className={`text-xs ${testResult.ok ? "text-success" : "text-danger"}`}>
-                {testResult.ok ? "✓" : "✗"} {testResult.msg}
-              </span>
-            )}
-          </div>
-
-          {/* 配置说明 */}
-          <details className="mt-4 text-xs">
-            <summary className="text-fg-muted cursor-pointer hover:text-fg">
-              如何配置 LLM？
-            </summary>
-            <div className="mt-2 space-y-2 text-fg-secondary leading-relaxed">
-              <p><strong>方案 1：Anthropic Claude（推荐，tool calling 强）</strong></p>
-              <p>编辑 <code className="text-fg">.env</code>，填入：</p>
-              <pre className="bg-bg p-2 rounded text-[11px] overflow-x-auto">
-{`SHIGUANG_LLM_BACKEND=anthropic
-SHIGUANG_LLM_MODEL=claude-sonnet-4-5
-ANTHROPIC_API_KEY=sk-ant-xxx`}
-              </pre>
-              <p className="mt-2"><strong>方案 2：Ollama 本地（免费，tool calling 弱）</strong></p>
-              <pre className="bg-bg p-2 rounded text-[11px] overflow-x-auto">
-{`SHIGUANG_LLM_BACKEND=ollama
-OLLAMA_MODEL=qwen2.5:3b
-# 需要本地运行 ollama serve 并 ollama pull qwen2.5:3b`}
-              </pre>
-              <p className="mt-2"><strong>方案 3：OpenAI 兼容（DeepSeek / Moonshot / 自定义）</strong></p>
-              <pre className="bg-bg p-2 rounded text-[11px] overflow-x-auto">
-{`SHIGUANG_LLM_BACKEND=openai
-OPENAI_API_KEY=sk-xxx
-OPENAI_BASE_URL=https://api.deepseek.com/v1
-OPENAI_MODEL=deepseek-chat`}
-              </pre>
-              <p className="mt-2 text-fg-muted">
-                修改 .env 后需要重启后端（uvicorn），或调用 <code className="text-fg">POST /api/llm/reset</code>。
-              </p>
-            </div>
-          </details>
-        </section>
+        {/* .env 默认值（只读，作为参考） */}
+        {settings && settings.env_config && (
+          <EnvConfigDisplay env={settings.env_config} activeSource={settings.active_source} />
+        )}
 
         {/* 数据 */}
-        <section className="rounded-lg border border-border bg-bg-secondary p-4">
+        <section className="rounded-lg border border-border bg-bg-secondary p-4 mt-4">
           <h2 className="text-sm font-semibold text-fg-secondary uppercase tracking-wider mb-3">
             数据
           </h2>
           <div className="text-xs text-fg-muted space-y-1">
             <p>数据目录：~/.shiguang/</p>
             <p>数据库：shiguang.db (SQLite)</p>
+            <p>配置存：settings 表（key-value）</p>
             <p>备份：v1.1 接入 iCloud Drive 同步</p>
           </div>
         </section>
       </div>
     </div>
+  );
+}
+
+function LLMConfigForm({
+  settings,
+  onSaved,
+}: {
+  settings: LLMSettingsResponse | undefined;
+  onSaved: () => void;
+}) {
+  // 编辑状态：DB 配置优先，没有则用 env，再没有则用默认
+  const initialSource: LLMSettingsPublic | undefined = settings?.db_config || settings?.env_config;
+  const [backend, setBackend] = useState<Backend>(initialSource?.backend || "anthropic");
+  const [model, setModel] = useState(initialSource?.model || "claude-sonnet-4-5");
+  const [apiKey, setApiKey] = useState("");  // 留空 = 保留
+  const [baseUrl, setBaseUrl] = useState(initialSource?.base_url || DEFAULT_BASE_URLS.anthropic);
+  const [showKey, setShowKey] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
+
+  // 当 settings 加载完，更新表单（只在首次）
+  useEffect(() => {
+    if (settings) {
+      const src = settings.db_config || settings.env_config;
+      if (src) {
+        setBackend(src.backend);
+        setModel(src.model);
+        setBaseUrl(src.base_url || DEFAULT_BASE_URLS[src.backend]);
+      }
+    }
+  }, [settings]);
+
+  const meta = BACKEND_LABELS[backend];
+  const presets = PRESETS[backend];
+
+  // 切换后端时，重置 base_url / model
+  const onBackendChange = (newBackend: Backend) => {
+    setBackend(newBackend);
+    setBaseUrl(DEFAULT_BASE_URLS[newBackend]);
+    // 模型重置为该后端的第一个预设
+    if (PRESETS[newBackend].length > 0 && !PRESETS[newBackend].includes(model)) {
+      setModel(PRESETS[newBackend][0]);
+    }
+    setFeedback(null);
+  };
+
+  const test = async () => {
+    setTesting(true);
+    setFeedback(null);
+    try {
+      const r = await api.testLLM({
+        backend,
+        model,
+        api_key: apiKey || undefined,
+        base_url: baseUrl || undefined,
+      });
+      if (r.ok) {
+        setFeedback({ type: "ok", msg: `✓ ${r.backend} (${r.model}) 连接成功` });
+      } else {
+        setFeedback({ type: "err", msg: `✗ ${r.error || "连接失败"}` });
+      }
+    } catch (e) {
+      setFeedback({ type: "err", msg: `✗ ${e instanceof Error ? e.message : String(e)}` });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setFeedback(null);
+    try {
+      await api.saveLLM({
+        backend,
+        model,
+        api_key: apiKey || undefined,
+        base_url: baseUrl || undefined,
+      });
+      setFeedback({ type: "ok", msg: "✓ 已保存，LLM 已切换" });
+      setApiKey("");  // 清空（已存 DB）
+      onSaved();
+    } catch (e) {
+      setFeedback({ type: "err", msg: `✗ ${e instanceof Error ? e.message : String(e)}` });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clear = async () => {
+    if (!confirm("确定清除 UI 配置？会回退到 .env 默认值。")) return;
+    try {
+      await api.clearLLM();
+      setFeedback({ type: "ok", msg: "✓ 已清除，回退到 .env 配置" });
+      setApiKey("");
+      onSaved();
+    } catch (e) {
+      setFeedback({ type: "err", msg: `✗ ${e instanceof Error ? e.message : String(e)}` });
+    }
+  };
+
+  const currentSource = settings?.db_config ? "DB 用户配置" : "env 默认";
+
+  return (
+    <section className="rounded-lg border border-border bg-bg-secondary p-4 mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-fg-secondary uppercase tracking-wider">
+          LLM 配置
+        </h2>
+        <div className="flex items-center gap-2 text-xs">
+          {settings?.available ? (
+            <span className="px-2 py-0.5 rounded bg-success/10 text-success">
+              ● 已连接 · {settings.active_model}
+            </span>
+          ) : (
+            <span className="px-2 py-0.5 rounded bg-warning/10 text-warning">
+              ○ 未连接
+            </span>
+          )}
+          <span className="text-fg-muted">来源: {currentSource}</span>
+        </div>
+      </div>
+
+      {/* 后端选择 */}
+      <div className="mb-3">
+        <label className="text-xs text-fg-secondary block mb-1.5">后端</label>
+        <div className="grid grid-cols-2 gap-2">
+          {(Object.keys(BACKEND_LABELS) as Backend[]).map((b) => {
+            const info = BACKEND_LABELS[b];
+            return (
+              <button
+                key={b}
+                onClick={() => onBackendChange(b)}
+                className={`text-left p-2.5 rounded border transition ${
+                  backend === b
+                    ? "border-accent bg-accent/10"
+                    : "border-border hover:border-border-hover"
+                }`}
+              >
+                <div className="text-sm font-medium text-fg">{info.name}</div>
+                <div className="text-[11px] text-fg-muted mt-0.5">{info.desc}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Base URL */}
+      {meta.needsBaseUrl && (
+        <div className="mb-3">
+          <label className="text-xs text-fg-secondary block mb-1.5">
+            Base URL
+            {backend === "openai" && (
+              <span className="text-fg-muted ml-2">
+                （DeepSeek: <code className="text-fg">https://api.deepseek.com/v1</code> · Moonshot: <code className="text-fg">https://api.moonshot.cn/v1</code>）
+              </span>
+            )}
+          </label>
+          <input
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://..."
+            className="w-full bg-bg border border-border rounded px-2.5 py-1.5 text-sm text-fg placeholder-fg-muted focus:outline-none focus:border-accent"
+          />
+        </div>
+      )}
+
+      {/* Model */}
+      <div className="mb-3">
+        <label className="text-xs text-fg-secondary block mb-1.5">模型</label>
+        {presets.length > 0 ? (
+          <div className="flex gap-2">
+            <select
+              value={presets.includes(model) ? model : "__custom__"}
+              onChange={(e) => {
+                if (e.target.value !== "__custom__") setModel(e.target.value);
+                else setModel("");
+              }}
+              className="bg-bg border border-border rounded px-2.5 py-1.5 text-sm text-fg focus:outline-none focus:border-accent"
+            >
+              {presets.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+              <option value="__custom__">自定义...</option>
+            </select>
+            {!presets.includes(model) && (
+              <input
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder="自定义模型名"
+                className="flex-1 bg-bg border border-border rounded px-2.5 py-1.5 text-sm text-fg placeholder-fg-muted focus:outline-none focus:border-accent"
+              />
+            )}
+          </div>
+        ) : (
+          <input
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            placeholder="模型名..."
+            className="w-full bg-bg border border-border rounded px-2.5 py-1.5 text-sm text-fg placeholder-fg-muted focus:outline-none focus:border-accent"
+          />
+        )}
+      </div>
+
+      {/* API Key */}
+      {meta.needsKey && (
+        <div className="mb-3">
+          <label className="text-xs text-fg-secondary block mb-1.5">
+            API Key
+            {settings?.db_config?.has_key && (
+              <span className="text-fg-muted ml-2">
+                （当前: <code className="text-fg">{settings.db_config.api_key_masked}</code>，留空保留）
+              </span>
+            )}
+          </label>
+          <div className="flex gap-2">
+            <input
+              type={showKey ? "text" : "password"}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={settings?.db_config?.has_key ? "输入新 key 替换" : "sk-..."}
+              className="flex-1 bg-bg border border-border rounded px-2.5 py-1.5 text-sm text-fg placeholder-fg-muted focus:outline-none focus:border-accent font-mono"
+            />
+            <button
+              onClick={() => setShowKey((s) => !s)}
+              className="p-2 text-fg-muted hover:text-fg"
+              title={showKey ? "隐藏" : "显示"}
+            >
+              {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 操作按钮 */}
+      <div className="flex items-center gap-2 mt-4">
+        <button
+          onClick={test}
+          disabled={testing}
+          className="text-xs px-3 py-1.5 bg-bg border border-border rounded text-fg hover:border-accent disabled:opacity-50 transition flex items-center gap-1"
+        >
+          <Wrench size={12} />
+          {testing ? "测试中..." : "测试连接"}
+        </button>
+        <button
+          onClick={save}
+          disabled={saving}
+          className="text-xs px-3 py-1.5 bg-accent text-black rounded hover:bg-accent-hover disabled:opacity-50 transition flex items-center gap-1"
+        >
+          <Save size={12} />
+          {saving ? "保存中..." : "保存"}
+        </button>
+        {settings?.db_config && (
+          <button
+            onClick={clear}
+            className="text-xs px-3 py-1.5 bg-bg border border-border rounded text-fg-secondary hover:text-danger hover:border-danger transition flex items-center gap-1"
+          >
+            <Trash2 size={12} />
+            清除配置
+          </button>
+        )}
+        <button
+          onClick={onSaved}
+          className="ml-auto text-xs px-2 py-1.5 text-fg-muted hover:text-fg transition"
+          title="刷新"
+        >
+          <RefreshCw size={12} />
+        </button>
+      </div>
+
+      {/* 反馈 */}
+      {feedback && (
+        <div
+          className={`mt-3 text-xs px-2.5 py-1.5 rounded ${
+            feedback.type === "ok"
+              ? "bg-success/10 text-success"
+              : "bg-danger/10 text-danger"
+          }`}
+        >
+          {feedback.msg}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function EnvConfigDisplay({
+  env,
+  activeSource,
+}: {
+  env: LLMSettingsPublic;
+  activeSource: string;
+}) {
+  return (
+    <section className="rounded-lg border border-border bg-bg-secondary p-4 mb-4">
+      <h2 className="text-sm font-semibold text-fg-secondary uppercase tracking-wider mb-3">
+        .env 默认配置（只读）
+      </h2>
+      <div className="text-xs space-y-1 text-fg-secondary font-mono">
+        <div>
+          <span className="text-fg-muted">SHIGUANG_LLM_BACKEND=</span>
+          <span className="text-fg">{env.backend}</span>
+        </div>
+        <div>
+          <span className="text-fg-muted">SHIGUANG_LLM_MODEL=</span>
+          <span className="text-fg">{env.model}</span>
+        </div>
+        <div>
+          <span className="text-fg-muted">base_url=</span>
+          <span className="text-fg">{env.base_url || "—"}</span>
+        </div>
+        <div>
+          <span className="text-fg-muted">api_key=</span>
+          <span className="text-fg">
+            {env.has_key ? env.api_key_masked : "（未设置）"}
+          </span>
+        </div>
+      </div>
+      {activeSource === "env" && (
+        <p className="text-[11px] text-fg-muted mt-2">
+          当前 LLM 正在使用此配置。在上方表单保存即可覆盖。
+        </p>
+      )}
+    </section>
   );
 }

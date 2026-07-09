@@ -1,107 +1,167 @@
-"""LLM 路由器：根据配置选择后端。
+"""LLM 配置管理：DB 用户配置 > .env > 默认。
 
-后端选择（按优先级）：
-1. settings.shiguang_llm_backend
-2. fallback：如果该后端不可用，尝试下一个可用后端
+优先级：
+1. settings 表里的 "llm_config"（用户从 UI 配的）
+2. .env 文件里的 SHIGUANG_LLM_BACKEND / ANTHROPIC_API_KEY 等
+3. 默认值（anthropic + claude-sonnet-4-5）
+
+修改 DB 配置后，调用 reset_client() 清缓存，下一次 get_client() 会用新配置。
 """
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any
+from typing import Any, Optional
 
+from app.core import storage
 from app.core.config import settings
+from app.core.models import LLMSettings
 from app.llm.base import LLMClient
 
 logger = logging.getLogger(__name__)
+
+DB_CONFIG_KEY = "llm_config"
 
 _client: LLMClient | None = None
 _current_backend: str | None = None
 
 
-def _try_create(backend: str) -> LLMClient | None:
-    """尝试创建指定后端的客户端。失败返回 None。"""
+# ===== 配置读取 =====
+
+
+async def load_settings_from_db() -> Optional[LLMSettings]:
+    """从 DB 读用户配置。"""
+    raw = await storage.get_setting(DB_CONFIG_KEY)
+    if not raw:
+        return None
     try:
-        if backend == "anthropic":
+        return LLMSettings.model_validate_json(raw)
+    except Exception as e:
+        logger.warning(f"Invalid LLM settings in DB, ignoring: {e}")
+        return None
+
+
+def load_settings_from_env() -> LLMSettings:
+    """从 .env 读配置（fallback）。"""
+    backend = settings.shiguang_llm_backend
+    if backend == "anthropic":
+        return LLMSettings(
+            backend=backend,
+            model=settings.shiguang_llm_model,
+            api_key=settings.anthropic_api_key or None,
+            base_url=settings.anthropic_base_url,
+        )
+    elif backend == "ollama":
+        return LLMSettings(
+            backend=backend,
+            model=settings.ollama_model,
+            api_key=None,
+            base_url=settings.ollama_base_url,
+        )
+    elif backend == "openai":
+        return LLMSettings(
+            backend=backend,
+            model=settings.openai_model or "gpt-4o",
+            api_key=settings.openai_api_key or None,
+            base_url=settings.openai_base_url or None,
+        )
+    else:
+        # custom or default
+        return LLMSettings(
+            backend=backend,
+            model=settings.shiguang_llm_model,
+        )
+
+
+async def get_active_settings() -> LLMSettings:
+    """获取当前生效的 LLM 配置（DB 优先，回退到 env）。"""
+    db_settings = await load_settings_from_db()
+    if db_settings is not None:
+        return db_settings
+    return load_settings_from_env()
+
+
+async def get_active_settings_with_source() -> tuple[LLMSettings, str]:
+    """获取配置 + 来源标识。"""
+    db_settings = await load_settings_from_db()
+    if db_settings is not None:
+        return db_settings, "db"
+    return load_settings_from_env(), "env"
+
+
+# ===== 客户端创建 =====
+
+
+def _try_create_from_settings(cfg: LLMSettings) -> LLMClient | None:
+    """根据配置创建 LLM 客户端。"""
+    try:
+        if cfg.backend == "anthropic":
             from app.llm.anthropic import AnthropicClient
-            if not settings.anthropic_api_key:
-                logger.warning("ANTHROPIC_API_KEY not set")
+            if not cfg.api_key:
+                logger.warning("Anthropic backend requires api_key")
                 return None
             return AnthropicClient(
-                api_key=settings.anthropic_api_key,
-                base_url=settings.anthropic_base_url,
-                model=settings.shiguang_llm_model,
+                api_key=cfg.api_key,
+                base_url=cfg.base_url or "https://api.anthropic.com",
+                model=cfg.model,
             )
-        elif backend == "ollama":
+        elif cfg.backend == "ollama":
             from app.llm.ollama import OllamaClient
             return OllamaClient(
-                base_url=settings.ollama_base_url,
-                model=settings.ollama_model,
+                base_url=cfg.base_url or "http://127.0.0.1:11434",
+                model=cfg.model,
             )
-        elif backend == "openai":
+        elif cfg.backend == "openai":
             from app.llm.openai import OpenAIClient
-            if not settings.openai_api_key or not settings.openai_base_url:
-                logger.warning("OPENAI_API_KEY or OPENAI_BASE_URL not set")
+            if not cfg.api_key or not cfg.base_url:
+                logger.warning("OpenAI backend requires api_key and base_url")
                 return None
             return OpenAIClient(
-                api_key=settings.openai_api_key,
-                base_url=settings.openai_base_url,
-                model=settings.openai_model,
+                api_key=cfg.api_key,
+                base_url=cfg.base_url,
+                model=cfg.model,
+            )
+        elif cfg.backend == "custom":
+            # custom 走 OpenAI 协议
+            from app.llm.openai import OpenAIClient
+            if not cfg.api_key or not cfg.base_url:
+                logger.warning("Custom backend requires api_key and base_url")
+                return None
+            return OpenAIClient(
+                api_key=cfg.api_key,
+                base_url=cfg.base_url,
+                model=cfg.model,
             )
     except Exception as e:
-        logger.warning(f"Failed to create {backend} client: {e}")
+        logger.warning(f"Failed to create {cfg.backend} client: {e}")
         return None
     return None
 
 
 def get_client(prefer_backend: str | None = None) -> LLMClient | None:
-    """获取 LLM 客户端（仅创建，不验证可用性）。
+    """同步获取客户端（用上次缓存的配置）。
 
-    优先级：
-    1. prefer_backend（如果指定）
-    2. settings.shiguang_llm_backend
-    3. fallback：anthropic → ollama → openai
-
-    验证 health_check 需要在 async 上下文单独调 `await client.health_check()`。
+    实际使用建议用 get_verified_client() 异步版。
     """
     global _client, _current_backend
-
-    if _client is not None and _current_backend == (prefer_backend or settings.shiguang_llm_backend):
+    if _client is not None and prefer_backend is None:
         return _client
-
-    backends_to_try = []
-    if prefer_backend:
-        backends_to_try.append(prefer_backend)
-    backends_to_try.extend(
-        b for b in ["anthropic", "ollama", "openai"]
-        if b != (prefer_backend or settings.shiguang_llm_backend)
-    )
-    # 把用户配置的 backend 排第一（如果不是 prefer）
-    if not prefer_backend and settings.shiguang_llm_backend not in backends_to_try:
-        backends_to_try.insert(0, settings.shiguang_llm_backend)
-
-    for backend in backends_to_try:
-        client = _try_create(backend)
-        if client is None:
-            continue
-        _client = client
-        _current_backend = backend
-        logger.info(f"LLM client initialized: {backend} ({client.model})")
-        return _client
-
-    logger.warning("No LLM client available. Fallback to keyword parser.")
-    _client = None
-    _current_backend = None
-    return None
+    # 同步 fallback：先尝试 .env 配置
+    env_cfg = load_settings_from_env()
+    return _try_create_from_settings(env_cfg)
 
 
 async def get_verified_client() -> LLMClient | None:
-    """获取 LLM 客户端并验证可用性（async）。
+    """异步：获取 LLM 客户端并验证可用性。
 
-    验证失败时尝试下一个后端。全部失败返回 None。
+    优先级：
+    1. DB 用户配置（如果存在）
+    2. .env 配置
+    3. 全部失败返回 None
     """
     global _client, _current_backend
 
-    # 先试当前缓存的
+    # 先用缓存的（如果还是有效）
     if _client is not None:
         try:
             if await _client.health_check():
@@ -110,25 +170,38 @@ async def get_verified_client() -> LLMClient | None:
             pass
         reset_client()
 
-    backends = ["anthropic", "ollama", "openai"]
-    for backend in backends:
-        client = _try_create(backend)
-        if client is None:
-            continue
+    # 1. 试 DB 配置
+    db_cfg = await load_settings_from_db()
+    if db_cfg is not None:
+        client = _try_create_from_settings(db_cfg)
+        if client is not None:
+            try:
+                if await client.health_check():
+                    _client = client
+                    _current_backend = db_cfg.backend.value
+                    logger.info(f"LLM client from DB: {db_cfg.backend.value}/{db_cfg.model}")
+                    return _client
+            except Exception as e:
+                logger.debug(f"DB-configured client failed health check: {e}")
+
+    # 2. fallback 到 env 配置
+    env_cfg = load_settings_from_env()
+    client = _try_create_from_settings(env_cfg)
+    if client is not None:
         try:
             if await client.health_check():
                 _client = client
-                _current_backend = backend
-                return client
+                _current_backend = env_cfg.backend.value
+                logger.info(f"LLM client from env: {env_cfg.backend.value}/{env_cfg.model}")
+                return _client
         except Exception as e:
-            logger.debug(f"{backend} health check failed: {e}")
-            continue
+            logger.debug(f"env-configured client failed health check: {e}")
 
     return None
 
 
 def reset_client() -> None:
-    """重置客户端（测试 / 配置变更时用）。"""
+    """重置客户端缓存（配置变更后用）。"""
     global _client, _current_backend
     _client = None
     _current_backend = None

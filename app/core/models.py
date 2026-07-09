@@ -88,6 +88,79 @@ class ChecklistItem(ShiguangModel):
     done: bool = False
 
 
+# ===== LLM Settings（用户在 UI 配）=====
+
+
+class LLMBackend(str, Enum):
+    """LLM 后端类型。"""
+    ANTHROPIC = "anthropic"
+    OPENAI = "openai"  # 兼容 OpenAI 协议（OpenAI 官方 / DeepSeek / Moonshot / 自定义）
+    OLLAMA = "ollama"
+    CUSTOM = "custom"
+
+
+# 各后端的推荐模型预设
+LLM_MODEL_PRESETS: dict[str, list[str]] = {
+    "anthropic": [
+        "claude-sonnet-4-5",
+        "claude-opus-4-5",
+        "claude-3-5-haiku-20241022",
+    ],
+    "openai": [
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-4-turbo",
+        "deepseek-chat",
+        "moonshot-v1-128k",
+    ],
+    "ollama": [
+        "qwen2.5:3b",
+        "qwen2.5:14b",
+        "qwen2.5:32b",
+        "llama3.2:3b",
+    ],
+    "custom": [],  # 用户自由输入
+}
+
+
+class LLMSettings(ShiguangModel):
+    """用户在 UI 配的 LLM 配置（运行时）。
+
+    优先级：DB（用户配）> .env（部署配）> 默认
+    """
+    backend: LLMBackend
+    model: str = Field(..., min_length=1)
+    api_key: Optional[str] = Field(None, description="API key（明文存储，单人本地工具暂不加密）")
+    base_url: Optional[str] = Field(None, description="自定义 endpoint URL")
+
+
+class LLMSettingsPublic(ShiguangModel):
+    """LLM 设置（脱敏响应：key 只显示前 4 + 后 4 位）"""
+    backend: LLMBackend
+    model: str
+    api_key_masked: Optional[str] = None
+    base_url: Optional[str] = None
+    has_key: bool = False
+    source: str = "env"  # "db" | "env" | "default"
+
+
+class LLMSettingsUpdate(ShiguangModel):
+    """更新 LLM 设置的入参（所有字段可选）。"""
+    backend: Optional[LLMBackend] = None
+    model: Optional[str] = Field(None, min_length=1)
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+def mask_key(key: Optional[str]) -> Optional[str]:
+    """脱敏 API key：前 4 + ... + 后 4。"""
+    if not key:
+        return None
+    if len(key) <= 12:
+        return key[:2] + "***" + key[-2:]
+    return key[:4] + "..." + key[-4:]
+
+
 # ===== Project =====
 
 
