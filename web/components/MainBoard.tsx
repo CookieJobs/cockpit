@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import useSWR from "swr";
 import { api, type Snapshot, type Project, type Task, statusIcon, dueColor, dueLabel } from "@/lib/api";
-import { Check, Trash2, ChevronRight, Plus, CheckSquare, Square, X, Edit2 } from "lucide-react";
+import { Check, Trash2, ChevronRight, Plus, CheckSquare, Square, X, Edit2, Settings } from "lucide-react";
 import { ChatWindow } from "./ChatWindow";
 import Link from "next/link";
 
