@@ -69,6 +69,8 @@ class Settings(BaseSettings):
         """获取异步数据库 URL（默认 SQLite via aiosqlite）。"""
         if self.database_url:
             return self.database_url
+        # 确保数据目录存在
+        self.shiguang_data_dir.mkdir(parents=True, exist_ok=True)
         db_path = self.shiguang_data_dir / "shiguang.db"
         return f"sqlite+aiosqlite:///{db_path}"
 
