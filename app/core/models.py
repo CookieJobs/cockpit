@@ -92,32 +92,38 @@ class ChecklistItem(ShiguangModel):
 
 
 class LLMBackend(str, Enum):
-    """LLM 后端类型。"""
+    """LLM 后端类型。
+
+    设计原则：覆盖国内主流云厂商，用户只需输入 API Key 即可使用。
+    """
     ANTHROPIC = "anthropic"
-    OPENAI = "openai"  # 兼容 OpenAI 协议（OpenAI 官方 / DeepSeek / Moonshot / 自定义）
-    OLLAMA = "ollama"
+    DEEPSEEK = "deepseek"  # DeepSeek 官方 API
+    MINIMAX = "minimax"   # MiniMax（默认走 OpenAI 兼容端点）
+    OPENAI = "openai"      # OpenAI 官方 / 其他 OpenAI 兼容
     CUSTOM = "custom"
 
 
-# 各后端的推荐模型预设
+# 各后端的推荐模型预设（按用户基数和实用性排）
 LLM_MODEL_PRESETS: dict[str, list[str]] = {
     "anthropic": [
         "claude-sonnet-4-5",
         "claude-opus-4-5",
         "claude-3-5-haiku-20241022",
     ],
+    "deepseek": [
+        "deepseek-chat",       # V3.2 非思考
+        "deepseek-reasoner",   # V3.2 思考 / R1
+    ],
+    "minimax": [
+        "MiniMax-abab6.5s-chat",  # 通用 / 长文本
+        "MiniMax-abab6.5t-chat",  # 中文人设对话
+        "MiniMax-abab6.5g-chat",  # 英文人设对话
+    ],
     "openai": [
         "gpt-4o",
         "gpt-4o-mini",
         "gpt-4-turbo",
-        "deepseek-chat",
         "moonshot-v1-128k",
-    ],
-    "ollama": [
-        "qwen2.5:3b",
-        "qwen2.5:14b",
-        "qwen2.5:32b",
-        "llama3.2:3b",
     ],
     "custom": [],  # 用户自由输入
 }

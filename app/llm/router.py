@@ -30,14 +30,16 @@ _current_backend: str | None = None
 
 
 async def load_settings_from_db() -> Optional[LLMSettings]:
-    """从 DB 读用户配置。"""
+    """从 DB 读用户配置。如果配置无效（用了过时的后端类型），自动清理。"""
     raw = await storage.get_setting(DB_CONFIG_KEY)
     if not raw:
         return None
     try:
         return LLMSettings.model_validate_json(raw)
     except Exception as e:
-        logger.warning(f"Invalid LLM settings in DB, ignoring: {e}")
+        logger.warning(f"Invalid LLM settings in DB, cleaning up: {e}")
+        # 自动清理过时配置（如旧 ollama 类型）
+        await storage.delete_setting(DB_CONFIG_KEY)
         return None
 
 
@@ -51,14 +53,8 @@ def load_settings_from_env() -> LLMSettings:
             api_key=settings.anthropic_api_key or None,
             base_url=settings.anthropic_base_url,
         )
-    elif backend == "ollama":
-        return LLMSettings(
-            backend=backend,
-            model=settings.ollama_model,
-            api_key=None,
-            base_url=settings.ollama_base_url,
-        )
-    elif backend == "openai":
+    elif backend in ("deepseek", "minimax", "openai", "custom"):
+        # 都走 OpenAI 兼容协议
         return LLMSettings(
             backend=backend,
             model=settings.openai_model or "gpt-4o",
@@ -66,7 +62,6 @@ def load_settings_from_env() -> LLMSettings:
             base_url=settings.openai_base_url or None,
         )
     else:
-        # custom or default
         return LLMSettings(
             backend=backend,
             model=settings.shiguang_llm_model,
@@ -105,27 +100,14 @@ def _try_create_from_settings(cfg: LLMSettings) -> LLMClient | None:
                 base_url=cfg.base_url or "https://api.anthropic.com",
                 model=cfg.model,
             )
-        elif cfg.backend == "ollama":
-            from app.llm.ollama import OllamaClient
-            return OllamaClient(
-                base_url=cfg.base_url or "http://127.0.0.1:11434",
-                model=cfg.model,
-            )
-        elif cfg.backend == "openai":
+        elif cfg.backend in ("deepseek", "minimax", "openai", "custom"):
+            # 都走 OpenAI 兼容协议
             from app.llm.openai import OpenAIClient
-            if not cfg.api_key or not cfg.base_url:
-                logger.warning("OpenAI backend requires api_key and base_url")
+            if not cfg.api_key:
+                logger.warning(f"{cfg.backend} backend requires api_key")
                 return None
-            return OpenAIClient(
-                api_key=cfg.api_key,
-                base_url=cfg.base_url,
-                model=cfg.model,
-            )
-        elif cfg.backend == "custom":
-            # custom 走 OpenAI 协议
-            from app.llm.openai import OpenAIClient
-            if not cfg.api_key or not cfg.base_url:
-                logger.warning("Custom backend requires api_key and base_url")
+            if not cfg.base_url:
+                logger.warning(f"{cfg.backend} backend requires base_url")
                 return None
             return OpenAIClient(
                 api_key=cfg.api_key,

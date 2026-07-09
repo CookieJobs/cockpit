@@ -123,29 +123,47 @@ async def save_llm_settings(data: LLMSettingsUpdate):
     if "model" in new_data and new_data["model"]:
         existing.model = new_data["model"]
     if "api_key" in new_data:
-        # 空字符串清除
+        # 空字符串清除，否则取新值
         existing.api_key = new_data["api_key"] or None
     if "base_url" in new_data:
         existing.base_url = new_data["base_url"] or None
 
-    # 切换后端时：清空 api_key（让用户重新填）
+    # 切换后端时：如果用户没传新 key，清空让用户重新填
+    # 如果用户传了新 key（即使 backend 也变了），保留用户的 key
     if backend_changed:
-        existing.api_key = None
+        if "api_key" not in new_data:
+            existing.api_key = None
         # base_url 如果没新传，重置为默认
         if "base_url" not in new_data:
             default_urls = {
                 LLMBackend.ANTHROPIC: "https://api.anthropic.com",
+                LLMBackend.DEEPSEEK: "https://api.deepseek.com/v1",
+                LLMBackend.MINIMAX: "https://api.minimax.chat/v1",
                 LLMBackend.OPENAI: "https://api.openai.com/v1",
-                LLMBackend.OLLAMA: "http://127.0.0.1:11434",
                 LLMBackend.CUSTOM: None,
             }
             existing.base_url = default_urls.get(existing.backend)
 
-    # 验证配置完整性
-    if existing.backend in (LLMBackend.ANTHROPIC, LLMBackend.OPENAI, LLMBackend.CUSTOM):
-        if not existing.api_key:
-            raise HTTPException(400, f"{existing.backend.value} 需要 api_key（切换后端后必须重新填）")
-    if existing.backend in (LLMBackend.OPENAI, LLMBackend.CUSTOM):
+    # 验证配置完整性（注意：切换后端时清空 key 是允许的，
+    # 这样用户能保存"切了后端但还没填 key"的中间态，调用 LLM 时再报错）
+    if not backend_changed:
+        # 只在没切换时强制要求 key
+        if existing.backend in (
+            LLMBackend.ANTHROPIC,
+            LLMBackend.DEEPSEEK,
+            LLMBackend.MINIMAX,
+            LLMBackend.OPENAI,
+            LLMBackend.CUSTOM,
+        ):
+            if not existing.api_key:
+                raise HTTPException(400, f"{existing.backend.value} 需要 api_key")
+    # base_url 始终要校验
+    if existing.backend in (
+        LLMBackend.DEEPSEEK,
+        LLMBackend.MINIMAX,
+        LLMBackend.OPENAI,
+        LLMBackend.CUSTOM,
+    ):
         if not existing.base_url:
             raise HTTPException(400, f"{existing.backend.value} 需要 base_url")
 

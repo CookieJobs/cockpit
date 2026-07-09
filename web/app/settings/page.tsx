@@ -17,7 +17,7 @@ import useSWR from "swr";
 import { api, type ChatMessage } from "@/lib/api";
 import { useState, useEffect } from "react";
 
-type Backend = "anthropic" | "openai" | "ollama" | "custom";
+type Backend = "anthropic" | "deepseek" | "minimax" | "openai" | "custom";
 
 interface LLMSettingsPublic {
   backend: Backend;
@@ -37,24 +37,33 @@ interface LLMSettingsResponse {
   active_model: string | null;
 }
 
-const BACKEND_LABELS: Record<Backend, { name: string; desc: string; needsKey: boolean; needsBaseUrl: boolean }> = {
+const BACKEND_LABELS: Record<Backend, { name: string; desc: string; needsKey: boolean; needsBaseUrl: boolean; docUrl?: string }> = {
   anthropic: {
     name: "Anthropic Claude",
     desc: "推荐，tool calling 强，中文好",
     needsKey: true,
     needsBaseUrl: false,
+    docUrl: "https://console.anthropic.com/",
+  },
+  deepseek: {
+    name: "DeepSeek",
+    desc: "国内用户多，便宜，V3.2 + R1 强推理",
+    needsKey: true,
+    needsBaseUrl: true,
+    docUrl: "https://platform.deepseek.com/api_keys",
+  },
+  minimax: {
+    name: "MiniMax",
+    desc: "国内用户多，abab6.5s 中文强；需 MiniMax key",
+    needsKey: true,
+    needsBaseUrl: true,
+    docUrl: "https://api.minimax.chat/",
   },
   openai: {
     name: "OpenAI 兼容",
-    desc: "支持 OpenAI / DeepSeek / Moonshot / 自定义 endpoint",
+    desc: "OpenAI 官方 / Moonshot / 阿里云百炼 / 自定义",
     needsKey: true,
     needsBaseUrl: true,
-  },
-  ollama: {
-    name: "Ollama 本地",
-    desc: "免费本地运行，需要 ollama serve + 已拉取模型",
-    needsKey: false,
-    needsBaseUrl: false,
   },
   custom: {
     name: "自定义",
@@ -66,15 +75,17 @@ const BACKEND_LABELS: Record<Backend, { name: string; desc: string; needsKey: bo
 
 const DEFAULT_BASE_URLS: Record<Backend, string> = {
   anthropic: "https://api.anthropic.com",
+  deepseek: "https://api.deepseek.com/v1",
+  minimax: "https://api.minimax.chat/v1",
   openai: "https://api.openai.com/v1",
-  ollama: "http://127.0.0.1:11434",
   custom: "",
 };
 
 const PRESETS: Record<Backend, string[]> = {
   anthropic: ["claude-sonnet-4-5", "claude-opus-4-5", "claude-3-5-haiku-20241022"],
-  openai: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "deepseek-chat", "moonshot-v1-128k"],
-  ollama: ["qwen2.5:3b", "qwen2.5:14b", "qwen2.5:32b", "llama3.2:3b"],
+  deepseek: ["deepseek-chat", "deepseek-reasoner"],
+  minimax: ["MiniMax-abab6.5s-chat", "MiniMax-abab6.5t-chat", "MiniMax-abab6.5g-chat"],
+  openai: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "moonshot-v1-128k"],
   custom: [],
 };
 
@@ -277,7 +288,21 @@ function LLMConfigForm({
                     : "border-border hover:border-border-hover"
                 }`}
               >
-                <div className="text-sm font-medium text-fg">{info.name}</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-medium text-fg">{info.name}</span>
+                  {info.docUrl && (
+                    <a
+                      href={info.docUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-[10px] text-fg-muted hover:text-accent"
+                      title="获取 API Key"
+                    >
+                      ↗ 拿 key
+                    </a>
+                  )}
+                </div>
                 <div className="text-[11px] text-fg-muted mt-0.5">{info.desc}</div>
               </button>
             );
@@ -290,9 +315,19 @@ function LLMConfigForm({
         <div className="mb-3">
           <label className="text-xs text-fg-secondary block mb-1.5">
             Base URL
+            {backend === "deepseek" && (
+              <span className="text-fg-muted ml-2">
+                默认: <code className="text-fg">https://api.deepseek.com/v1</code>（已自动填好）
+              </span>
+            )}
+            {backend === "minimax" && (
+              <span className="text-fg-muted ml-2">
+                默认: <code className="text-fg">https://api.minimax.chat/v1</code>
+              </span>
+            )}
             {backend === "openai" && (
               <span className="text-fg-muted ml-2">
-                （DeepSeek: <code className="text-fg">https://api.deepseek.com/v1</code> · Moonshot: <code className="text-fg">https://api.moonshot.cn/v1</code>）
+                Moonshot: <code className="text-fg">https://api.moonshot.cn/v1</code> · 阿里云百炼: <code className="text-fg">https://dashscope.aliyuncs.com/compatible-mode/v1</code>
               </span>
             )}
           </label>
@@ -300,7 +335,7 @@ function LLMConfigForm({
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
             placeholder="https://..."
-            className="w-full bg-bg border border-border rounded px-2.5 py-1.5 text-sm text-fg placeholder-fg-muted focus:outline-none focus:border-accent"
+            className="w-full bg-bg border border-border rounded px-2.5 py-1.5 text-sm text-fg placeholder-fg-muted focus:outline-none focus:border-accent font-mono"
           />
         </div>
       )}
