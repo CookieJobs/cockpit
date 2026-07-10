@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import useSWR from "swr";
-import { api, type Snapshot, type Project, type Task, statusIcon, dueColor, dueLabel } from "@/lib/api";
-import { Check, Trash2, ChevronRight, Plus, CheckSquare, Square, X, Edit2, Settings } from "lucide-react";
+import { api, type Snapshot, type Project, type Task, statusIcon, dueColor, dueLabel, type Priority } from "@/lib/api";
+import { Check, Trash2, ChevronRight, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag } from "lucide-react";
 import { ChatWindow } from "./ChatWindow";
 import Link from "next/link";
 
@@ -341,6 +341,16 @@ function TaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
     }
   };
 
+  const updatePriority = async (p: Priority) => {
+    await api.updateTask(task.id, { priority: p });
+    onChange();
+  };
+
+  const updateDue = async (date: string | null) => {
+    await api.updateTask(task.id, { due: date });
+    onChange();
+  };
+
   const addChecklistItem = async () => {
     if (!newChecklistText.trim()) return;
     await api.checklistAdd(task.id, newChecklistText.trim());
@@ -386,7 +396,8 @@ function TaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
         >
           {confirming ? "✓" : statusIcon(task.status)}
         </button>
-        <span className={`w-1.5 h-1.5 rounded-full ${priorityDot} flex-shrink-0`} />
+        {/* 优先级 - 点击切换 */}
+        <PriorityMenu priority={task.priority} onChange={updatePriority} />
 
         <button
           onClick={() => setExpanded((e) => !e)}
@@ -409,11 +420,8 @@ function TaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
           )}
         </button>
 
-        {task.due && (
-          <span className={`text-[10px] flex-shrink-0 text-${dueCls}`}>
-            {dueLabel(task.due)}
-          </span>
-        )}
+        {/* 截止日期 - 点击编辑 */}
+        <DueEditor due={task.due} dueCls={dueCls} onChange={updateDue} />
 
         {totalCount > 0 && (
           <span className="text-[10px] text-fg-muted flex-shrink-0">
@@ -430,6 +438,7 @@ function TaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
         <button
           onClick={remove}
           className="opacity-0 group-hover:opacity-100 text-fg-muted hover:text-danger transition"
+          title="删除任务"
         >
           <Trash2 size={12} />
         </button>
@@ -437,11 +446,11 @@ function TaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
 
       {expanded && (
         <div className="px-3 py-2 bg-bg/50 text-xs space-y-2">
-          {task.description && (
-            <div className="text-fg-secondary whitespace-pre-wrap border-l-2 border-border pl-2">
-              {task.description}
-            </div>
-          )}
+          <DescriptionEditor
+            taskId={task.id}
+            description={task.description}
+            onChange={onChange}
+          />
           {task.checklist.length > 0 && (
             <div className="space-y-0.5 mb-2">
               {task.checklist.map((item, i) => (
@@ -493,6 +502,219 @@ function TaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
             </button>
           </form>
         </div>
+      )}
+    </div>
+  );
+}
+
+
+// ===== Inline 编辑组件 =====
+
+
+function PriorityMenu({
+  priority,
+  onChange,
+}: {
+  priority: Priority;
+  onChange: (p: Priority) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const dotColor =
+    priority === "高"
+      ? "bg-danger"
+      : priority === "中"
+      ? "bg-warning"
+      : "bg-fg-muted";
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative flex-shrink-0">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+        className="p-0.5 hover:bg-bg-tertiary rounded"
+        title={`优先级: ${priority}（点击切换）`}
+      >
+        <span className={`block w-1.5 h-1.5 rounded-full ${dotColor}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-5 z-20 bg-bg-secondary border border-border rounded shadow-lg py-0.5 min-w-[80px]">
+          {(["高", "中", "低"] as const).map((p) => (
+            <button
+              key={p}
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange(p);
+                setOpen(false);
+              }}
+              className={`w-full text-left px-2 py-1 hover:bg-bg-tertiary text-xs flex items-center gap-1.5 ${
+                p === priority ? "text-accent" : "text-fg"
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  p === "高"
+                    ? "bg-danger"
+                    : p === "中"
+                    ? "bg-warning"
+                    : "bg-fg-muted"
+                }`}
+              />
+              {p}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function DueEditor({
+  due,
+  dueCls,
+  onChange,
+}: {
+  due: string | null;
+  dueCls: "danger" | "warning" | "accent" | "muted";
+  onChange: (date: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [editing]);
+
+  const commit = (val: string) => {
+    setEditing(false);
+    if (val === "") {
+      if (due !== null) onChange(null);
+      return;
+    }
+    if (val !== due) onChange(val);
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="date"
+        defaultValue={due || ""}
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit((e.target as HTMLInputElement).value);
+          if (e.key === "Escape") setEditing(false);
+        }}
+        onClick={(e) => e.stopPropagation()}
+        className="text-[10px] bg-bg border border-border rounded px-1 py-0.5 text-fg"
+        style={{ width: "110px" }}
+      />
+    );
+  }
+
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        setEditing(true);
+      }}
+      className={`text-[10px] flex-shrink-0 text-${dueCls} hover:underline px-1`}
+      title={due ? `截止：${due}（点击修改）` : "点击设置截止日期"}
+    >
+      {due ? dueLabel(due) : <span className="text-fg-muted opacity-0 group-hover:opacity-100">📅</span>}
+    </button>
+  );
+}
+
+
+function DescriptionEditor({
+  taskId,
+  description,
+  onChange,
+}: {
+  taskId: string;
+  description: string;
+  onChange: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(description);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    setText(description);
+  }, [description]);
+
+  useEffect(() => {
+    if (editing && textareaRef.current) {
+      textareaRef.current.focus();
+      textareaRef.current.selectionStart = text.length;
+    }
+  }, [editing, text.length]);
+
+  const save = async () => {
+    setEditing(false);
+    if (text === description) return;
+    await api.updateTask(taskId, { description: text });
+    onChange();
+  };
+
+  const cancel = () => {
+    setText(description);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="space-y-1">
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
+            if (e.key === "Escape") cancel();
+          }}
+          placeholder="任务详情 / 上下文..."
+          rows={3}
+          className="w-full bg-bg border border-border rounded px-2 py-1 text-xs text-fg placeholder-fg-muted resize-none focus:outline-none focus:border-accent"
+        />
+        <div className="flex items-center gap-2 text-[10px] text-fg-muted">
+          <button onClick={save} className="px-2 py-0.5 bg-accent text-black rounded">
+            保存
+          </button>
+          <button onClick={cancel} className="px-2 py-0.5 hover:text-fg">
+            取消
+          </button>
+          <span className="ml-auto">⌘+Enter 保存 · Esc 取消</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={() => setEditing(true)}
+      className="text-fg-secondary whitespace-pre-wrap border-l-2 border-border pl-2 cursor-text hover:border-accent min-h-[1.5em]"
+      title="点击编辑详情"
+    >
+      {description || (
+        <span className="text-fg-muted italic">+ 添加详情</span>
       )}
     </div>
   );
