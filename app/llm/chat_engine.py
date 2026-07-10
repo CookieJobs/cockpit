@@ -156,7 +156,7 @@ SYSTEM_PROMPT = """你是拾光，一个帮用户管理工作和沉淀成就的 
 - 项目 / 任务 / 成就 三层结构
 - 任务完成后从 tasks 移到 achievements（append-only）
 - 成就可 cvStatus: pending/ready 两种状态
-- 任务初始 draft=true，用户确认后才进 focus 排序（用户用 chat 说"确认"或调 `confirm_drafts`）
+- 新建任务直接进入 todo 列表，不需要"确认"环节
 """
 
 

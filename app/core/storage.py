@@ -363,7 +363,7 @@ async def add_task(data: TaskCreate) -> Task:
             due=data.due,
             next_action=data.next_action,
             blocked=data.blocked,
-            draft=True,
+            draft=False,  # 新建任务直接进入 todo，无需二次确认
             created_at=date.today(),
             checklist_json=json.dumps(checklist_data, ensure_ascii=False),
         )
