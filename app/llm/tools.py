@@ -39,7 +39,16 @@ async def tool_list_projects() -> list[dict]:
 
 
 async def tool_add_project(name: str, description: str = "") -> dict:
-    """创建新项目。"""
+    """创建新项目（同名校验：同名已存在则返回 existing，不新建）。
+
+    幂等行为：避免重复建同名项目。如果同名项目已存在，返回 existing
+    并附加 `_idempotent: true` 标记，让 LLM 知道这是已有项目（用于
+    后续 update 或 add_task 到该项目）。
+    """
+    existing = await storage.list_projects(include_archived=False)
+    for p in existing:
+        if p.name == name:
+            return {"_idempotent": True, **p.model_dump(mode="json")}
     p = await storage.add_project(ProjectCreate(name=name, description=description))
     return p.model_dump(mode="json")
 
@@ -250,11 +259,12 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "add_project",
         "description": (
-            "创建新项目。\n\n"
+            "创建新项目（同名已存在则返回 existing，不新建）。\n\n"
             "**主动调用**：当用户描述的工作内容明显属于一个新主题/新项目/新场景时，"
             "立即调用此工具建项目，**不要等用户说'创建项目'**。典型触发："
             "'我要做 X'、'接下来要处理 X'、'X 包括 A/B/C'、'我负责的项目是 X'。"
-            "建项目前最好先 list_projects 查重（避免同名）。"
+            "**已建同名项目会返回 existing**，不会重复建。"
+            "**用户提到已有项目要更新**（如'把项目交接...'）→ 用 update_project，不要新建。"
         ),
         "input_schema": {
             "type": "object",

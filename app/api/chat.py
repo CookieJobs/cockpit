@@ -150,7 +150,7 @@ async def _persist_chat_turn(
         else:
             content_str = str(content or response.text)
 
-        # 提取 tool_calls 摘要（用于 UI 展示）
+        # 提取本轮的 tool_use blocks（用于 UI 在 assistant message 上显示 tool badges）
         tool_calls_summary: list[dict] = []
         if isinstance(content, list):
             for block in content:
@@ -160,6 +160,15 @@ async def _persist_chat_turn(
                         "name": block.get("name", ""),
                         "args": block.get("input", {}),
                     })
+
+        # 如果本轮没调工具，但整个对话过程中调了（response.tool_calls 累积），
+        # 也把这些累积的工具调用存进去 —— 这样 UI 切回 session 后能看到
+        # 完整的工具调用历史（包括前几轮的 add_task / list_projects 等）。
+        if not tool_calls_summary and response.tool_calls:
+            tool_calls_summary = [
+                {"id": tc.get("id", f"hist-{i}"), "name": tc.get("name", ""), "args": tc.get("args", {})}
+                for i, tc in enumerate(response.tool_calls)
+            ]
 
         await storage.add_chat_message(
             session_id, "assistant", content_str, tool_calls=tool_calls_summary or None
