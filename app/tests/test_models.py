@@ -48,14 +48,15 @@ def test_task_create_requires_project():
         TaskCreate(title="x")  # type: ignore[call-arg]
 
 
-def test_task_default_draft_true():
-    """新任务默认 draft=True。"""
+def test_task_default_draft_false():
+    """新任务默认 draft=False（直接进 todo，无需确认）。"""
     t = Task(project="proj_xxx", title="x")
-    assert t.draft is True
+    assert t.draft is False
     assert t.status == TaskStatus.NOT_STARTED
     assert t.priority == Priority.MEDIUM
     assert t.blocked is False
     assert t.checklist == []
+    assert t.description == ""
 
 
 def test_task_checklist_default():
@@ -95,3 +96,35 @@ def test_achievement_id_format():
     """成就 ID 应以 done_ 开头。"""
     a = Achievement(task_id="task_xxx", project_id="proj_xxx", project="p", title="t")
     assert a.id.startswith("done_")
+
+
+def test_project_description_default():
+    """Project.description 默认空串。"""
+    from app.core.models import Project
+    p = Project(name="x")
+    assert p.description == ""
+    p2 = Project(name="x", description="负责 Q4 增长")
+    assert p2.description == "负责 Q4 增长"
+
+
+def test_task_description_default():
+    """Task.description 默认空串，可设置。"""
+    from app.core.models import Task
+    t = Task(project="proj_x", title="x", description="需要重构数据库 schema")
+    assert t.description == "需要重构数据库 schema"
+
+
+def test_project_update_allows_description():
+    """ProjectUpdate.description 可选。"""
+    from app.core.models import ProjectUpdate
+    u = ProjectUpdate(description="新描述")
+    assert u.description == "新描述"
+    u2 = ProjectUpdate(name="新名")
+    assert u2.description is None
+
+
+def test_task_update_allows_description():
+    """TaskUpdate.description 可选。"""
+    from app.core.models import TaskUpdate
+    u = TaskUpdate(description="新详情")
+    assert u.description == "新详情"

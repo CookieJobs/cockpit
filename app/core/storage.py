@@ -54,6 +54,7 @@ class ProjectORM(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
@@ -66,12 +67,13 @@ class TaskORM(Base):
         String(64), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
     title: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=TaskStatus.NOT_STARTED.value)
     priority: Mapped[str] = mapped_column(String(10), nullable=False, default=Priority.MEDIUM.value)
     due: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     next_action: Mapped[str] = mapped_column(String(500), default="", nullable=False)
     blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    draft: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    draft: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     completed_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     checklist_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
@@ -180,11 +182,28 @@ def reset_engine() -> None:
 
 
 async def create_tables() -> None:
-    """创建所有表。"""
+    """创建所有表 + 轻量级 schema migration。
+
+    create_all 只创建缺失的表，不加新列。这里手动 ALTER TABLE 给已存在的表
+    加 description 列（projects/tasks），保持向后兼容。
+    """
     if _engine is None:
         init_engine()
     async with _engine.begin() as conn:  # type: ignore[union-attr]
         await conn.run_sync(Base.metadata.create_all)
+        # Schema migrations（idempotent — 加过的列会报错被吞掉）
+        await _migrate_add_column(conn, "projects", "description", "TEXT NOT NULL DEFAULT ''")
+        await _migrate_add_column(conn, "tasks", "description", "TEXT NOT NULL DEFAULT ''")
+
+
+async def _migrate_add_column(conn, table: str, column: str, col_type: str) -> None:
+    """如果表存在但列不存在，加列。SQLite 无 IF NOT EXISTS 语法，用 try/except。"""
+    try:
+        await conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+        logger.info(f"Migrated: added {table}.{column}")
+    except Exception:
+        # 列已存在或其他原因 — 静默忽略
+        pass
 
 
 async def drop_tables() -> None:
@@ -216,6 +235,7 @@ def _project_to_pydantic(p: ProjectORM) -> Project:
     return Project(
         id=p.id,
         name=p.name,
+        description=p.description,
         created_at=p.created_at,
         archived=p.archived,
     )
@@ -234,6 +254,7 @@ def _task_to_pydantic(t: TaskORM) -> Task:
         id=t.id,
         project=t.project_id,
         title=t.title,
+        description=t.description,
         status=TaskStatus(t.status),
         priority=Priority(t.priority),
         due=t.due,
@@ -292,6 +313,7 @@ async def add_project(data: ProjectCreate) -> Project:
         project = ProjectORM(
             id=_new_id("proj"),
             name=data.name,
+            description=data.description,
             created_at=date.today(),
             archived=False,
         )
@@ -324,6 +346,8 @@ async def update_project(pid: str, data: ProjectUpdate) -> Optional[Project]:
             return None
         if data.name is not None:
             p.name = data.name
+        if data.description is not None:
+            p.description = data.description
         if data.archived is not None:
             p.archived = data.archived
         await session.flush()
@@ -358,6 +382,7 @@ async def add_task(data: TaskCreate) -> Task:
             id=_new_id("task"),
             project_id=data.project,
             title=data.title,
+            description=data.description,
             status=TaskStatus.NOT_STARTED.value,
             priority=data.priority.value,
             due=data.due,
@@ -396,6 +421,8 @@ async def update_task(tid: str, data: TaskUpdate) -> Optional[Task]:
             return None
         if data.title is not None:
             t.title = data.title
+        if data.description is not None:
+            t.description = data.description
         if data.priority is not None:
             t.priority = data.priority.value
         if data.status is not None:

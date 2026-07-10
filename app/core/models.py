@@ -176,6 +176,7 @@ def mask_key(key: Optional[str]) -> Optional[str]:
 
 class ProjectBase(ShiguangModel):
     name: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(default="", max_length=2000, description="项目描述 / 目标")
 
 
 class ProjectCreate(ProjectBase):
@@ -186,6 +187,7 @@ class ProjectCreate(ProjectBase):
 class ProjectUpdate(ShiguangModel):
     """更新项目的入参。"""
     name: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
     archived: Optional[bool] = None
 
 
@@ -201,6 +203,7 @@ class Project(ProjectBase):
 
 class TaskBase(ShiguangModel):
     title: str = Field(..., min_length=1, max_length=500)
+    description: str = Field(default="", max_length=5000, description="任务详情 / 上下文")
     priority: Priority = Field(default=Priority.MEDIUM)
     due: Optional[date] = None
     next_action: str = Field(default="", max_length=500)
@@ -216,6 +219,7 @@ class TaskCreate(TaskBase):
 class TaskUpdate(ShiguangModel):
     """更新任务的入参（部分字段可选）。"""
     title: Optional[str] = Field(None, min_length=1, max_length=500)
+    description: Optional[str] = Field(None, max_length=5000)
     priority: Optional[Priority] = None
     status: Optional[TaskStatus] = None
     due: Optional[date] = None
@@ -230,7 +234,7 @@ class Task(TaskBase):
     id: str = Field(default_factory=lambda: _new_id("task"))
     project: str = Field(..., description="项目 ID")
     status: TaskStatus = Field(default=TaskStatus.NOT_STARTED)
-    draft: bool = Field(default=True, description="待用户确认")
+    draft: bool = Field(default=False, description="待用户确认（默认 False，新任务直接进 todo）")
     created_at: DateField
     completed_at: Optional[date] = None
 

@@ -38,14 +38,19 @@ async def tool_list_projects() -> list[dict]:
     return [p.model_dump(mode="json") for p in projects]
 
 
-async def tool_add_project(name: str) -> dict:
+async def tool_add_project(name: str, description: str = "") -> dict:
     """创建新项目。"""
-    p = await storage.add_project(ProjectCreate(name=name))
+    p = await storage.add_project(ProjectCreate(name=name, description=description))
     return p.model_dump(mode="json")
 
 
-async def tool_update_project(id: str, name: str | None = None, archived: bool | None = None) -> dict:
-    p = await storage.update_project(id, ProjectUpdate(name=name, archived=archived))
+async def tool_update_project(
+    id: str,
+    name: str | None = None,
+    archived: bool | None = None,
+    description: str | None = None,
+) -> dict:
+    p = await storage.update_project(id, ProjectUpdate(name=name, archived=archived, description=description))
     if not p:
         return {"error": f"Project {id} not found"}
     return p.model_dump(mode="json")
@@ -60,12 +65,13 @@ async def tool_list_tasks(project: str | None = None) -> list[dict]:
 async def tool_add_task(
     project: str,
     title: str,
+    description: str = "",
     priority: str = "中",
     due: str | None = None,
     next_action: str = "",
     blocked: bool = False,
 ) -> dict:
-    """新建任务（草稿状态）。"""
+    """新建任务（直接进 todo）。"""
     from app.core.models import Priority
     try:
         prio = Priority(priority)
@@ -73,7 +79,7 @@ async def tool_add_task(
         return {"error": f"Invalid priority: {priority}. Must be 高/中/低."}
     try:
         t = await storage.add_task(TaskCreate(
-            project=project, title=title, priority=prio,
+            project=project, title=title, description=description, priority=prio,
             due=due, next_action=next_action, blocked=blocked,
         ))
     except ValueError as e:
@@ -84,6 +90,7 @@ async def tool_add_task(
 async def tool_update_task(
     id: str,
     title: str | None = None,
+    description: str | None = None,
     priority: str | None = None,
     due: str | None = None,
     next_action: str | None = None,
@@ -96,6 +103,8 @@ async def tool_update_task(
     kwargs: dict[str, Any] = {}
     if title is not None:
         kwargs["title"] = title
+    if description is not None:
+        kwargs["description"] = description
     if priority is not None:
         try:
             kwargs["priority"] = Priority(priority)
@@ -251,6 +260,7 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "项目名称（简短）"},
+                "description": {"type": "string", "description": "项目描述 / 目标（可选，用户提到的项目背景/目的）"},
             },
             "required": ["name"],
         },
@@ -293,6 +303,7 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project": {"type": "string", "description": "项目 ID（必填）"},
                 "title": {"type": "string", "description": "任务标题（必填）"},
+                "description": {"type": "string", "description": "任务详情 / 上下文（可选）"},
                 "priority": {"type": "string", "enum": ["高", "中", "低"], "description": "优先级（默认中）"},
                 "due": {"type": "string", "description": "截止日期 YYYY-MM-DD"},
                 "next_action": {"type": "string", "description": "下一步具体动作"},
@@ -309,6 +320,7 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "id": {"type": "string", "description": "任务 ID（必填）"},
                 "title": {"type": "string"},
+                "description": {"type": "string", "description": "更新任务详情描述"},
                 "priority": {"type": "string", "enum": ["高", "中", "低"]},
                 "status": {"type": "string", "enum": ["未开始", "进行中", "已完成"]},
                 "due": {"type": "string", "description": "YYYY-MM-DD 或 null 清除"},

@@ -255,25 +255,50 @@ function ProjectCard({
   onChange: () => void;
 }) {
   const taskCount = project.tasks.length;
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!project.id) return;
+    if (!confirm(`确定删除项目「${project.name}」？\n\n该操作会同时删除项目下所有任务。`)) {
+      return;
+    }
+    await api.deleteProject(project.id);
+    onChange();
+  };
   return (
     <div className="rounded-md bg-bg border border-border overflow-hidden">
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-bg-tertiary transition"
-      >
-        <ChevronRight
-          size={12}
-          className={`text-fg-muted transition-transform ${
-            expanded ? "rotate-90" : ""
-          }`}
-        />
-        <span className="flex-1 text-left text-sm text-fg truncate">
-          {project.name}
-        </span>
-        <span className="text-xs text-fg-muted">{taskCount}</span>
-      </button>
+      <div className="group flex items-center gap-2 px-2 py-1.5 hover:bg-bg-tertiary transition">
+        <button
+          onClick={onToggle}
+          className="flex items-center gap-2 flex-1 min-w-0"
+        >
+          <ChevronRight
+            size={12}
+            className={`text-fg-muted transition-transform flex-shrink-0 ${
+              expanded ? "rotate-90" : ""
+            }`}
+          />
+          <span className="flex-1 text-left text-sm text-fg truncate">
+            {project.name}
+          </span>
+          <span className="text-xs text-fg-muted flex-shrink-0">{taskCount}</span>
+        </button>
+        {project.id && (
+          <button
+            onClick={handleDelete}
+            className="opacity-0 group-hover:opacity-100 text-fg-muted hover:text-danger transition flex-shrink-0"
+            title="删除项目"
+          >
+            <Trash2 size={12} />
+          </button>
+        )}
+      </div>
       {expanded && (
         <div className="border-t border-border bg-bg-secondary/50">
+          {project.description && (
+            <div className="px-3 py-2 text-xs text-fg-secondary border-b border-border whitespace-pre-wrap">
+              {project.description}
+            </div>
+          )}
           {project.tasks.length === 0 ? (
             <div className="px-3 py-2 text-xs text-fg-muted">无任务</div>
           ) : (
@@ -411,7 +436,12 @@ function TaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
       </div>
 
       {expanded && (
-        <div className="px-3 py-2 bg-bg/50 text-xs space-y-1">
+        <div className="px-3 py-2 bg-bg/50 text-xs space-y-2">
+          {task.description && (
+            <div className="text-fg-secondary whitespace-pre-wrap border-l-2 border-border pl-2">
+              {task.description}
+            </div>
+          )}
           {task.checklist.length > 0 && (
             <div className="space-y-0.5 mb-2">
               {task.checklist.map((item, i) => (
