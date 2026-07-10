@@ -3,12 +3,12 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "shiguang"
+name = "cockpit"
 version = "0.1.0"
 description = "你的个人项目驾驶舱——不替你干活，替你记住你干过什么、要干什么。"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "TBD" }
+license = { text = "MIT" }
 authors = [
     { name = "CookieJobs" }
 ]
