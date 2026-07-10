@@ -240,7 +240,13 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "add_project",
-        "description": "创建新项目。当用户提到新项目但项目列表中找不到时使用。",
+        "description": (
+            "创建新项目。\n\n"
+            "**主动调用**：当用户描述的工作内容明显属于一个新主题/新项目/新场景时，"
+            "立即调用此工具建项目，**不要等用户说'创建项目'**。典型触发："
+            "'我要做 X'、'接下来要处理 X'、'X 包括 A/B/C'、'我负责的项目是 X'。"
+            "建项目前最好先 list_projects 查重（避免同名）。"
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -275,7 +281,13 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "add_task",
-        "description": "在项目中新建任务。任务初始为 draft 状态，确认后才进入 focus 排序。",
+        "description": (
+            "在项目中新建任务。任务初始为 draft 状态，用户确认后才进入 focus 排序。\n\n"
+            "**主动调用**：当用户描述中提到具体要做的事项（包括子任务、清单、待办），"
+            "立即调用此工具建任务，**不要等用户说'添加任务'/'新建任务'**。"
+            "典型触发：'包括 A、B、C'、'接下来要做的：1. ... 2. ...'、'我要做 XXX'。"
+            "建任务前需要 project_id（先 list_projects 或刚 add_project 拿）。"
+        ),
         "input_schema": {
             "type": "object",
             "properties": {

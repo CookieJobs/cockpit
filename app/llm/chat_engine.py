@@ -13,53 +13,150 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.llm.base import LLMClient, LLMResponse, tool_result_message
+from app.llm.base import LLMClient, LLMResponse, ToolCall, tool_result_message
 from app.llm.router import get_client
 from app.llm.tools import TOOLS, execute_tool
 
 logger = logging.getLogger(__name__)
 
 
+# ===== Markdown tool call fallback =====
+
+
+# 匹配 markdown code block 里的 functions.name(args) 调用
+# 例：`functions.add_task({"title": "..."})`、`functions.add_project("项目交接")`、`functions.list_projects()`
+_MARKDOWN_TOOL_CALL_RE = re.compile(
+    r"functions\.(\w+)\s*\(\s*(\{.*?\}|[^)]*)\s*\)",
+    re.DOTALL,
+)
+
+# 允许 markdown fallback 解析的工具（防止误解析无关文本）
+_MARKDOWN_TOOL_WHITELIST = {
+    "add_project",
+    "add_task",
+    "update_task",
+    "update_project",
+    "list_projects",
+    "list_tasks",
+    "complete_task",
+    "query_snapshot",
+}
+
+
+def _parse_markdown_tool_calls(text: str) -> list[ToolCall]:
+    """从 LLM 输出的 markdown 文本中提取伪 tool call。
+
+    适用场景：MiniMax abab6.5s-chat 等模型在拿到 tool_result 后倾向于
+    输出 `functions.xxx(args)` markdown code block 而不是真的调 tool_use。
+
+    Returns:
+        解析出的 ToolCall 列表（白名单内的工具才返回）
+    """
+    if not text:
+        return []
+    calls: list[ToolCall] = []
+    seen: set[str] = set()  # 去重：同一 call_id 不重复
+    for match in _MARKDOWN_TOOL_CALL_RE.finditer(text):
+        name, raw_args = match.group(1), match.group(2).strip()
+        if name not in _MARKDOWN_TOOL_WHITELIST:
+            continue
+        # 解析 args
+        try:
+            if not raw_args:
+                # 空参数：functions.list_projects()
+                args = {}
+            elif raw_args.startswith("{"):
+                args = json.loads(raw_args)
+            else:
+                # 裸字符串：functions.add_project("项目交接")
+                args = {"name": raw_args.strip("\"'")}
+        except json.JSONDecodeError:
+            continue
+        # 去重
+        sig = f"{name}:{json.dumps(args, sort_keys=True, ensure_ascii=False)}"
+        if sig in seen:
+            continue
+        seen.add(sig)
+        calls.append(ToolCall(
+            id=f"md-{uuid.uuid4().hex[:12]}",
+            name=name,
+            args=args,
+        ))
+    return calls
+
+
 # ===== System Prompt =====
 
-SYSTEM_PROMPT = """你是拾光，一个帮用户管理工作和沉淀成就的 AI 助手。
+SYSTEM_PROMPT = """你是拾光，一个帮用户管理工作和沉淀成就的 AI 助手。你的核心价值是**主动执行**，不是聊天顾问。
+
+# 最高原则（必读 — 优先级最高）
+
+**主动 > 等待**。用户描述具体工作场景时，立即调用工具建项目/建任务。不要先输出一堆文字建议、等用户二次明确才动手。
+
+**触发主动操作的意图词**（看到任一立即行动，**不需要用户说"创建/生成/帮我做"**）：
+- "我要做 X"、"接下来要处理 X"、"现在进行 X"
+- "X 包括 A、B、C"、"项目要做的事情有..."
+- "我负责的项目是 X"、"项目交接有..."
+- "接下来要做的需求要交待"
+- 任何包含明确事项 + 主题的场景
+
+**主动操作的标准流程**：
+1. `list_projects` 查重（避免建同名项目）
+2. 项目不存在 → `add_project(name=<主题>)`
+3. 每个子事项 → `add_task(project=<id>, title=<子事项>)`
+4. 简短汇报给用户（一行总览 + 可选问优先级/截止日期）
+
+**关键 — 一次响应完成所有调用**：
+看到上述触发场景时，**在同一次响应里并行调用所有需要的工具**（add_project + 全部 add_task）。不要分轮调 — 一轮内完成所有操作，再给用户一句汇报。如果只输出 markdown 代码块（如 `functions.add_task(...)`）而没有真的调用工具，等于没动手。
+
+**唯一反问的场景**：用户描述完全无法理解（如"做完了"但没说哪个任务）。
 
 # 你的能力
-- 通过自然语言创建/管理任务
+- 通过自然语言创建/管理项目 / 任务 / 成就
 - 完成时主动生成 CV 级别的成就描述（动词开头，含影响/结果）
 - 回答"现在该干啥"类问题（看 focus）
 - 整理周报/述职材料
 - 撤销误操作
 
-# 行为准则（必须遵守）
+# 行为准则
 
-## 1. 完成即沉淀（最重要）
+## 1. 主动拆解 + 立即执行（默认行为）
+看到任何包含具体事项的描述，按"最高原则"的标准流程执行。建好后**简短**汇报，不要再列一堆文字建议。
+
+## 2. 完成即沉淀（重要 — 但要交互）
 当用户说某事完成时，**不要直接调用 complete_task**。先确认 outcome（结果是什么），reflection（有什么复盘想法，可选），再生成 cv：
 - 素材充分（具体成果、量化影响）→ cv_status="ready"
 - 素材不足（缺数据/影响）→ cv_status="pending"，提示用户后续补充
 - **CV 真实性底线**：只能基于 outcome+reflection+任务上下文生成，绝不编造未发生的事
 
-## 2. 倒事时主动建议
-用户描述一堆事时，拆解后给 priority/next_action 建议：
+## 3. 模糊才问
+仅在用户描述**完全无法理解**时反问：
+- "做完了"但没说哪个任务 → `list_tasks` 找匹配项，让用户确认
+- 其他场景都直接动手
+
+## 4. 优先级建议（建好后追加，可选）
+建好任务后，可选地补充 priority/next_action：
 - 高 = 截止日紧 + 重要
 - 中 = 默认
 - 低 = 不急
 - next_action = 一句话具体动作（不是"完成 X"，而是"先发邮件给 X 确认 Y"）
 
-## 3. 模糊任务先问清楚
-用户说"做完了"但没说哪个任务 → 用 list_tasks 找到匹配项，让用户确认
+注意：priority/next_action 是补充，**不是阻塞**。拿不准就不要标，**不要因为拿不准就不建任务**。
 
-## 4. CV 重组
-用户要周报/述职 → 用 list_achievements + generate_weekly_report，按真实记录重组
+## 5. CV 重组
+用户要周报/述职 → 用 `list_achievements` + `generate_weekly_report`，按真实记录重组。
 
 # 数据
 - 数据在 ~/.shiguang/shiguang.db
 - 项目 / 任务 / 成就 三层结构
 - 任务完成后从 tasks 移到 achievements（append-only）
 - 成就可 cvStatus: pending/ready 两种状态
+- 任务初始 draft=true，用户确认后才进 focus 排序（用户用 chat 说"确认"或调 `confirm_drafts`）
 """
 
 
@@ -154,13 +251,35 @@ async def run_chat(
 
         # 如果没 tool_use，结束
         if not response.tool_calls:
-            return ChatResult(
-                text=response.text,
-                tool_calls_made=tool_calls_made,
-                messages=messages,
-                usage=total_usage,
-                used_llm=True,
-            )
+            # Fallback: 某些模型（如 MiniMax abab6.5s-chat）在拿到 tool_result 后
+            # 倾向于输出 markdown 伪 tool call（`functions.add_task(...)`）而不是
+            # 真的调 tool_use。检测并执行，提升主动性。
+            markdown_calls = _parse_markdown_tool_calls(response.text)
+            if markdown_calls:
+                logger.info(
+                    f"Markdown fallback: parsed {len(markdown_calls)} tool calls from text"
+                )
+                response.tool_calls = markdown_calls
+                # 继续循环，让这些 tool calls 执行
+                # 但 assistant_msg 已经 append 了（不含 tool_use 块），继续往下走
+                # tool_use 块需要补回去
+                for tc in response.tool_calls:
+                    assistant_msg["content"].append({
+                        "type": "tool_use",
+                        "id": tc.id,
+                        "name": tc.name,
+                        "input": tc.args,
+                    })
+                # 更新 messages 里的 assistant_msg（之前 append 的没含 tool_use）
+                messages[-1] = assistant_msg
+            else:
+                return ChatResult(
+                    text=response.text,
+                    tool_calls_made=tool_calls_made,
+                    messages=messages,
+                    usage=total_usage,
+                    used_llm=True,
+                )
 
         # 执行工具
         tool_results: list[Message] = []
