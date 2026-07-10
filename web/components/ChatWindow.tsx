@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { api, type ChatResponse, type ChatHistoryMessage, type ChatSession } from "@/lib/api";
 import { renderMarkdown } from "./Markdown";
-import { Send, Sparkles, Wrench, Plus, History, Trash2, MessageSquare, X } from "lucide-react";
+import { Send, Sparkles, Wrench, Plus, History, Trash2, MessageSquare, X, Eraser } from "lucide-react";
 
 const SESSION_STORAGE_KEY = "shiguang_session_id";
 
@@ -212,6 +212,25 @@ export function ChatWindow({ onAction }: { onAction?: () => void }) {
     }
   };
 
+  const cleanupEmpty = async () => {
+    if (
+      !confirm(
+        "清理所有空对话（≤ 2 条消息的 session）？\n\n将保留 3 条以上消息的有意义对话。"
+      )
+    )
+      return;
+    try {
+      const res = await api.cleanupEmptySessions();
+      await refreshSessions();
+      alert(`已清理 ${res.deleted_count} 个空对话。`);
+      if (res.deleted_ids.includes(sessionId || "")) {
+        await startNewSession();
+      }
+    } catch (err) {
+      console.error("Failed to cleanup sessions:", err);
+    }
+  };
+
   const send = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || !sessionId) return;
@@ -300,6 +319,7 @@ export function ChatWindow({ onAction }: { onAction?: () => void }) {
           currentId={sessionId}
           onSwitch={switchToSession}
           onDelete={deleteSession}
+          onCleanup={cleanupEmpty}
           onClose={() => setHistoryOpen(false)}
         />
       )}
@@ -405,14 +425,17 @@ function SessionListPanel({
   currentId,
   onSwitch,
   onDelete,
+  onCleanup,
   onClose,
 }: {
   sessions: ChatSession[];
   currentId: string | null;
   onSwitch: (id: string) => void;
   onDelete: (id: string, e: React.MouseEvent) => void;
+  onCleanup: () => void;
   onClose: () => void;
 }) {
+  const emptyCount = sessions.filter((s) => s.message_count <= 2).length;
   return (
     <div className="absolute top-0 right-0 bottom-0 w-72 bg-bg-secondary border-l border-border z-10 flex flex-col shadow-lg">
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
@@ -464,6 +487,18 @@ function SessionListPanel({
           ))
         )}
       </div>
+      {emptyCount > 0 && (
+        <div className="border-t border-border p-2 bg-bg">
+          <button
+            onClick={onCleanup}
+            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs text-fg-muted hover:text-danger hover:bg-bg-tertiary rounded transition"
+            title="删除 2 条消息以内的空对话"
+          >
+            <Eraser size={11} />
+            清理 {emptyCount} 个空对话
+          </button>
+        </div>
+      )}
     </div>
   );
 }

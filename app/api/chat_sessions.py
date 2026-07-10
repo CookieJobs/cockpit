@@ -112,6 +112,25 @@ async def archive_session(session_id: str, archived: bool = True):
     return session
 
 
+@router.post("/sessions/cleanup-empty")
+async def cleanup_empty_sessions():
+    """清理空/近空对话（message_count <= 2）。
+
+    只删 2 条消息以内的 session（典型：1 user + 1 assistant，或只有 welcome 没真聊）。
+    3+ 消息的对话算有意义的，保留。
+    用户主动删除 session 的入口（DELETE 单个）已存在；这个端点用于批量清理。
+    """
+    threshold = 2
+    sessions = await storage.list_chat_sessions(include_archived=False, limit=500)
+    deleted: list[str] = []
+    for s in sessions:
+        if s.message_count <= threshold:
+            ok = await storage.delete_chat_session(s.id)
+            if ok:
+                deleted.append(s.id)
+    return {"ok": True, "deleted_count": len(deleted), "deleted_ids": deleted, "threshold": threshold}
+
+
 # ===== Messages =====
 
 
