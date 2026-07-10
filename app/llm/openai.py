@@ -57,8 +57,21 @@ class OpenAIClient:
         try:
             resp = await self._client.chat.completions.create(**kwargs)
         except Exception as e:
-            logger.exception("OpenAI API error")
-            return LLMResponse(stop_reason="error", error=str(e))
+            # 工具调用失败时降级：重试不带 tools（很多 OpenAI 兼容后端对 tool schema 严格）
+            err_msg = str(e)
+            if tools and ("tool" in err_msg.lower() or "schema" in err_msg.lower()
+                          or "role" in err_msg.lower() or "400" in err_msg):
+                logger.warning(f"Tools not supported, falling back to no-tools: {err_msg[:200]}")
+                kwargs.pop("tools", None)
+                kwargs.pop("tool_choice", None)
+                try:
+                    resp = await self._client.chat.completions.create(**kwargs)
+                except Exception as e2:
+                    logger.exception("OpenAI API error (no-tools retry)")
+                    return LLMResponse(stop_reason="error", error=str(e2))
+            else:
+                logger.exception("OpenAI API error")
+                return LLMResponse(stop_reason="error", error=err_msg)
 
         choice = resp.choices[0] if resp.choices else None
         if not choice:
@@ -100,7 +113,12 @@ class OpenAIClient:
 def _convert_messages_to_openai(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Anthropic 格式消息 → OpenAI 格式。
 
-    主要差异：tool_result 在 OpenAI 是 role="tool" 单条消息。
+    主要差异：
+    - tool_result 在 OpenAI 是 role="tool" 单条消息
+    - Anthropic 的 content 是 list of blocks，OpenAI 的 content 是 string
+      （除多模态外）。这里把所有 list content 合并成 string
+      （拼接 text blocks，丢弃 tool_use blocks——它们应该是 assistant 消息的 tool_calls 字段）
+    - assistant 消息的 content list 含 type: "tool_use" 时，转成 OpenAI tool_calls 格式
     """
     result: list[dict[str, Any]] = []
     for msg in messages:
@@ -108,7 +126,7 @@ def _convert_messages_to_openai(messages: list[dict[str, Any]]) -> list[dict[str
         content = msg.get("content")
 
         if role == "user" and isinstance(content, list):
-            # 检查是否有 tool_result
+            # user 的 list content 可能是 text + tool_result
             for block in content:
                 if isinstance(block, dict) and block.get("type") == "tool_result":
                     result.append({
@@ -121,10 +139,32 @@ def _convert_messages_to_openai(messages: list[dict[str, Any]]) -> list[dict[str
                     text = block.get("text", "") if isinstance(block, dict) else str(block)
                     if text:
                         result.append({"role": "user", "content": text})
+        elif role == "assistant" and isinstance(content, list):
+            # assistant 的 list content：text blocks 合并成字符串，tool_use 转 tool_calls
+            text_parts: list[str] = []
+            tool_calls: list[dict[str, Any]] = []
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        text_parts.append(block.get("text", ""))
+                    elif block.get("type") == "tool_use":
+                        # 转换成 OpenAI tool_calls 格式
+                        tool_calls.append({
+                            "id": block.get("id", ""),
+                            "type": "function",
+                            "function": {
+                                "name": block.get("name", ""),
+                                "arguments": json.dumps(block.get("input", {}), ensure_ascii=False),
+                            },
+                        })
+            new_msg: dict[str, Any] = {"role": "assistant", "content": "".join(text_parts)}
+            if tool_calls:
+                new_msg["tool_calls"] = tool_calls
+            result.append(new_msg)
         else:
-            # 普通消息
+            # 普通消息：content 是字符串（或其他基本类型）
             new_msg: dict[str, Any] = {"role": role, "content": content}
-            # 如果是 assistant 且有 tool_calls，要补回去（这通常发生在 assistant 消息中）
+            # 如果是 assistant 且有 tool_calls，要补回去（兼容旧调用）
             if role == "assistant" and "tool_calls" in msg:
                 new_msg["tool_calls"] = msg["tool_calls"]
             result.append(new_msg)
