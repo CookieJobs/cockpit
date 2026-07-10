@@ -13,9 +13,9 @@
 """
 import time
 import uuid
-from datetime import date
+from datetime import date, datetime
 from enum import Enum
-from typing import Annotated, List, Optional
+from typing import Annotated, Any, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -294,3 +294,40 @@ class Snapshot(ShiguangModel):
     projects: list[ProjectSnapshot]
     done_today: list[Achievement]
     counts: dict[str, int]
+
+
+# ===== Chat Sessions =====
+
+
+class ChatSession(ShiguangModel):
+    """对话 session。
+
+    Session 隔离策略：
+    - id 由前端生成（UUID），存 localStorage
+    - 跨刷新保留；切换浏览器/隐身模式自动建新 session
+    - 后端不区分设备，只按 session_id 存
+    """
+    id: str
+    label: str = Field(default="新对话")
+    created_at: datetime
+    last_active_at: datetime
+    archived: bool = Field(default=False)
+    message_count: int = Field(default=0)
+
+
+class ChatMessage(ShiguangModel):
+    """单条对话消息。
+
+    存盘用 Anthropic 格式的 content list（支持 tool_use/tool_result blocks），
+    LLM 客户端会自己转换。role 取值：
+    - "user"：用户输入，或 assistant 调工具后的 tool_result 合并消息
+    - "assistant"：LLM 回复（含 tool_use blocks）
+    """
+    id: str
+    session_id: str
+    role: str  # "user" | "assistant"
+    content: str  # 序列化的 Anthropic content list（JSON 字符串）
+    tool_calls: Optional[list[dict[str, Any]]] = Field(
+        default=None, description="assistant 消息的工具调用摘要（用于 UI 展示）"
+    )
+    created_at: datetime

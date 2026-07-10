@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, delete, func, select
@@ -22,6 +22,8 @@ from app.core.focus import sort_focus
 from app.core.models import (
     Achievement,
     AchievementUpdate,
+    ChatMessage,
+    ChatSession,
     ChecklistItem,
     CVStatus,
     FocusItem,
@@ -104,6 +106,54 @@ class SettingsORM(Base):
     value: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[DateTime] = mapped_column(
         DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ChatSessionORM(Base):
+    """对话 session 表。
+
+    id 由前端生成（UUID），跨刷新保留；切换浏览器/隐身模式自动建新 session。
+
+    注意：created_at/last_active_at 用 Python 端 datetime.now() 默认，
+    不用 server_default=func.now()。原因：server default 在 flush 后
+    要 refresh 才能读到新值，但 async SQLAlchemy 在 await 链外 lazy load
+    会触发 MissingGreenlet。客户端 default 由 SQLAlchemy 直接写到对象上，
+    无需 refresh。
+    """
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    label: Mapped[str] = mapped_column(String(100), default="新对话", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now
+    )
+    last_active_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now, onupdate=datetime.now
+    )
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class ChatMessageORM(Base):
+    """对话消息表。
+
+    一条消息对应一轮 user/assistant 交互。content 存 Anthropic 格式的
+    content list（JSON 字符串），LLM 客户端会自己转换。
+    role: "user" | "assistant"
+    """
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    tool_calls_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now, index=True
     )
 
 
@@ -209,6 +259,28 @@ def _achievement_to_pydantic(a: AchievementORM) -> Achievement:
         cv=a.cv,
         cv_status=CVStatus(a.cv_status),
         tags=json.loads(a.tags_json or "[]"),
+    )
+
+
+def _session_to_pydantic(s: ChatSessionORM, message_count: int = 0) -> ChatSession:
+    return ChatSession(
+        id=s.id,
+        label=s.label,
+        created_at=s.created_at,
+        last_active_at=s.last_active_at,
+        archived=s.archived,
+        message_count=message_count,
+    )
+
+
+def _message_to_pydantic(m: ChatMessageORM) -> ChatMessage:
+    return ChatMessage(
+        id=m.id,
+        session_id=m.session_id,
+        role=m.role,
+        content=m.content,
+        tool_calls=json.loads(m.tool_calls_json) if m.tool_calls_json else None,
+        created_at=m.created_at,
     )
 
 
@@ -566,6 +638,207 @@ async def delete_setting(key: str) -> bool:
             return False
         await session.delete(row)
         return True
+
+
+# ===== CRUD: Chat Sessions =====
+
+
+async def create_chat_session(session_id: str, label: str = "新对话") -> ChatSession:
+    """创建新 session（id 由前端提供）。"""
+    async with get_session() as session:
+        s = ChatSessionORM(id=session_id, label=label)
+        session.add(s)
+        await session.flush()
+        return _session_to_pydantic(s, message_count=0)
+
+
+async def get_chat_session(session_id: str) -> Optional[ChatSession]:
+    """取单个 session（含 message_count）。"""
+    async with get_session() as session:
+        result = await session.execute(
+            select(ChatSessionORM).where(ChatSessionORM.id == session_id)
+        )
+        s = result.scalar_one_or_none()
+        if not s:
+            return None
+        count_result = await session.execute(
+            select(func.count(ChatMessageORM.id)).where(ChatMessageORM.session_id == session_id)
+        )
+        msg_count = count_result.scalar_one()
+        return _session_to_pydantic(s, message_count=int(msg_count or 0))
+
+
+async def list_chat_sessions(include_archived: bool = False, limit: int = 50) -> list[ChatSession]:
+    """列出活跃 session（按 last_active_at desc）。"""
+    async with get_session() as session:
+        stmt = select(ChatSessionORM).order_by(ChatSessionORM.last_active_at.desc()).limit(limit)
+        if not include_archived:
+            stmt = stmt.where(ChatSessionORM.archived.is_(False))
+        result = await session.execute(stmt)
+        sessions = result.scalars().all()
+        # 批量算 message_count
+        out: list[ChatSession] = []
+        for s in sessions:
+            count_result = await session.execute(
+                select(func.count(ChatMessageORM.id)).where(ChatMessageORM.session_id == s.id)
+            )
+            msg_count = count_result.scalar_one()
+            out.append(_session_to_pydantic(s, message_count=int(msg_count or 0)))
+        return out
+
+
+async def touch_chat_session(session_id: str) -> None:
+    """更新 last_active_at（每次新消息后调用）。"""
+    async with get_session() as session:
+        result = await session.execute(
+            select(ChatSessionORM).where(ChatSessionORM.id == session_id)
+        )
+        s = result.scalar_one_or_none()
+        if not s:
+            return
+        s.last_active_at = datetime.now()
+
+
+async def rename_chat_session(session_id: str, label: str) -> Optional[ChatSession]:
+    """重命名 session。"""
+    async with get_session() as session:
+        result = await session.execute(
+            select(ChatSessionORM).where(ChatSessionORM.id == session_id)
+        )
+        s = result.scalar_one_or_none()
+        if not s:
+            return None
+        s.label = label[:100]
+        await session.flush()
+        count_result = await session.execute(
+            select(func.count(ChatMessageORM.id)).where(ChatMessageORM.session_id == session_id)
+        )
+        msg_count = count_result.scalar_one()
+        return _session_to_pydantic(s, message_count=int(msg_count or 0))
+
+
+async def archive_chat_session(session_id: str, archived: bool = True) -> Optional[ChatSession]:
+    """归档/取消归档 session。"""
+    async with get_session() as session:
+        result = await session.execute(
+            select(ChatSessionORM).where(ChatSessionORM.id == session_id)
+        )
+        s = result.scalar_one_or_none()
+        if not s:
+            return None
+        s.archived = archived
+        await session.flush()
+        count_result = await session.execute(
+            select(func.count(ChatMessageORM.id)).where(ChatMessageORM.session_id == session_id)
+        )
+        msg_count = count_result.scalar_one()
+        return _session_to_pydantic(s, message_count=int(msg_count or 0))
+
+
+async def delete_chat_session(session_id: str) -> bool:
+    """删除 session（级联删 messages）。
+
+    注意：SQLite 默认不强制外键，DB 级 ON DELETE CASCADE 不生效。
+    这里手动先删 messages（参考 delete_project 对 tasks 的处理）。
+    """
+    async with get_session() as session:
+        # 先删 messages
+        await session.execute(
+            delete(ChatMessageORM).where(ChatMessageORM.session_id == session_id)
+        )
+        # 再删 session
+        result = await session.execute(
+            select(ChatSessionORM).where(ChatSessionORM.id == session_id)
+        )
+        s = result.scalar_one_or_none()
+        if not s:
+            return False
+        await session.delete(s)
+        return True
+
+
+# ===== CRUD: Chat Messages =====
+
+
+async def add_chat_message(
+    session_id: str,
+    role: str,
+    content: str,
+    tool_calls: Optional[list[dict]] = None,
+) -> ChatMessage:
+    """追加一条消息到 session。"""
+    async with get_session() as session:
+        m = ChatMessageORM(
+            id=_new_id("msg"),
+            session_id=session_id,
+            role=role,
+            content=content,
+            tool_calls_json=json.dumps(tool_calls, ensure_ascii=False) if tool_calls else None,
+        )
+        session.add(m)
+        await session.flush()
+        # 顺手更新 session 的 last_active_at
+        result = await session.execute(
+            select(ChatSessionORM).where(ChatSessionORM.id == session_id)
+        )
+        s = result.scalar_one_or_none()
+        if s:
+            s.last_active_at = datetime.now()
+        return _message_to_pydantic(m)
+
+
+async def list_chat_messages(session_id: str, limit: int = 40) -> list[ChatMessage]:
+    """取 session 最近 N 条消息（按时间正序）。"""
+    async with get_session() as session:
+        result = await session.execute(
+            select(ChatMessageORM)
+            .where(ChatMessageORM.session_id == session_id)
+            .order_by(ChatMessageORM.created_at.desc())
+            .limit(limit)
+        )
+        # 反转成正序（从旧到新）
+        msgs = list(reversed(result.scalars().all()))
+        return [_message_to_pydantic(m) for m in msgs]
+
+
+async def append_chat_turn(
+    session_id: str,
+    user_content: str,
+    assistant_content: str,
+    assistant_tool_calls: Optional[list[dict]] = None,
+) -> tuple[ChatMessage, ChatMessage]:
+    """追加完整一轮（user + assistant），返回两条消息。"""
+    user_msg = await add_chat_message(session_id, "user", user_content)
+    assistant_msg = await add_chat_message(
+        session_id, "assistant", assistant_content, tool_calls=assistant_tool_calls
+    )
+    return user_msg, assistant_msg
+
+
+async def load_chat_history_for_llm(
+    session_id: str, limit: int = 40
+) -> list[dict]:
+    """加载 session 历史给 LLM（返回 Anthropic 格式的消息列表）。
+
+    返回的消息格式：
+    - {"role": "user", "content": "..."} 或
+    - {"role": "assistant", "content": [{"type": "text", "text": "..."}, {"type": "tool_use", ...}]}
+    """
+    msgs = await list_chat_messages(session_id, limit=limit)
+    result: list[dict] = []
+    for m in msgs:
+        try:
+            # content 是 JSON 字符串（Anthropic content list）
+            parsed = json.loads(m.content)
+            if isinstance(parsed, list):
+                result.append({"role": m.role, "content": parsed})
+            else:
+                # 兜底：纯文本
+                result.append({"role": m.role, "content": str(parsed)})
+        except (json.JSONDecodeError, TypeError):
+            # 兜底：纯文本
+            result.append({"role": m.role, "content": m.content})
+    return result
 
 
 # ===== Snapshot =====

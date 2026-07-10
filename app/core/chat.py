@@ -28,10 +28,15 @@ class ChatResponse:
     data: Optional[dict[str, Any]] = None
     used_llm: bool = False
     tool_calls: list[dict[str, Any]] = None  # type: ignore
+    # 完整 Anthropic 格式消息序列（含 tool_use/tool_result blocks），
+    # 用于持久化到 chat_messages 表，供下次 LLM 调用带回上下文。
+    messages: list[dict[str, Any]] = None  # type: ignore
 
     def __post_init__(self):
         if self.tool_calls is None:
             self.tool_calls = []
+        if self.messages is None:
+            self.messages = []
 
 
 # ===== 关键词解析器（兜底）=====
@@ -249,9 +254,16 @@ async def dispatch(
                         },
                         used_llm=True,
                         tool_calls=result.tool_calls_made,
+                        messages=result.messages,
                     )
         except Exception as e:
             logger.exception("LLM dispatch failed, falling back to keyword")
 
     # 兜底：关键词
-    return await dispatch_keyword(text)
+    response = await dispatch_keyword(text)
+    # 给关键词 fallback 也构造一个最小 messages（user + assistant）方便持久化
+    response.messages = [
+        {"role": "user", "content": text},
+        {"role": "assistant", "content": [{"type": "text", "text": response.text}]},
+    ]
+    return response
