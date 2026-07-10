@@ -83,8 +83,14 @@ const DEFAULT_BASE_URLS: Record<Backend, string> = {
 
 const PRESETS: Record<Backend, string[]> = {
   anthropic: ["claude-sonnet-4-5", "claude-opus-4-5", "claude-3-5-haiku-20241022"],
-  deepseek: ["deepseek-chat", "deepseek-reasoner"],
-  minimax: ["MiniMax-abab6.5s-chat", "MiniMax-abab6.5t-chat", "MiniMax-abab6.5g-chat"],
+  deepseek: ["deepseek-chat", "deepseek-reasoner", "deepseek-coder"],
+  minimax: [
+    // MiniMax 官方 OpenAI 兼容 API 用的模型名（无前缀）
+    // 用阿里云百炼 dashscope 时模型名要带 MiniMax- 前缀
+    "abab6.5s-chat",
+    "abab6.5t-chat",
+    "abab6.5g-chat",
+  ],
   openai: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "moonshot-v1-128k"],
   custom: [],
 };
@@ -323,6 +329,8 @@ function LLMConfigForm({
             {backend === "minimax" && (
               <span className="text-fg-muted ml-2">
                 默认: <code className="text-fg">https://api.minimax.chat/v1</code>
+                （官方 OpenAI 兼容端点；如果用阿里云百炼 key，改 base_url 为
+                <code className="text-fg">https://dashscope.aliyuncs.com/compatible-mode/v1</code> 且模型名加 <code className="text-fg">MiniMax-</code> 前缀）
               </span>
             )}
             {backend === "openai" && (

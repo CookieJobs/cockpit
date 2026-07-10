@@ -111,13 +111,17 @@ LLM_MODEL_PRESETS: dict[str, list[str]] = {
         "claude-3-5-haiku-20241022",
     ],
     "deepseek": [
-        "deepseek-chat",       # V3.2 非思考
-        "deepseek-reasoner",   # V3.2 思考 / R1
+        "deepseek-chat",          # V3.2 非思考模式
+        "deepseek-reasoner",      # V3.2 思考模式 / R1
+        "deepseek-coder",         # 代码专精
     ],
     "minimax": [
-        "MiniMax-abab6.5s-chat",  # 通用 / 长文本
-        "MiniMax-abab6.5t-chat",  # 中文人设对话
-        "MiniMax-abab6.5g-chat",  # 英文人设对话
+        # MiniMax 官方 OpenAI 兼容 API 用的模型名（不带 MiniMax- 前缀）
+        # 如果你用阿里云百炼 dashscope 兼容模式，模型名要带 MiniMax- 前缀
+        # 见 https://api.minimax.chat/
+        "abab6.5s-chat",          # 通用 / 长文本 / 245k context / 支持 function call
+        "abab6.5t-chat",          # 中文人设对话
+        "abab6.5g-chat",          # 英文人设对话
     ],
     "openai": [
         "gpt-4o",
