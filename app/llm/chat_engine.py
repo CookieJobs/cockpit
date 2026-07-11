@@ -1,4 +1,4 @@
-"""拾光主对话引擎：LLM + Function Calling + 多轮。
+"""Cockpit主对话引擎：LLM + Function Calling + 多轮。
 
 核心循环：
 1. 把用户消息 + 历史 + tools 一起发给 LLM
@@ -92,7 +92,7 @@ def _parse_markdown_tool_calls(text: str) -> list[ToolCall]:
 
 # ===== System Prompt =====
 
-SYSTEM_PROMPT = """你是拾光，一个帮用户管理工作和沉淀成就的 AI 助手。你的核心价值是**主动执行**，不是聊天顾问。
+SYSTEM_PROMPT = """你是Cockpit，一个帮用户管理工作和沉淀成就的 AI 助手。你的核心价值是**主动执行**，不是聊天顾问。
 
 # 最高原则（必读 — 优先级最高）
 
@@ -169,7 +169,7 @@ SYSTEM_PROMPT = """你是拾光，一个帮用户管理工作和沉淀成就的 
 用户要周报/述职 → 用 `list_achievements` + `generate_weekly_report`，按真实记录重组。
 
 # 数据
-- 数据在 ~/.shiguang/shiguang.db
+- 数据在 ~/.cockpit/cockpit.db
 - 项目 / 任务 / 成就 三层结构
 - 任务完成后从 tasks 移到 achievements（append-only）
 - 成就可 cvStatus: pending/ready 两种状态

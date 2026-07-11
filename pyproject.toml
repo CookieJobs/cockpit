@@ -62,12 +62,12 @@ llm-openai = [
     "openai>=1.30",
 ]
 all = [
-    "shiguang[dev,llm-anthropic,llm-ollama,llm-openai]",
+    "cockpit[dev,llm-anthropic,llm-ollama,llm-openai]",
 ]
 
 [project.urls]
-Homepage = "https://github.com/CookieJobs/shiguang"
-Documentation = "https://github.com/CookieJobs/shiguang/blob/main/docs/PRD.md"
+Homepage = "https://github.com/CookieJobs/cockpit"
+Documentation = "https://github.com/CookieJobs/cockpit/blob/main/docs/PRD.md"
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -1,13 +1,13 @@
-# 拾光 · 产品需求文档 (PRD)
+# Cockpit · 产品需求文档 (PRD)
 
 > 版本: v0.2 · 更新日期: 2026-07-09 · 状态: 内部讨论稿
-> 品牌: 拾光 (Shiguang) · 仓库: `CookieJobs/shiguang`
+> 品牌: Cockpit (Cockpit) · 仓库: `CookieJobs/cockpit`
 
 ---
 
 ## 0. TL;DR
 
-**拾光** 是给互联网产品/运营/技术人员的"工作流记忆外挂"。用对话式 agent 帮你记录任务、完成时沉淀成就，季度述职前不再抓瞎。
+**Cockpit** 是给互联网产品/运营/技术人员的"工作流记忆外挂"。用对话式 agent 帮你记录任务、完成时沉淀成就，季度述职前不再抓瞎。
 
 **一句话定位：** 你的个人项目驾驶舱——不替你干活，替你记住你干过什么、要干什么。
 
@@ -358,7 +358,7 @@ CVExport (导出记录) - v1.1
 ```
 用户输入（对话/快捷键/语音/IM 机器人）
   → LLM 解析意图 + Function Calling
-  → 调用拾光 API（CRUD）
+  → 调用Cockpit API（CRUD）
   → 写入本地 SQLite
   → 实时推送 Web UI（WebSocket）
   → 触发通知（飞书/微信/系统通知 if 配置）
@@ -494,14 +494,14 @@ CVExport (导出记录) - v1.1
 
 **关键约束：原 skill 仓库 `CookieJobs/task-cockpit` 保持独立维护，不 fork、不 submodule。**
 
-拾光不是 skill 的"产品化分支"，而是**形态不同的新产品**：
+Cockpit不是 skill 的"产品化分支"，而是**形态不同的新产品**：
 - skill 仓库：用 SKILL.md 触发的 LLM agent 通过 CLI 调用 cockpit.py
-- 拾光：独立 web 产品，有自己的后端 + 前端 + 数据库
+- Cockpit：独立 web 产品，有自己的后端 + 前端 + 数据库
 
 **代码层面：**
-- 拾光**不复用** skill 的代码（不 fork、不 submodule）
-- 拾光在重写时**严格继承** skill 的设计哲学：相同的数据模型、相同的状态机、相同的数据目录习惯
-- 提供数据导入脚本：从 `~/.task-cockpit/` 导入历史数据到 `~/.shiguang/`
+- Cockpit**不复用** skill 的代码（不 fork、不 submodule）
+- Cockpit在重写时**严格继承** skill 的设计哲学：相同的数据模型、相同的状态机、相同的数据目录习惯
+- 提供数据导入脚本：从 `~/.task-cockpit/` 导入历史数据到 `~/.cockpit/`
 
 ---
 
@@ -642,7 +642,7 @@ CVExport (导出记录) - v1.1
 
 - [ ] **国内支付方案：** 微信支付 vs 支付宝 vs Stripe（海外）
 - [ ] **跨端同步方案：** iCloud Drive（轻量）vs 自建后端（重但可控）
-- [ ] **品牌正式名：** "拾光"已定，英文 slug 待定（shiguang / shiguang.app / shimmer 等候选）
+- [ ] **品牌正式名：** "Cockpit"已定，英文 slug 待定（cockpit / cockpit.app / shimmer 等候选）
 - [ ] **是否做"成就公开页"？** 隐私 vs 个人 brand 引流
 
 ---
@@ -696,7 +696,7 @@ CVExport (导出记录) - v1.1
 
 | 术语 | 含义 |
 |---|---|
-| **拾光 (Shiguang)** | 产品名，"拾起时光" |
+| **Cockpit (Cockpit)** | 产品名，"拾起时光" |
 | **Achievement** | 成就，已完成任务的永久记录 |
 | **cvStatus** | CV 状态（pending/ready） |
 | **Focus** | 今日聚焦，最高优先级 5 个任务 |
@@ -728,7 +728,7 @@ CVExport (导出记录) - v1.1
 | 版本 | 日期 | 修订人 | 说明 |
 |---|---|---|---|
 | v0.1 | 2026-07-09 | Mavis + 用户 | 初稿，路线 B 产品方向 |
-| v0.2 | 2026-07-09 | Mavis + 用户 | 品牌定为"拾光"；砍团队版；明确 dogfooding 策略；产品本人 = 种子用户；修复目录命名冲突 |
+| v0.2 | 2026-07-09 | Mavis + 用户 | 品牌定为"Cockpit"；砍团队版；明确 dogfooding 策略；产品本人 = 种子用户；修复目录命名冲突 |
 
 ---
 

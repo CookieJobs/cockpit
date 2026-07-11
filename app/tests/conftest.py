@@ -1,4 +1,4 @@
-"""pytest fixtures for 拾光。"""
+"""pytest fixtures for Cockpit。"""
 from collections.abc import AsyncIterator
 from pathlib import Path
 

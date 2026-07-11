@@ -5,7 +5,7 @@ import { api, type ChatResponse, type ChatHistoryMessage, type ChatSession } fro
 import { renderMarkdown } from "./Markdown";
 import { Send, Sparkles, Wrench, Plus, History, Trash2, MessageSquare, X, Eraser } from "lucide-react";
 
-const SESSION_STORAGE_KEY = "shiguang_session_id";
+const SESSION_STORAGE_KEY = "cockpit_session_id";
 
 type Message = {
   id: string;
@@ -121,7 +121,7 @@ export function ChatWindow({ onAction }: { onAction?: () => void }) {
               id: "welcome",
               role: "agent",
               content:
-                "你好！我是拾光 🤖\n\n可以试试说「我现在该干啥」「添加任务 XXX」「修 bug 完成了」\n\n带 ● LLM 徽章时我用 LLM 理解，无徽章时用关键词模式。\n对话已自动保存，刷新页面不会丢失～",
+                "你好！我是Cockpit 🤖\n\n可以试试说「我现在该干啥」「添加任务 XXX」「修 bug 完成了」\n\n带 ● LLM 徽章时我用 LLM 理解，无徽章时用关键词模式。\n对话已自动保存，刷新页面不会丢失～",
               timestamp: Date.now(),
             },
           ]);
@@ -134,7 +134,7 @@ export function ChatWindow({ onAction }: { onAction?: () => void }) {
           {
             id: "welcome",
             role: "agent",
-            content: "你好！我是拾光 🤖（离线模式，对话不持久化）",
+            content: "你好！我是Cockpit 🤖（离线模式，对话不持久化）",
             timestamp: Date.now(),
           },
         ]);

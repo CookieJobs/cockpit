@@ -1,4 +1,4 @@
-"""拾光数据模型（pydantic v2）。
+"""Cockpit数据模型（pydantic v2）。
 
 设计哲学（继承自 task-cockpit skill）：
 - 三个核心实体：Project / Task / Achievement
@@ -63,8 +63,8 @@ class CVStatus(str, Enum):
 # ===== Checklist =====
 
 
-# 注意：ChecklistItem 在 ShiguangModel 之前定义，因此先用一个最小类
-# 然后等 ShiguangModel 定义后再升级
+# 注意：ChecklistItem 在 CockpitModel 之前定义，因此先用一个最小类
+# 然后等 CockpitModel 定义后再升级
 class _ChecklistItemPending:
     """占位，定义后会被覆盖。"""
     pass
@@ -73,8 +73,8 @@ class _ChecklistItemPending:
 # ===== Base =====
 
 
-class ShiguangModel(BaseModel):
-    """拾光模型基类。"""
+class CockpitModel(BaseModel):
+    """Cockpit模型基类。"""
     model_config = ConfigDict(
         str_strip_whitespace=True,
         validate_assignment=True,
@@ -82,7 +82,7 @@ class ShiguangModel(BaseModel):
     )
 
 
-class ChecklistItem(ShiguangModel):
+class ChecklistItem(CockpitModel):
     """任务子项（清单项）。"""
     text: str = Field(..., min_length=1, max_length=500)
     done: bool = False
@@ -133,7 +133,7 @@ LLM_MODEL_PRESETS: dict[str, list[str]] = {
 }
 
 
-class LLMSettings(ShiguangModel):
+class LLMSettings(CockpitModel):
     """用户在 UI 配的 LLM 配置（运行时）。
 
     优先级：DB（用户配）> .env（部署配）> 默认
@@ -144,7 +144,7 @@ class LLMSettings(ShiguangModel):
     base_url: Optional[str] = Field(None, description="自定义 endpoint URL")
 
 
-class LLMSettingsPublic(ShiguangModel):
+class LLMSettingsPublic(CockpitModel):
     """LLM 设置（脱敏响应：key 只显示前 4 + 后 4 位）"""
     backend: LLMBackend
     model: str
@@ -154,7 +154,7 @@ class LLMSettingsPublic(ShiguangModel):
     source: str = "env"  # "db" | "env" | "default"
 
 
-class LLMSettingsUpdate(ShiguangModel):
+class LLMSettingsUpdate(CockpitModel):
     """更新 LLM 设置的入参（所有字段可选）。"""
     backend: Optional[LLMBackend] = None
     model: Optional[str] = Field(None, min_length=1)
@@ -174,7 +174,7 @@ def mask_key(key: Optional[str]) -> Optional[str]:
 # ===== Project =====
 
 
-class ProjectBase(ShiguangModel):
+class ProjectBase(CockpitModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: str = Field(default="", max_length=2000, description="项目描述 / 目标")
 
@@ -184,7 +184,7 @@ class ProjectCreate(ProjectBase):
     pass
 
 
-class ProjectUpdate(ShiguangModel):
+class ProjectUpdate(CockpitModel):
     """更新项目的入参。"""
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=2000)
@@ -201,7 +201,7 @@ class Project(ProjectBase):
 # ===== Task =====
 
 
-class TaskBase(ShiguangModel):
+class TaskBase(CockpitModel):
     title: str = Field(..., min_length=1, max_length=500)
     description: str = Field(default="", max_length=5000, description="任务详情 / 上下文")
     priority: Priority = Field(default=Priority.MEDIUM)
@@ -216,7 +216,7 @@ class TaskCreate(TaskBase):
     project: str = Field(..., description="项目 ID")
 
 
-class TaskUpdate(ShiguangModel):
+class TaskUpdate(CockpitModel):
     """更新任务的入参（部分字段可选）。"""
     title: Optional[str] = Field(None, min_length=1, max_length=500)
     description: Optional[str] = Field(None, max_length=5000)
@@ -242,7 +242,7 @@ class Task(TaskBase):
 # ===== Achievement =====
 
 
-class AchievementBase(ShiguangModel):
+class AchievementBase(CockpitModel):
     outcome: str = Field(default="", description="用户描述的结果")
     reflection: str = Field(default="", description="用户复盘")
     cv: str = Field(default="", description="agent 生成的 CV 描述")
@@ -254,7 +254,7 @@ class AchievementCreate(AchievementBase):
     task_id: str
 
 
-class AchievementUpdate(ShiguangModel):
+class AchievementUpdate(CockpitModel):
     """更新成就的入参（只允许更新 cv 相关字段，符合 append-only 原则）。"""
     cv: Optional[str] = None
     cv_status: Optional[CVStatus] = None
@@ -274,7 +274,7 @@ class Achievement(AchievementBase):
 # ===== Snapshot（用于 dashboard / 问局势）=====
 
 
-class FocusItem(ShiguangModel):
+class FocusItem(CockpitModel):
     """今日聚焦条目。"""
     id: str
     project: str
@@ -285,14 +285,14 @@ class FocusItem(ShiguangModel):
     next_action: str = ""
 
 
-class ProjectSnapshot(ShiguangModel):
+class ProjectSnapshot(CockpitModel):
     """项目快照（含任务）。"""
     id: Optional[str]
     name: str
     tasks: list[Task]
 
 
-class Snapshot(ShiguangModel):
+class Snapshot(CockpitModel):
     """全局快照。"""
     focus: list[FocusItem]
     projects: list[ProjectSnapshot]
@@ -303,7 +303,7 @@ class Snapshot(ShiguangModel):
 # ===== Chat Sessions =====
 
 
-class ChatSession(ShiguangModel):
+class ChatSession(CockpitModel):
     """对话 session。
 
     Session 隔离策略：
@@ -319,7 +319,7 @@ class ChatSession(ShiguangModel):
     message_count: int = Field(default=0)
 
 
-class ChatMessage(ShiguangModel):
+class ChatMessage(CockpitModel):
     """单条对话消息。
 
     存盘用 Anthropic 格式的 content list（支持 tool_use/tool_result blocks），

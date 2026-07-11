@@ -33,7 +33,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
       {/* 左栏：项目 + 任务 */}
       <div className="w-[34%] border-r border-border flex flex-col bg-bg-secondary">
         <div className="p-4 border-b border-border flex items-center justify-between">
-          <h1 className="text-lg font-semibold text-fg">拾光</h1>
+          <h1 className="text-lg font-semibold text-fg">Cockpit</h1>
           <div className="flex items-center gap-3">
             {/* LLM 状态徽章 */}
             {llmStatus && (

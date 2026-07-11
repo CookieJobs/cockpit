@@ -32,15 +32,15 @@ async def get_status():
         has_key = bool(settings.anthropic_api_key or settings.openai_api_key)
         return LLMStatus(
             available=False,
-            configured_backend=settings.shiguang_llm_backend,
-            model=settings.shiguang_llm_model,
+            configured_backend=settings.cockpit_llm_backend,
+            model=settings.cockpit_llm_model,
             has_key=has_key,
         )
     return LLMStatus(
         available=True,
         backend=client.__class__.__name__,
         model=client.model,
-        configured_backend=settings.shiguang_llm_backend,
+        configured_backend=settings.cockpit_llm_backend,
         has_key=True,
     )
 
@@ -52,7 +52,7 @@ async def test_connection():
     if client is None:
         raise HTTPException(503, "No LLM client available. Check API key configuration.")
     ok = await client.health_check()
-    return {"ok": ok, "backend": settings.shiguang_llm_backend, "model": client.model}
+    return {"ok": ok, "backend": settings.cockpit_llm_backend, "model": client.model}
 
 
 @router.post("/reset")

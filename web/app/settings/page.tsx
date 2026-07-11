@@ -147,8 +147,8 @@ export default function SettingsPage() {
             数据
           </h2>
           <div className="text-xs text-fg-muted space-y-1">
-            <p>数据目录：~/.shiguang/</p>
-            <p>数据库：shiguang.db (SQLite)</p>
+            <p>数据目录：~/.cockpit/</p>
+            <p>数据库：cockpit.db (SQLite)</p>
             <p>配置存：settings 表（key-value）</p>
             <p>备份：v1.1 接入 iCloud Drive 同步</p>
           </div>
@@ -481,11 +481,11 @@ function EnvConfigDisplay({
       </h2>
       <div className="text-xs space-y-1 text-fg-secondary font-mono">
         <div>
-          <span className="text-fg-muted">SHIGUANG_LLM_BACKEND=</span>
+          <span className="text-fg-muted">COCKPIT_LLM_BACKEND=</span>
           <span className="text-fg">{env.backend}</span>
         </div>
         <div>
-          <span className="text-fg-muted">SHIGUANG_LLM_MODEL=</span>
+          <span className="text-fg-muted">COCKPIT_LLM_MODEL=</span>
           <span className="text-fg">{env.model}</span>
         </div>
         <div>

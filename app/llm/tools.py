@@ -1,6 +1,6 @@
 """Function Calling 工具注册表。
 
-把拾光的核心操作（CRUD、focus、achievements、export）暴露为 LLM 工具。
+把Cockpit的核心操作（CRUD、focus、achievements、export）暴露为 LLM 工具。
 LLM 通过 function calling 主动调用这些工具来完成任务管理。
 """
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""拾光 LLM 集成层。
+"""Cockpit LLM 集成层。
 
 支持多后端：
 - Anthropic Claude（默认）

@@ -1,4 +1,4 @@
-"""拾光存储层（异步 SQLAlchemy 2.0 + aiosqlite）。
+"""Cockpit存储层（异步 SQLAlchemy 2.0 + aiosqlite）。
 
 设计原则：
 - 异步 SQLAlchemy 2.0 + aiosqlite（本地默认）

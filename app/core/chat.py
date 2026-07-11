@@ -1,4 +1,4 @@
-"""拾光对话引擎：LLM 优先 + 关键词兜底。
+"""Cockpit对话引擎：LLM 优先 + 关键词兜底。
 
 调用流程：
 1. 尝试 LLM（如果可用）
@@ -180,7 +180,7 @@ async def cmd_confirm(text: str) -> ChatResponse:
 async def cmd_help(text: str) -> ChatResponse:
     return ChatResponse(
         text=(
-            "🤖 **拾光对话命令**（无 LLM 阶段用关键词匹配，3c 阶段会接 LLM）\n\n"
+            "🤖 **Cockpit对话命令**（无 LLM 阶段用关键词匹配，3c 阶段会接 LLM）\n\n"
             "**任务管理**\n"
             "- `我现在该干啥` — 查看今日聚焦\n"
             "- `添加任务 <标题>` — 新建任务（草稿）\n"

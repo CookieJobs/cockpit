@@ -2,7 +2,7 @@
 
 优先级：
 1. settings 表里的 "llm_config"（用户从 UI 配的）
-2. .env 文件里的 SHIGUANG_LLM_BACKEND / ANTHROPIC_API_KEY 等
+2. .env 文件里的 COCKPIT_LLM_BACKEND / ANTHROPIC_API_KEY 等
 3. 默认值（anthropic + claude-sonnet-4-5）
 
 修改 DB 配置后，调用 reset_client() 清缓存，下一次 get_client() 会用新配置。
@@ -45,11 +45,11 @@ async def load_settings_from_db() -> Optional[LLMSettings]:
 
 def load_settings_from_env() -> LLMSettings:
     """从 .env 读配置（fallback）。"""
-    backend = settings.shiguang_llm_backend
+    backend = settings.cockpit_llm_backend
     if backend == "anthropic":
         return LLMSettings(
             backend=backend,
-            model=settings.shiguang_llm_model,
+            model=settings.cockpit_llm_model,
             api_key=settings.anthropic_api_key or None,
             base_url=settings.anthropic_base_url,
         )
@@ -64,7 +64,7 @@ def load_settings_from_env() -> LLMSettings:
     else:
         return LLMSettings(
             backend=backend,
-            model=settings.shiguang_llm_model,
+            model=settings.cockpit_llm_model,
         )
 
 

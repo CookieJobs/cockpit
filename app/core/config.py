@@ -1,18 +1,21 @@
-"""拾光配置管理。
+"""Cockpit 配置管理。
 
 通过 pydantic-settings 从 .env / 环境变量加载配置。
+
+注意：核心字段（数据目录、端口、LLM 基础配置）用 AliasChoices 兼容旧的
+`SHIGUANG_*` 环境变量，老用户 .env 不用改就能继续用。
 """
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """拾光全局配置。"""
+    """Cockpit 全局配置。"""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -23,21 +26,34 @@ class Settings(BaseSettings):
     )
 
     # ===== 应用 =====
-    shiguang_env: Literal["development", "production", "test"] = Field(
-        default="development", alias="SHIGUANG_ENV"
+    # 数据目录默认 ~/.shiguang（保留以兼容已有用户数据；不强制改名）
+    cockpit_env: Literal["development", "production", "test"] = Field(
+        default="development",
+        validation_alias=AliasChoices("COCKPIT_ENV", "SHIGUANG_ENV"),
     )
-    shiguang_data_dir: Path = Field(
-        default=Path.home() / ".shiguang", alias="SHIGUANG_DATA_DIR"
+    cockpit_data_dir: Path = Field(
+        default=Path.home() / ".shiguang",
+        validation_alias=AliasChoices("COCKPIT_DATA_DIR", "SHIGUANG_DATA_DIR"),
     )
-    shiguang_port: int = Field(default=7842, alias="SHIGUANG_PORT")
-    shiguang_host: str = Field(default="127.0.0.1", alias="SHIGUANG_HOST")
+    cockpit_port: int = Field(
+        default=7842,
+        validation_alias=AliasChoices("COCKPIT_PORT", "SHIGUANG_PORT"),
+    )
+    cockpit_host: str = Field(
+        default="127.0.0.1",
+        validation_alias=AliasChoices("COCKPIT_HOST", "SHIGUANG_HOST"),
+    )
 
     # ===== LLM 后端 =====
-    shiguang_llm_backend: Literal["anthropic", "ollama", "openai"] = Field(
-        default="anthropic", alias="SHIGUANG_LLM_BACKEND"
+    # 5 个后端：anthropic / deepseek / minimax / openai / custom
+    # 兼容旧 SHIGUANG_LLM_BACKEND（之前是 anthropic/ollama/openai，ollama 已移除）
+    cockpit_llm_backend: Literal["anthropic", "deepseek", "minimax", "openai", "custom"] = Field(
+        default="anthropic",
+        validation_alias=AliasChoices("COCKPIT_LLM_BACKEND", "SHIGUANG_LLM_BACKEND"),
     )
-    shiguang_llm_model: str = Field(
-        default="claude-sonnet-4-5", alias="SHIGUANG_LLM_MODEL"
+    cockpit_llm_model: str = Field(
+        default="claude-sonnet-4-5",
+        validation_alias=AliasChoices("COCKPIT_LLM_MODEL", "SHIGUANG_LLM_MODEL"),
     )
 
     # Anthropic
@@ -46,11 +62,19 @@ class Settings(BaseSettings):
         default="https://api.anthropic.com", alias="ANTHROPIC_BASE_URL"
     )
 
-    # Ollama
-    ollama_base_url: str = Field(
-        default="http://127.0.0.1:11434", alias="OLLAMA_BASE_URL"
+    # DeepSeek
+    deepseek_api_key: str = Field(default="", alias="DEEPSEEK_API_KEY")
+    deepseek_base_url: str = Field(
+        default="https://api.deepseek.com/v1", alias="DEEPSEEK_BASE_URL"
     )
-    ollama_model: str = Field(default="qwen2.5:3b", alias="OLLAMA_MODEL")
+    deepseek_model: str = Field(default="deepseek-chat", alias="DEEPSEEK_MODEL")
+
+    # MiniMax (MiniMax 官方 OpenAI 兼容 API)
+    minimax_api_key: str = Field(default="", alias="MINIMAX_API_KEY")
+    minimax_base_url: str = Field(
+        default="https://api.minimax.chat/v1", alias="MINIMAX_BASE_URL"
+    )
+    minimax_model: str = Field(default="abab6.5s-chat", alias="MINIMAX_MODEL")
 
     # OpenAI 兼容
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
@@ -61,17 +85,16 @@ class Settings(BaseSettings):
     database_url: str = Field(default="", alias="DATABASE_URL")
 
     # ===== 安全 =====
-    shiguang_encryption_key: str = Field(
-        default="", alias="SHIGUANG_ENCRYPTION_KEY"
-    )
+    cockpit_encryption_key: str = Field(default="", alias="COCKPIT_ENCRYPTION_KEY")
 
     def get_database_url(self) -> str:
         """获取异步数据库 URL（默认 SQLite via aiosqlite）。"""
         if self.database_url:
             return self.database_url
         # 确保数据目录存在
-        self.shiguang_data_dir.mkdir(parents=True, exist_ok=True)
-        db_path = self.shiguang_data_dir / "shiguang.db"
+        self.cockpit_data_dir.mkdir(parents=True, exist_ok=True)
+        # 默认 DB 文件名保留 shiguang.db（兼容老数据；不强制改名）
+        db_path = self.cockpit_data_dir / "shiguang.db"
         return f"sqlite+aiosqlite:///{db_path}"
 
 

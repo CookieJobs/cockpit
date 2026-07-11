@@ -1,4 +1,4 @@
-"""拾光 Focus 排序逻辑。
+"""Cockpit Focus 排序逻辑。
 
 继承自 task-cockpit skill 的排序规则：
 1. draft 任务不进入 focus

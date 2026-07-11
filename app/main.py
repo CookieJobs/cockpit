@@ -1,4 +1,4 @@
-"""拾光 FastAPI 主入口。"""
+"""Cockpit FastAPI 主入口。"""
 import logging
 from contextlib import asynccontextmanager
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化数据库。"""
-    logger.info("拾光后端启动，初始化数据库...")
+    logger.info("Cockpit后端启动，初始化数据库...")
     storage.init_engine()
     await storage.create_tables()
     logger.info("数据库就绪")
@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="拾光 API",
+    title="Cockpit API",
     version="0.1.0",
     description="你的个人项目驾驶舱",
     lifespan=lifespan,
@@ -45,7 +45,7 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "version": "0.1.0", "name": "拾光"}
+    return {"status": "ok", "version": "0.1.0", "name": "Cockpit"}
 
 
 # 注册路由
