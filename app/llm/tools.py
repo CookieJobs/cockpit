@@ -80,12 +80,28 @@ async def tool_add_task(
     next_action: str = "",
     blocked: bool = False,
 ) -> dict:
-    """新建任务（直接进 todo）。"""
+    """新建任务（直接进 todo）。
+
+    幂等行为：同一项目内，title 严格相等（trim 后）的任务**不会重复建**。
+    已存在则返回 existing + `_idempotent: true` 标记，让 LLM 知道这是已有
+    任务（用于后续 update_task 改 due/priority/description 等）。
+    这是防呆防线 — 即使 LLM 漏掉 list_tasks 检查，也不会建重复任务。
+    """
     from app.core.models import Priority
     try:
         prio = Priority(priority)
     except ValueError:
         return {"error": f"Invalid priority: {priority}. Must be 高/中/低."}
+    title_clean = title.strip()
+    if title_clean:
+        existing_tasks = await storage.list_tasks(project_id=project)
+        for et in existing_tasks:
+            if et.title.strip() == title_clean:
+                return {
+                    "_idempotent": True,
+                    "_hint": "任务已存在。若要修改 due/priority/description 等字段，请用 update_task。",
+                    **et.model_dump(mode="json"),
+                }
     try:
         t = await storage.add_task(TaskCreate(
             project=project, title=title, description=description, priority=prio,
@@ -324,7 +340,18 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "update_task",
-        "description": "更新任务字段。",
+        "description": (
+            "更新已有任务的字段（**不要用此工具新建**）。\n\n"
+            "**主动调用场景**（听到这些意图时立即用）：\n"
+            "- 「DDL/截止日期设为 7月12号」 / 「明天截止」 / 「延期到下周」 → `update_task(id, due=\"2026-07-12\")`\n"
+            "- 「优先级改成高/中/低」 / 「重要程度调一下」 → `update_task(id, priority=\"高\")`\n"
+            "- 「标记为阻塞」 / 「解除阻塞」 → `update_task(id, blocked=true|false)`\n"
+            "- 「状态改成进行中/已完成」 → `update_task(id, status=\"IN_PROGRESS\"|\"DONE\")`\n"
+            "- 「next_action 改成：发邮件给 Y」 → `update_task(id, next_action=\"...\")`\n"
+            "- 「任务描述补充：...」 / 「任务详情写一下：...」 → `update_task(id, description=\"...\")`\n"
+            "- 「任务改名」 → `update_task(id, title=\"...\")`\n\n"
+            "**重要**：听到这些意图时，**先 list_tasks 找 id**，再调本工具。**不要 add_task 重建同名任务**。"
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
