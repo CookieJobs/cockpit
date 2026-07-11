@@ -317,7 +317,16 @@ function ProjectCard({
 function TaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
   const [confirming, setConfirming] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
   const [newChecklistText, setNewChecklistText] = useState("");
+
+  const updateTitle = async (newTitle: string) => {
+    setEditingTitle(false);
+    const trimmed = newTitle.trim();
+    if (!trimmed || trimmed === task.title) return;
+    await api.updateTask(task.id, { title: trimmed });
+    onChange();
+  };
 
   const priorityDot =
     task.priority === "高"
@@ -399,15 +408,44 @@ function TaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
         {/* 优先级 - 点击切换 */}
         <PriorityMenu priority={task.priority} onChange={updatePriority} />
 
-        <button
-          onClick={() => setExpanded((e) => !e)}
-          className="flex-1 text-left truncate flex items-center gap-1.5"
+        <div
+          onClick={() => !editingTitle && setExpanded((e) => !e)}
+          className="flex-1 text-left truncate flex items-center gap-1.5 cursor-pointer"
         >
-          <span
-            className={`truncate ${task.blocked ? "line-through text-fg-muted" : "text-fg"}`}
-          >
-            {task.title}
-          </span>
+          {editingTitle ? (
+            <input
+              type="text"
+              defaultValue={task.title}
+              autoFocus
+              onBlur={(e) => updateTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  updateTitle((e.target as HTMLInputElement).value);
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setEditingTitle(false);
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              className={`flex-1 bg-bg border border-accent rounded px-1 py-0.5 text-xs text-fg focus:outline-none ${
+                task.blocked ? "line-through text-fg-muted" : ""
+              }`}
+            />
+          ) : (
+            <span
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setEditingTitle(true);
+              }}
+              className={`truncate ${task.blocked ? "line-through text-fg-muted" : "text-fg"}`}
+              title="双击编辑名称"
+            >
+              {task.title}
+            </span>
+          )}
           {task.draft && (
             <span className="text-[10px] px-1 py-0 rounded bg-accent/20 text-accent flex-shrink-0">
               草稿
@@ -418,7 +456,7 @@ function TaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
               阻塞
             </span>
           )}
-        </button>
+        </div>
 
         {/* 截止日期 - 点击编辑 */}
         <DueEditor due={task.due} dueCls={dueCls} onChange={updateDue} />

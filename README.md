@@ -1,8 +1,10 @@
-# Cockpit (Cockpit)
+# Cockpit
+
+> Local-first personal agent that captures what you do, turns completed work into reusable achievements, and helps you write weekly reports and 述职 materials — powered by your own LLM API key, with your data staying on your own machine.
 
 > 你的个人项目驾驶舱——不替你干活，替你记住你干过什么、要干什么。
 
-Cockpit（Cockpit）是一个给互联网产品/运营/技术人员的"工作流记忆外挂"。用对话式 agent 帮你记录任务、完成时沉淀成就，季度述职前不再抓瞎。
+Cockpit 是一个给互联网产品/运营/技术人员的"工作流记忆外挂"。用对话式 agent 帮你记录任务、完成时沉淀成就，季度述职前不再抓瞎。
 
 > 📦 GitHub: [CookieJobs/cockpit](https://github.com/CookieJobs/cockpit)
 
