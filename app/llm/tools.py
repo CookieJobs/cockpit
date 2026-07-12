@@ -65,6 +65,31 @@ async def tool_update_project(
     return p.model_dump(mode="json")
 
 
+async def tool_delete_project(id: str) -> dict:
+    """删除项目及其下所有任务（级联）。
+
+    **重要安全**：这是不可逆操作 — 项目和其下所有任务都会被永久删除。
+    调用前应 list_projects 确认 id，且建议先告知用户：「将删除项目 X 及其下 N 个任务，确认吗？」。
+
+    如果用户说"这个项目不需要了"/"删掉 X"/"移除 X 项目" → 先 list_projects
+    找到 id → **二次确认用户**（对话反问 "确认删除项目 X 吗？"）→ 用户说"是"/"删"/"确认" → 才调本工具。
+    """
+    proj = await storage.get_project(id)
+    if not proj:
+        return {"error": f"Project {id} not found"}
+    name = proj.name
+    # 统计任务数（给用户看删除影响）
+    tasks = await storage.list_tasks(project_id=id)
+    ok = await storage.delete_project(id)
+    if not ok:
+        return {"error": f"Failed to delete project {id}"}
+    return {
+        "ok": True,
+        "deleted_project": name,
+        "deleted_task_count": len(tasks),
+    }
+
+
 async def tool_list_tasks(project: str | None = None) -> list[dict]:
     """列出任务，可按项目 ID 过滤。"""
     tasks = await storage.list_tasks(project_id=project)
@@ -305,6 +330,28 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "delete_project",
+        "description": (
+            "删除项目及其下所有任务（**不可逆**）。\n\n"
+            "**主动调用场景**（听到这些意图时立即用）：\n"
+            "- 「删掉 X 项目」 / 「移除 X 项目」 / 「项目 X 不需要了」 / 「X 项目删了吧」\n"
+            "- 「清空 X 项目下的所有任务」 → 删项目比逐个删任务更彻底\n\n"
+            "**强制安全流程**：\n"
+            "1. 先 `list_projects` 找到目标项目 id\n"
+            "2. **对话里反问用户**：「将删除项目 X 及其下 N 个任务，确认吗？」\n"
+            "3. 用户明确说「是」/「确认」/「删」**之后**才调本工具\n"
+            "4. 返回 `{ok, deleted_project, deleted_task_count}` 告诉用户结果\n\n"
+            "**绝不要**用户只说「删」一次就立刻执行 — 删除是不可逆的，必须二次确认。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "项目 ID（必填）"},
+            },
+            "required": ["id"],
+        },
+    },
+    {
         "name": "list_tasks",
         "description": "列出任务，可按项目 ID 过滤。",
         "input_schema": {
@@ -456,6 +503,7 @@ TOOL_HANDLERS: dict[str, Callable[..., Awaitable[Any]]] = {
     "list_projects": tool_list_projects,
     "add_project": tool_add_project,
     "update_project": tool_update_project,
+    "delete_project": tool_delete_project,
     "list_tasks": tool_list_tasks,
     "add_task": tool_add_task,
     "update_task": tool_update_task,

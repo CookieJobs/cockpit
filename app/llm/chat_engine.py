@@ -41,6 +41,8 @@ _MARKDOWN_TOOL_WHITELIST = {
     "add_task",
     "update_task",
     "update_project",
+    "delete_project",
+    "delete_task",
     "list_projects",
     "list_tasks",
     "complete_task",
@@ -152,6 +154,19 @@ SYSTEM_PROMPT = """你是Cockpit，一个帮用户管理工作和沉淀成就的
 **绝不要**因为工具里"add_task"和"update_task"都有就直接 add_task。即使你说"创建一个 DDL 任务"也要警惕 — **DDL 任务**是个常见词，用户大概率是说"已有任务加个 DDL"，不是真要新建一个叫 DDL 的任务。
 
 防御性提醒：add_task 工具会做幂等检查（同项目+同名返回 existing），但你**不要依赖**这个防线 — 你应该先 list 找到 id 然后 update。幂等只是兜底，不是正常路径。
+
+# 删除项目（不可逆 — 强制二次确认）
+
+听到以下意图 → 用 `delete_project`（**不**是 delete_task）：
+- 「删掉 X 项目」 / 「移除 X 项目」 / 「X 项目不需要了」 / 「X 项目不要了」
+
+**强制流程**（违反就是 bug）：
+1. `list_projects` 找到目标项目 id
+2. **对话里先问**：「项目 X 下还有 N 个任务，删除会把它们一起清掉。确认删除吗？」
+3. **等用户明确说"确认"/"是"/"删吧"** 后才调 `delete_project(id)`
+4. 删完简短汇报：「已删除项目 X（N 个任务一并清掉）」
+
+**绝不要**用户只说一次"删"就直接调用 — 删项目是不可逆操作，必须二次确认。
 
 # 你的能力
 - 通过自然语言创建/管理项目 / 任务 / 成就
