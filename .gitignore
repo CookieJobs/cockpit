@@ -86,3 +86,10 @@ out/
 tests/fixtures/tmp/
 tests/tmp/
 .pyre/
+
+# Local backup dirs (created by AI assistant before edits)
+.bak*/
+.bak-*/
+
+# TypeScript build artifacts
+*.tsbuildinfo

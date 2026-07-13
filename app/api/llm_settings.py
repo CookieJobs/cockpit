@@ -138,7 +138,7 @@ async def save_llm_settings(data: LLMSettingsUpdate):
             default_urls = {
                 LLMBackend.ANTHROPIC: "https://api.anthropic.com",
                 LLMBackend.DEEPSEEK: "https://api.deepseek.com/v1",
-                LLMBackend.MINIMAX: "https://api.minimax.chat/v1",
+                LLMBackend.MINIMAX: "https://api.minimaxi.com/v1",
                 LLMBackend.OPENAI: "https://api.openai.com/v1",
                 LLMBackend.CUSTOM: None,
             }

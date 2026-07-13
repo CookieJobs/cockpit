@@ -122,8 +122,8 @@ cd web && npx tsc --noEmit
 | 后端 | 适用 | 备注 |
 |---|---|---|
 | Anthropic | Claude Sonnet / Opus | 工具调用最稳 |
-| DeepSeek | deepseek-chat / reasoner | 国产，便宜 |
-| MiniMax | abab6.5s-chat | 国产，注意有 markdown tool-call 退化 |
+| DeepSeek | deepseek-v4-flash / v4-pro | 国产，便宜，1M 上下文 |
+| MiniMax | MiniMax-M3 | 国产，1M 上下文 / Coding & Agent 强 |
 | OpenAI | GPT-4o / 月之暗面 / 其他 | OpenAI 兼容 |
 | Custom | 自定义 | 完全自定义 base URL + model |
 

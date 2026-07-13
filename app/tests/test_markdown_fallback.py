@@ -1,8 +1,10 @@
 """Markdown tool call fallback 测试。
 
-适用场景：某些模型（如 MiniMax abab6.5s-chat）在拿到 tool_result 后
+适用场景：部分国产模型（旧 MiniMax abab 系列等）在拿到 tool_result 后
 倾向于输出 `functions.xxx(args)` markdown code block 而不是真的调 tool_use。
 chat_engine 检测到这种 markdown 伪调用会自动解析执行。
+
+M3/M2.7 等新模型理论上不再有此问题，本测试保留作为回归兜底。
 """
 from app.llm.chat_engine import _parse_markdown_tool_calls
 

@@ -53,8 +53,9 @@ _MARKDOWN_TOOL_WHITELIST = {
 def _parse_markdown_tool_calls(text: str) -> list[ToolCall]:
     """从 LLM 输出的 markdown 文本中提取伪 tool call。
 
-    适用场景：MiniMax abab6.5s-chat 等模型在拿到 tool_result 后倾向于
-    输出 `functions.xxx(args)` markdown code block 而不是真的调 tool_use。
+    适用场景：部分国产模型（旧版 MiniMax abab 系列等）在拿到 tool_result
+    后倾向于输出 `functions.xxx(args)` markdown code block 而不是真的调
+    tool_use。M3/M2.7 等新模型理论上不需要此 fallback，但保留以兜底。
 
     Returns:
         解析出的 ToolCall 列表（白名单内的工具才返回）
@@ -303,9 +304,9 @@ async def run_chat(
 
         # 如果没 tool_use，结束
         if not response.tool_calls:
-            # Fallback: 某些模型（如 MiniMax abab6.5s-chat）在拿到 tool_result 后
+            # Fallback: 某些模型（旧 MiniMax abab 系列等）在拿到 tool_result 后
             # 倾向于输出 markdown 伪 tool call（`functions.add_task(...)`）而不是
-            # 真的调 tool_use。检测并执行，提升主动性。
+            # 真的调 tool_use。检测并执行，提升主动性。M3/M2.7 通常不需要，但保留兜底。
             markdown_calls = _parse_markdown_tool_calls(response.text)
             if markdown_calls:
                 logger.info(

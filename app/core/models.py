@@ -111,17 +111,17 @@ LLM_MODEL_PRESETS: dict[str, list[str]] = {
         "claude-3-5-haiku-20241022",
     ],
     "deepseek": [
-        "deepseek-chat",          # V3.2 非思考模式
-        "deepseek-reasoner",      # V3.2 思考模式 / R1
-        "deepseek-coder",         # 代码专精
+        # DeepSeek 官方 OpenAI 兼容 API (https://api.deepseek.com/v1) 用的模型名
+        # 注：旧名 deepseek-chat / deepseek-reasoner 在 2026-07-24 停用，请切到 V4
+        "deepseek-v4-flash",      # 2026-04 快速模式：284B / 13B 激活 / 1M 上下文
+        "deepseek-v4-pro",        # 2026-04 专家模式：1.6T / 49B 激活 / 1M 上下文
     ],
     "minimax": [
-        # MiniMax 官方 OpenAI 兼容 API 用的模型名（不带 MiniMax- 前缀）
-        # 如果你用阿里云百炼 dashscope 兼容模式，模型名要带 MiniMax- 前缀
-        # 见 https://api.minimax.chat/
-        "abab6.5s-chat",          # 通用 / 长文本 / 245k context / 支持 function call
-        "abab6.5t-chat",          # 中文人设对话
-        "abab6.5g-chat",          # 英文人设对话
+        # MiniMax 官方 OpenAI 兼容 API (https://api.minimaxi.com/v1) 用的模型名
+        # 见 https://platform.minimaxi.com/
+        "MiniMax-M3",     # 2026-06 旗舰：1M 上下文 / Coding & Agent / 原生多模态
+        "MiniMax-M2.7",   # 2026-04 开源：自我进化 + 可视化交互
+        "MiniMax-M2",     # 2025-10 开源：230B MoE / 编码 & Agent 强
     ],
     "openai": [
         "gpt-4o",

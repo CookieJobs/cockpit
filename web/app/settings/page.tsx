@@ -47,17 +47,17 @@ const BACKEND_LABELS: Record<Backend, { name: string; desc: string; needsKey: bo
   },
   deepseek: {
     name: "DeepSeek",
-    desc: "国内用户多，便宜，V3.2 + R1 强推理",
+    desc: "国内用户多，便宜，V4-Flash/Pro 强推理 + 1M 上下文",
     needsKey: true,
     needsBaseUrl: true,
     docUrl: "https://platform.deepseek.com/api_keys",
   },
   minimax: {
     name: "MiniMax",
-    desc: "国内用户多，abab6.5s 中文强；需 MiniMax key",
+    desc: "国内用户多，M3 中文强 + 1M 上下文；需 MiniMax key",
     needsKey: true,
     needsBaseUrl: true,
-    docUrl: "https://api.minimax.chat/",
+    docUrl: "https://platform.minimaxi.com/",
   },
   openai: {
     name: "OpenAI 兼容",
@@ -76,20 +76,27 @@ const BACKEND_LABELS: Record<Backend, { name: string; desc: string; needsKey: bo
 const DEFAULT_BASE_URLS: Record<Backend, string> = {
   anthropic: "https://api.anthropic.com",
   deepseek: "https://api.deepseek.com/v1",
-  minimax: "https://api.minimax.chat/v1",
+  minimax: "https://api.minimaxi.com/v1",
   openai: "https://api.openai.com/v1",
   custom: "",
 };
 
+// UI 上展示的后端（精简版：DeepSeek / MiniMax / 自定义；anthropic / openai 后端保留在后端 enum 以兼容老配置，但不展示在 UI）
+const VISIBLE_BACKENDS: Backend[] = ["deepseek", "minimax", "custom"];
+
 const PRESETS: Record<Backend, string[]> = {
   anthropic: ["claude-sonnet-4-5", "claude-opus-4-5", "claude-3-5-haiku-20241022"],
-  deepseek: ["deepseek-chat", "deepseek-reasoner", "deepseek-coder"],
+  deepseek: [
+    // DeepSeek 官方 OpenAI 兼容 API (https://api.deepseek.com/v1) 用的模型名
+    // 注：旧名 deepseek-chat / deepseek-reasoner 在 2026-07-24 停用，请切到 V4
+    "deepseek-v4-flash",  // 2026-04 快速模式：284B / 13B 激活 / 1M 上下文
+    "deepseek-v4-pro",    // 2026-04 专家模式：1.6T / 49B 激活 / 1M 上下文
+  ],
   minimax: [
-    // MiniMax 官方 OpenAI 兼容 API 用的模型名（无前缀）
-    // 用阿里云百炼 dashscope 时模型名要带 MiniMax- 前缀
-    "abab6.5s-chat",
-    "abab6.5t-chat",
-    "abab6.5g-chat",
+    // MiniMax 官方 OpenAI 兼容 API (https://api.minimaxi.com/v1) 用的模型名
+    "MiniMax-M3",     // 2026-06 旗舰：1M 上下文 / Coding & Agent / 原生多模态
+    "MiniMax-M2.7",   // 2026-04 开源：自我进化 + 可视化交互
+    "MiniMax-M2",     // 2025-10 开源：230B MoE / 编码 & Agent 强
   ],
   openai: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "moonshot-v1-128k"],
   custom: [],
@@ -167,10 +174,19 @@ function LLMConfigForm({
 }) {
   // 编辑状态：DB 配置优先，没有则用 env，再没有则用默认
   const initialSource: LLMSettingsPublic | undefined = settings?.db_config || settings?.env_config;
-  const [backend, setBackend] = useState<Backend>(initialSource?.backend || "anthropic");
-  const [model, setModel] = useState(initialSource?.model || "claude-sonnet-4-5");
+  // 兼容老 DB 配置（DB 里如果存了 anthropic / openai，UI 强制 fallback 到第一个可见后端）
+  const initialBackend: Backend = (() => {
+    const b = (initialSource?.backend as Backend) ?? VISIBLE_BACKENDS[0];
+    return VISIBLE_BACKENDS.includes(b) ? b : VISIBLE_BACKENDS[0];
+  })();
+  const [backend, setBackend] = useState<Backend>(initialBackend);
+  const [model, setModel] = useState(
+    initialSource?.model ?? PRESETS[initialBackend][0] ?? ""
+  );
   const [apiKey, setApiKey] = useState("");  // 留空 = 保留
-  const [baseUrl, setBaseUrl] = useState(initialSource?.base_url || DEFAULT_BASE_URLS.anthropic);
+  const [baseUrl, setBaseUrl] = useState(
+    initialSource?.base_url || DEFAULT_BASE_URLS[initialBackend]
+  );
   const [showKey, setShowKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -181,9 +197,13 @@ function LLMConfigForm({
     if (settings) {
       const src = settings.db_config || settings.env_config;
       if (src) {
-        setBackend(src.backend);
+        // 兼容老 DB 配置：DB 里如果存了 anthropic / openai，UI 不展示但表单也不能用那个 backend
+        const newBackend: Backend = (VISIBLE_BACKENDS as string[]).includes(src.backend)
+          ? (src.backend as Backend)
+          : initialBackend;
+        setBackend(newBackend);
         setModel(src.model);
-        setBaseUrl(src.base_url || DEFAULT_BASE_URLS[src.backend]);
+        setBaseUrl(src.base_url || DEFAULT_BASE_URLS[newBackend]);
       }
     }
   }, [settings]);
@@ -282,7 +302,7 @@ function LLMConfigForm({
       <div className="mb-3">
         <label className="text-xs text-fg-secondary block mb-1.5">后端</label>
         <div className="grid grid-cols-2 gap-2">
-          {(Object.keys(BACKEND_LABELS) as Backend[]).map((b) => {
+          {VISIBLE_BACKENDS.map((b) => {
             const info = BACKEND_LABELS[b];
             return (
               <button
@@ -328,9 +348,8 @@ function LLMConfigForm({
             )}
             {backend === "minimax" && (
               <span className="text-fg-muted ml-2">
-                默认: <code className="text-fg">https://api.minimax.chat/v1</code>
-                （官方 OpenAI 兼容端点；如果用阿里云百炼 key，改 base_url 为
-                <code className="text-fg">https://dashscope.aliyuncs.com/compatible-mode/v1</code> 且模型名加 <code className="text-fg">MiniMax-</code> 前缀）
+                默认: <code className="text-fg">https://api.minimaxi.com/v1</code>
+                （MiniMax 官方 OpenAI 兼容端点；模型名带 <code className="text-fg">MiniMax-</code> 前缀）
               </span>
             )}
             {backend === "openai" && (

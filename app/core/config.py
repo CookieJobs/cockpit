@@ -62,14 +62,14 @@ class Settings(BaseSettings):
     deepseek_base_url: str = Field(
         default="https://api.deepseek.com/v1", alias="DEEPSEEK_BASE_URL"
     )
-    deepseek_model: str = Field(default="deepseek-chat", alias="DEEPSEEK_MODEL")
+    deepseek_model: str = Field(default="deepseek-v4-flash", alias="DEEPSEEK_MODEL")
 
     # MiniMax (MiniMax 官方 OpenAI 兼容 API)
     minimax_api_key: str = Field(default="", alias="MINIMAX_API_KEY")
     minimax_base_url: str = Field(
-        default="https://api.minimax.chat/v1", alias="MINIMAX_BASE_URL"
+        default="https://api.minimaxi.com/v1", alias="MINIMAX_BASE_URL"
     )
-    minimax_model: str = Field(default="abab6.5s-chat", alias="MINIMAX_MODEL")
+    minimax_model: str = Field(default="MiniMax-M3", alias="MINIMAX_MODEL")
 
     # OpenAI 兼容
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
