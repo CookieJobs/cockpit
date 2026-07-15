@@ -71,12 +71,24 @@ function extractTextFromAnthropicContent(jsonStr: string): string {
           return obj.type === "text";
         })
         .map((b: { text: string }) => b.text);
-      return texts.join("");
+      return stripThinkBlocks(texts.join(""));
     }
   } catch {
     // ignore
   }
-  return jsonStr;
+  return stripThinkBlocks(jsonStr);
+}
+
+// 兜底剥离 LLM CoT 思维链块（<think>...</think> / <thinking>...</thinking>
+// / <reasoning>...</reasoning>）。后端 chat_engine 已经在 response 入口
+// strip 过一次了，但旧 session 持久化的消息可能还含 think 块 —— 这里
+// 再做一次 defense-in-depth 避免历史消息里残留 CoT 显示给用户。
+// 逻辑与后端 _THINK_BLOCK_RE 保持一致。
+const THINK_BLOCK_RE = /<\s*(?:think|thinking|reasoning)\b[^>]*>.*?<\s*\/\s*(?:think|thinking|reasoning)\s*>/gis;
+
+function stripThinkBlocks(text: string): string {
+  if (!text) return text;
+  return text.replace(THINK_BLOCK_RE, " ").trim();
 }
 
 export function ChatWindow({ onAction }: { onAction?: () => void }) {

@@ -50,6 +50,30 @@ _MARKDOWN_TOOL_WHITELIST = {
 }
 
 
+# 匹配 LLM 内部的 CoT 思维链块。DeepSeek R1 / MiniMax M3 等推理模型
+# 倾向在 content 字段里写 `<think>...</think>` / `<thinking>...</thinking>` /
+# `<reasoning>...</reasoning>`，必须先剥离再走下游处理（特别是 markdown
+# tool call fallback —— CoT 里的 `functions.delete_task(...)` 不应该被当真）。
+_THINK_BLOCK_RE = re.compile(
+    r"<\s*(?:think|thinking|reasoning)\b[^>]*>.*?<\s*/\s*(?:think|thinking|reasoning)\s*>",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def strip_think_blocks(text: str) -> str:
+    """剥离 LLM CoT 思维链块。
+
+    适用于：DeepSeek R1、DeepSeek V3.x 推理模式、MiniMax M3、MiniMax-M3 等
+    在 content 字段写 `<think>...</think>` 的国产推理模型。
+
+    注意：替换为单个空格而不是空串 —— 避免两个相邻 think 块 / think 块
+    紧贴正文时把前后 token 粘到一起。
+    """
+    if not text:
+        return text
+    return _THINK_BLOCK_RE.sub(" ", text).strip()
+
+
 def _parse_markdown_tool_calls(text: str) -> list[ToolCall]:
     """从 LLM 输出的 markdown 文本中提取伪 tool call。
 
@@ -288,6 +312,13 @@ async def run_chat(
         if response.usage:
             for k, v in response.usage.items():
                 total_usage[k] = total_usage.get(k, 0) + v
+
+        # 剥离 LLM CoT 思维链块（DeepSeek R1 / MiniMax M3 等会把
+        # 推理过程写在 content 里）。必须在所有下游处理之前做：
+        # 1. 避免存到 messages / 持久化 / 前端显示 —— 用户不该看到 CoT
+        # 2. 避免 markdown fallback 把 CoT 里的 `functions.delete_task(...)`
+        #    当真工具调用执行（这是潜在的不可逆数据丢失路径）
+        response.text = strip_think_blocks(response.text)
 
         # 记录 assistant 消息（含 tool_use 块）
         assistant_msg: Message = {"role": "assistant", "content": []}
