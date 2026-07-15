@@ -378,8 +378,21 @@ async def run_chat(
             tool_results.append(tool_result_message(tc.id, result_str))
 
         # 把工具结果作为 user 消息追加
+        # 合并所有 tool_result blocks 到同一条 user 消息 ——
+        # 一次 round 可能并行调多个 tool（系统 prompt 鼓励），
+        # 上一条 assistant_msg 已经 append 了 N 个 tool_use blocks，
+        # 必须把所有 N 个 tool_result 一起回传，否则 LLM 报
+        # "tool call and result not match" (MiniMax-M3 是 2013)。
         if tool_results:
-            messages.append({"role": "user", "content": tool_results[0]["content"]})
+            combined_blocks: list[dict[str, Any]] = []
+            for tr in tool_results:
+                # tr 是 Anthropic 格式 {"role": "user", "content": [{type: tool_result, ...}]}
+                # 把 content list 里的所有 block 平铺进去
+                if isinstance(tr.get("content"), list):
+                    combined_blocks.extend(tr["content"])
+                else:
+                    combined_blocks.append(tr["content"])
+            messages.append({"role": "user", "content": combined_blocks})
 
     # 超过 max_tool_rounds
     return ChatResult(

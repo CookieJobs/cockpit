@@ -57,21 +57,12 @@ class OpenAIClient:
         try:
             resp = await self._client.chat.completions.create(**kwargs)
         except Exception as e:
-            # 工具调用失败时降级：重试不带 tools（很多 OpenAI 兼容后端对 tool schema 严格）
+            # 不再静默剥 tools 重试 —— 剥掉 = LLM 失去工具能力，markdown
+            # 兜底（chat_engine._parse_markdown_tool_calls）应该足够。
+            # 上层 dispatch 会在 result.error 时自动 fallback 到 keyword 模式。
             err_msg = str(e)
-            if tools and ("tool" in err_msg.lower() or "schema" in err_msg.lower()
-                          or "role" in err_msg.lower() or "400" in err_msg):
-                logger.warning(f"Tools not supported, falling back to no-tools: {err_msg[:200]}")
-                kwargs.pop("tools", None)
-                kwargs.pop("tool_choice", None)
-                try:
-                    resp = await self._client.chat.completions.create(**kwargs)
-                except Exception as e2:
-                    logger.exception("OpenAI API error (no-tools retry)")
-                    return LLMResponse(stop_reason="error", error=str(e2))
-            else:
-                logger.exception("OpenAI API error")
-                return LLMResponse(stop_reason="error", error=err_msg)
+            logger.exception(f"OpenAI API error (model={self._model}): {err_msg[:300]}")
+            return LLMResponse(stop_reason="error", error=err_msg)
 
         choice = resp.choices[0] if resp.choices else None
         if not choice:
