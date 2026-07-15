@@ -31,6 +31,18 @@ body {
   background: #3a3a3a;
 }
 
+/* 打字机光标（流式 chat 用） */
+.cursor-blink {
+  display: inline-block;
+  margin-left: 1px;
+  animation: cursor-blink 1s steps(2) infinite;
+  color: #facc15;
+  font-weight: 400;
+}
+@keyframes cursor-blink {
+  50% { opacity: 0; }
+}
+
 .markdown {
   line-height: 1.7;
 }

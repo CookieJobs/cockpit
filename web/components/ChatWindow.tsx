@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { api, type ChatResponse, type ChatHistoryMessage, type ChatSession } from "@/lib/api";
 import { renderMarkdown } from "./Markdown";
-import { Send, Sparkles, Wrench, Plus, History, Trash2, MessageSquare, X, Eraser } from "lucide-react";
+import { ToolCallCard, type ToolCallState } from "./ToolCallCard";
+import { Send, Sparkles, Plus, History, Trash2, MessageSquare, X, Eraser } from "lucide-react";
 
 const SESSION_STORAGE_KEY = "cockpit_session_id";
 
@@ -11,7 +12,8 @@ type Message = {
   id: string;
   role: "user" | "agent";
   content: string;
-  toolCalls?: Array<{ name: string; args: Record<string, unknown>; result_preview?: string }>;
+  toolCalls?: ToolCallState[];
+  streaming?: boolean; // agent 消息：是否正在流式
   usedLLM?: boolean;
   timestamp: number;
 };
@@ -51,9 +53,12 @@ function historyToUI(msgs: ChatHistoryMessage[]): Message[] {
       m.role === "assistant" && m.content.startsWith("[")
         ? extractTextFromAnthropicContent(m.content) || m.content
         : m.content,
+    // 历史消息：tool_calls 是 summary（无 result）
     toolCalls: m.tool_calls?.map((tc) => ({
+      id: tc.id || `hist-${tc.name}`,
       name: tc.name,
       args: tc.args,
+      status: "done" as const,
     })),
     usedLLM: m.role === "assistant",
     timestamp: new Date(m.created_at).getTime(),
@@ -253,32 +258,83 @@ export function ChatWindow({ onAction }: { onAction?: () => void }) {
       content: trimmed,
       timestamp: Date.now(),
     };
-    setMessages((m) => [...m, userMsg]);
+    // 预创建 streaming agent message（content 从空开始，工具调用 list 跟着 SSE 事件生长）
+    const agentMsgId = `a-${Date.now()}`;
+    const agentMsg: Message = {
+      id: agentMsgId,
+      role: "agent",
+      content: "",
+      toolCalls: [],
+      streaming: true,
+      timestamp: Date.now(),
+    };
+    setMessages((m) => [...m, userMsg, agentMsg]);
     setInput("");
     setLoading(true);
+
+    // 工具函数：找到当前 agent message 并 patch
+    const patchAgent = (patch: (m: Message) => Message) => {
+      setMessages((msgs) =>
+        msgs.map((m) => (m.id === agentMsgId ? patch(m) : m))
+      );
+    };
+
     try {
-      const res: ChatResponse = await api.chat(trimmed, undefined, sessionId);
-      const agentMsg: Message = {
-        id: `a-${Date.now()}`,
-        role: "agent",
-        content: res.text,
-        toolCalls: res.tool_calls || undefined,
-        usedLLM: res.used_llm,
-        timestamp: Date.now(),
-      };
-      setMessages((m) => [...m, agentMsg]);
+      await api.chatStream(trimmed, sessionId, (event) => {
+        if (event.type === "text") {
+          patchAgent((m) => ({ ...m, content: m.content + event.data.delta }));
+        } else if (event.type === "tool_start") {
+          patchAgent((m) => ({
+            ...m,
+            toolCalls: [
+              ...(m.toolCalls || []),
+              {
+                id: event.data.id,
+                name: event.data.name,
+                args: event.data.args || {},
+                status: "calling",
+              },
+            ],
+          }));
+        } else if (event.type === "tool_end") {
+          patchAgent((m) => ({
+            ...m,
+            toolCalls: (m.toolCalls || []).map((tc) =>
+              tc.id === event.data.id
+                ? {
+                    ...tc,
+                    result: event.data.result,
+                    ok: event.data.ok,
+                    status: event.data.ok ? "done" : "error",
+                  }
+                : tc
+            ),
+          }));
+        } else if (event.type === "end") {
+          patchAgent((m) => ({
+            ...m,
+            streaming: false,
+            usedLLM: true,
+          }));
+        } else if (event.type === "error") {
+          patchAgent((m) => ({
+            ...m,
+            content: m.content + (m.content ? "\n\n" : "") + `❌ ${event.data.message}`,
+            streaming: false,
+          }));
+        }
+        // 'start' 事件：暂不处理
+      });
       if (onAction) onAction();
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);
-      setMessages((m) => [
+      patchAgent((m) => ({
         ...m,
-        {
-          id: `e-${Date.now()}`,
-          role: "agent",
-          content: `❌ 错误：${errMsg}`,
-          timestamp: Date.now(),
-        },
-      ]);
+        content: m.content
+          ? `${m.content}\n\n❌ 错误：${errMsg}`
+          : `❌ 错误：${errMsg}`,
+        streaming: false,
+      }));
     } finally {
       setLoading(false);
     }
@@ -344,11 +400,11 @@ export function ChatWindow({ onAction }: { onAction?: () => void }) {
             className={`flex ${m.role === "user" ? "justify-end" : "justify-start"} fade-in`}
           >
             <div className="max-w-[85%] min-w-[200px]">
-              {/* Tool calls 展示 */}
+              {/* Tool calls 展示（流式工具卡：默认展开 args + result） */}
               {m.toolCalls && m.toolCalls.length > 0 && (
                 <div className="mb-1.5 space-y-1">
-                  {m.toolCalls.map((tc, i) => (
-                    <ToolCallBadge key={i} tc={tc} />
+                  {m.toolCalls.map((tc) => (
+                    <ToolCallCard key={tc.id} tc={tc} />
                   ))}
                 </div>
               )}
@@ -360,14 +416,16 @@ export function ChatWindow({ onAction }: { onAction?: () => void }) {
                 }`}
               >
                 {m.role === "agent" ? (
-                  <div className="markdown text-sm">
-                    {renderMarkdown(m.content || (m.toolCalls?.length ? "✅ 已执行" : "（无响应）"))}
-                  </div>
+                  <AgentMessageContent
+                    content={m.content}
+                    streaming={!!m.streaming}
+                    hasToolCalls={(m.toolCalls?.length ?? 0) > 0}
+                  />
                 ) : (
                   <div className="text-sm whitespace-pre-wrap">{m.content}</div>
                 )}
               </div>
-              {m.role === "agent" && m.usedLLM !== undefined && (
+              {m.role === "agent" && m.usedLLM !== undefined && !m.streaming && (
                 <div className="mt-1 text-[10px] text-fg-muted">
                   {m.usedLLM ? "via LLM" : "via 关键词"}
                 </div>
@@ -533,20 +591,38 @@ function formatRelativeTime(iso: string): string {
   }
 }
 
-function ToolCallBadge({
-  tc,
+/**
+ * Agent 消息内容：
+ * - streaming 期间：纯文本 + 末尾闪烁光标（不渲染 markdown，
+ *   避免 markdown 库每次 re-render 解析开销 + 闪烁更舒服）
+ * - 结束后：renderMarkdown 完整渲染
+ * - 工具调用但文本空：显示「✅ 已执行」
+ * - 完全空：显示「（无响应）」
+ */
+function AgentMessageContent({
+  content,
+  streaming,
+  hasToolCalls,
 }: {
-  tc: { name: string; args: Record<string, unknown>; result_preview?: string };
+  content: string;
+  streaming: boolean;
+  hasToolCalls: boolean;
 }) {
-  return (
-    <div className="rounded-md bg-bg-tertiary border border-border px-2.5 py-1.5 text-xs">
-      <div className="flex items-center gap-1.5 text-fg-secondary">
-        <Wrench size={11} />
-        <span className="font-mono">{tc.name}</span>
-        <span className="text-fg-muted">
-          ({Object.entries(tc.args).slice(0, 2).map(([k, v]) => `${k}=${String(v).slice(0, 20)}`).join(", ")})
-        </span>
+  if (streaming) {
+    if (!content) {
+      return (
+        <div className="text-sm text-fg-muted">
+          {hasToolCalls ? "执行中…" : "思考中…"}
+        </div>
+      );
+    }
+    return (
+      <div className="text-sm whitespace-pre-wrap">
+        {content}
+        <span className="cursor-blink">▍</span>
       </div>
-    </div>
-  );
+    );
+  }
+  const text = content || (hasToolCalls ? "✅ 已执行" : "（无响应）");
+  return <div className="markdown text-sm">{renderMarkdown(text)}</div>;
 }

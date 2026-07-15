@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, AsyncIterator
 
-from app.llm.base import LLMClient, LLMResponse, ToolCall
+from app.llm.base import LLMClient, LLMResponse, StreamEvent, ToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,101 @@ class OpenAIClient:
                 "output_tokens": resp.usage.completion_tokens if resp.usage else 0,
             },
         )
+
+    async def stream_chat(
+        self,
+        messages: list[dict[str, Any]],
+        system: str,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        """流式 chat：text 增量 + tool_calls 完整块。
+
+        OpenAI 流式特点：
+        - text 增量通过 chunk.choices[0].delta.content 透传
+        - tool_calls 是逐 index 累积的（同一 index 的 id/name/arguments
+          分多个 chunk 到达），需要本地缓冲直到流结束（finish_reason）
+        - 用 stream_options.include_usage 让最后一个 chunk 带 usage 统计
+        """
+        oai_messages: list[dict[str, Any]] = []
+        if system:
+            oai_messages.append({"role": "system", "content": system})
+        oai_messages.extend(_convert_messages_to_openai(messages))
+
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "messages": oai_messages,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if tools:
+            kwargs["tools"] = _convert_tools_to_openai(tools)
+            kwargs["tool_choice"] = "auto"
+
+        # 累积 tool_calls: {index: {id, name, args_json}}
+        tool_acc: dict[int, dict[str, str]] = {}
+        # 累积 usage（最后一个 chunk 带）
+        final_usage: dict[str, int] = {}
+
+        try:
+            stream = await self._client.chat.completions.create(**kwargs)
+            async for chunk in stream:
+                # usage chunk（无 choices，仅 usage）
+                if chunk.usage is not None:
+                    final_usage = {
+                        "input_tokens": chunk.usage.prompt_tokens or 0,
+                        "output_tokens": chunk.usage.completion_tokens or 0,
+                    }
+                    continue
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                delta = choice.delta
+                # text 增量
+                content = getattr(delta, "content", None)
+                if content:
+                    yield {"type": "text", "data": {"delta": content}}
+                # tool_calls 累积（同一 index 多 chunk）
+                tcs = getattr(delta, "tool_calls", None)
+                if tcs:
+                    for tc in tcs:
+                        idx = tc.index
+                        if idx not in tool_acc:
+                            tool_acc[idx] = {"id": "", "name": "", "args_json": ""}
+                        if tc.id:
+                            tool_acc[idx]["id"] = tc.id
+                        if tc.function:
+                            if tc.function.name:
+                                tool_acc[idx]["name"] = tc.function.name
+                            if tc.function.arguments:
+                                tool_acc[idx]["args_json"] += tc.function.arguments
+                # finish_reason 仅作为信号，不主动 emit（流结束由循环退出表达）
+                _ = choice.finish_reason
+
+            # 流结束：emit 所有 tool_start（按 index 顺序）
+            for idx in sorted(tool_acc.keys()):
+                tc = tool_acc[idx]
+                raw = tc["args_json"]
+                try:
+                    args = json.loads(raw) if raw else {}
+                except json.JSONDecodeError:
+                    logger.warning(
+                        f"Failed to parse tool args JSON for {tc['name']}: {raw[:200]}"
+                    )
+                    args = {"_raw": raw}
+                yield {
+                    "type": "tool_start",
+                    "data": {
+                        "id": tc["id"],
+                        "name": tc["name"],
+                        "args": args,
+                    },
+                }
+            # usage（如果有）—— 通过 end 事件透传，但 chat_engine 不消费这个，
+            # 实际持久化时可以从 chat_engine 端重新累加。略。
+        except Exception as e:
+            err_msg = str(e)
+            logger.exception(f"OpenAI stream error (model={self._model}): {err_msg[:300]}")
+            yield {"type": "error", "data": {"message": f"OpenAI stream error: {err_msg}"}}
 
     async def health_check(self) -> bool:
         try:
