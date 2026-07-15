@@ -315,7 +315,7 @@ function ProjectCard({
 }
 
 function TaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
-  const [confirming, setConfirming] = useState(false);
+  const [hover, setHover] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [newChecklistText, setNewChecklistText] = useState("");
@@ -387,23 +387,22 @@ function TaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
           task.draft ? "bg-accent/5" : ""
         }`}
       >
-        {/* 状态图标（单击切换/完成）*/}
+        {/* 状态图标（单击标记完成）*/}
         <button
           onClick={(e) => {
             e.stopPropagation();
-            if (!confirming) {
-              setConfirming(true);
-              setTimeout(() => setConfirming(false), 2000);
-            } else {
-              complete();
-            }
+            complete();
           }}
-          className={`text-xs w-4 flex-shrink-0 ${
-            confirming ? "text-success" : "text-fg-muted hover:text-fg"
-          }`}
-          title="单击：标记完成"
+          onMouseEnter={() => setHover(true)}
+          onMouseLeave={() => setHover(false)}
+          className="w-4 h-4 flex items-center justify-center flex-shrink-0 text-fg-muted hover:text-success transition"
+          title="点击标记完成"
         >
-          {confirming ? "✓" : statusIcon(task.status)}
+          {hover ? (
+            <Check size={12} className="text-success" />
+          ) : (
+            <span className="text-xs leading-none">{statusIcon(task.status)}</span>
+          )}
         </button>
         {/* 优先级 - 点击切换 */}
         <PriorityMenu priority={task.priority} onChange={updatePriority} />
