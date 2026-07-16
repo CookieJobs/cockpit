@@ -35,6 +35,18 @@
   - 后端：`app/llm/chat_engine.py`（`_THINK_BLOCK_RE` + `strip_think_blocks`）
   - 前端：`web/components/ChatWindow.tsx`（`stripThinkBlocks` 在 `extractTextFromAnthropicContent` 之后）
 
+### 3. `/api/tasks/{tid}/complete` simple type 参数 body 丢失（修于 2026-07-16）
+
+- **症状**：前端 CompleteTaskModal POST 4 字段 (outcome/cv/reflection/cv_status) 给后端，任务**确实完成了**, achievement **也入库了**, 但**所有 4 字段值都是空字符串**。
+- **根因**：路由端点签名是 `complete_task(tid, outcome: str = "", reflection: str = "", cv: str = "", cv_status: str = "ready")`。FastAPI 看到 `str` 这种 simple type 参数会**默认当 query 解析** — 整个 JSON body 被忽略，所有字段走默认值空串。
+- **教训**：
+  - **FastAPI 端点接 JSON body 必须用 Pydantic BaseModel**，不要用 simple type 参数（这是 memory 里 `python-web-backend-gotchas` 第 3 条，但 storage 层 pytest 测不到这个 — 端点级才暴露）
+  - **测试要打到端点级**：storage 层测试全过不代表 API 行为正确。要加 `TestClient` 走 HTTP 真实路径的回归测试。
+  - 这次 bug 潜伏了至少一个迭代期 — `add_task` 用了 `TaskCreate` Pydantic model 没事，但 `complete_task` 用了 simple type 就翻车
+- **修法位置**：
+  - 后端：`app/api/tasks.py` — 加 `CompleteTaskRequest` BaseModel 接 body
+  - 测试：`app/tests/test_api_complete_task.py`（新文件，4 个端点级 regression test 锁住）
+
 ## 易踩但还没炸的隐患
 
 ### `add_task` 幂等检查被 LLM 依赖
@@ -57,3 +69,54 @@
 - 后端：`pytest app/tests/ -v`（66 tests）
 - 前端类型：`cd web && npx tsc --noEmit`
 - 改 Python 前必须 `rm -rf app/llm/__pycache__` 否则 uvicorn `--reload` 不生效
+
+## 设计哲学：对话驱动 vs 看板 inline edit 的边界（2026-07-16 立）
+
+Cockpit 跟 task-cockpit skill 是同源项目，但**产品形态不同**。task-cockpit 是"看板只读 + 一切修改走对话"，cockpit 是"看板可 inline edit + 对话可生成"。这两种模式各有取舍，**不要混用**：
+
+### 看板 inline edit 适用场景（高频、轻量、原子）
+
+- 改优先级（点色点 → 弹小菜单选 高/中/低）
+- 改 due（点 due 标签 → 弹 date input）
+- 改 status（点 ○ / ◐ → 循环切换）
+- 改标题（双击 → inline input）
+- checklist 增删改（行内勾选 / 行内加）
+
+**理由**：用户想"调一下"的时候，说话比点慢 10 倍。这些操作都是单字段、低风险、原子。
+
+### 对话驱动适用场景（低频、需要 LLM 上下文）
+
+- 拆任务（"包括 A、B、C" → 一次性建多个）
+- 改 description（长文本，需要 LLM 帮我组织）
+- 完成任务（4 字段沉淀：outcome / cv / reflection / cv_status — agent 生成 cv）
+- 删除项目（不可逆 + 需要二次确认）
+- 生成周报 / 述职 / 复盘（agent 从成就库组织）
+- 倒事："我接了个 App 改版，要改登录页、加埋点、还要灰度发布"（一句话拆出 1 项目 + 3 任务）
+
+**理由**：这些操作要么需要"反脆弱"（二次确认 / undo 兜底），要么需要"语义理解"（一句话拆 N 任务），LLM 才能干好。
+
+### 完成即沉淀 — 4 字段 UX 铁律
+
+`web/components/CompleteTaskModal.tsx` 是 4 字段沉淀弹窗，**不要**用 `cv: \`完成「${title}」\`` 凑数 — 后端 schema 和 LLM 工具都为这 4 字段服务：
+
+- `outcome` 必填（用户描述的结果）
+- `cv` 必填（agent 生成的简历级成就陈述，**默认预填 `完成「${title}」` 兜底，但用户必填 outcome 后必须改**）
+- `reflection` 可选（不强迫 — task-cockpit SKILL.md 第 ② 步明确 "复盘可选"）
+- `cv_status` ready / pending 二选一（ready 立刻能用，pending 挂起后续在成就库补全后升级）
+
+**所有完成入口都走 modal**（看板 status 按钮、FocusItem 单击、TaskRow 已完成按钮、对话 complete_task 工具）— 不要让凑数 cv 绕过去。
+
+## Changelog：2026-07-16 借鉴 task-cockpit 8 项
+
+参考 [CookieJobs/task-cockpit](https://github.com/CookieJobs/task-cockpit) 的设计细节，做的 8 项改造。**后端 100% 早已完备**（nextAction / blocked / draft / cvStatus / undo / focus / 14 工具），主要是前端 visual / UX 补齐。
+
+| # | 项 | 位置 | 备注 |
+|---|---|---|---|
+| 1 | **4 字段完成弹窗** | `web/components/CompleteTaskModal.tsx` (新) + MainBoard 挂载 | 取代 `cv: 完成「${title}」` 凑数 |
+| 2 | **FocusItem 显示 next_action** | MainBoard FocusItem | 跟 TaskRow 对齐 |
+| 3 | **状态机单击循环** (○ ↔ ◐) | MainBoard TaskRow `cycleStatus` + Play 按钮 | 修复了"无法切到进行中"的旧 bug |
+| 4 | **项目 deterministic emoji** | `lib/api.ts` `projectEmoji` + MainBoard ProjectCard | 50 emoji 池子，hash 选 |
+| 5 | **任务"挂起 N 天"** | `lib/api.ts` `taskAgeDays` + MainBoard TaskRow meta | 阈值 2 天 |
+| 6 | **"今天已完成" 折叠区** | MainBoard DoneTodaySection | 用上 snapshot.done_today 旧数据 |
+| 7 | **AGENTS.md 设计哲学段** | 本文件 | 写清对话驱动 vs inline edit 边界 |
+| 8 | **轮询 diff 优化** | （无需改） | SWR 自带 ETag，验证过 |

@@ -62,27 +62,45 @@ async def delete_task(tid: str):
 
 
 @router.post("/{tid}/complete")
-async def complete_task(
-    tid: str,
-    outcome: str = "",
-    reflection: str = "",
-    cv: str = "",
-    cv_status: str = "ready",
-):
+async def complete_task(tid: str, data: CompleteTaskRequest):
     """完成任务并沉淀为成就。
 
+    4 字段（继承自 task-cockpit skill，对应 Achievement 表 schema）：
+    - outcome    必填 — 用户描述的结果
+    - cv         必填 — agent 生成的简历级成就陈述
+    - reflection 可选 — 主观复盘
+    - cv_status  ready/pending 二选一
+
     中途崩溃不丢数据：先写 achievement 再删 task。
+
+    注意：用 Pydantic BaseModel 接 body，不要用 simple type 参数（FastAPI 会
+    当 query 解析，body 整个被忽略 — 修复于 2026-07-16 测试发现）。
     """
     try:
-        status = CVStatus(cv_status)
+        status = CVStatus(data.cv_status)
     except ValueError:
-        raise HTTPException(400, f"Invalid cv_status: {cv_status}")
+        raise HTTPException(400, f"Invalid cv_status: {data.cv_status}")
     achievement = await storage.complete_task(
-        tid, outcome=outcome, reflection=reflection, cv=cv, cv_status=status,
+        tid,
+        outcome=data.outcome,
+        reflection=data.reflection,
+        cv=data.cv,
+        cv_status=status,
     )
     if not achievement:
         raise HTTPException(404, "Task not found")
     return achievement.model_dump(mode="json")
+
+
+class CompleteTaskRequest(BaseModel):
+    """完成任务请求 body。
+
+    4 字段结构 — 跟 Achievement 表 schema + LLM tool schema 完全一致。
+    """
+    outcome: str = ""
+    reflection: str = ""
+    cv: str = ""
+    cv_status: str = "ready"
 
 
 # ===== Checklist 子端点 =====
