@@ -18,6 +18,7 @@ import {
   Brain,
   ChevronDown,
   ChevronUp,
+  PanelRightClose,
 } from "lucide-react";
 
 const SESSION_STORAGE_KEY = "cockpit_session_id";
@@ -190,7 +191,13 @@ function stripThinkBlocks(text: string): string {
   return text.replace(THINK_BLOCK_RE, " ").trim();
 }
 
-export function ChatWindow({ onAction }: { onAction?: () => void }) {
+export function ChatWindow({
+  onAction,
+  onCollapse,
+}: {
+  onAction?: () => void;
+  onCollapse?: () => void;
+}) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -500,6 +507,16 @@ export function ChatWindow({ onAction }: { onAction?: () => void }) {
             <History size={11} />
             历史
           </button>
+          {onCollapse && (
+            <button
+              onClick={onCollapse}
+              className="text-xs px-1.5 py-1 bg-bg-secondary border border-border rounded text-fg-secondary hover:border-border-hover hover:text-fg transition flex items-center gap-1"
+              title="收起对话(给项目视图让出空间)"
+            >
+              <PanelRightClose size={11} />
+              收起
+            </button>
+          )}
         </div>
       </div>
 
