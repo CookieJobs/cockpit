@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import useSWR from "swr";
 import { api, type Snapshot, type Project, type Task, statusIcon, dueColor, dueLabel, taskAgeDays, projectEmoji, type Priority } from "@/lib/api";
-import { Check, Trash2, ChevronRight, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Play, Undo2 } from "lucide-react";
+import { Check, Trash2, ChevronRight, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2 } from "lucide-react";
 import { ChatWindow } from "./ChatWindow";
 import { CompleteTaskModal } from "./CompleteTaskModal";
 import Link from "next/link";
@@ -742,21 +742,22 @@ function TaskRow({
 
   const dueCls = dueColor(task.due);
 
-  // 状态机单击循环 (继承自 task-cockpit STATUS_CYCLE 模式):
-  //   未开始 → 进行中 → 未开始 → ...
-  //   已完成 任务直接打开 modal 沉淀
-  // 这样用户可以单独点"开始"切到进行中,不会绕过完成沉淀流程
+  // 状态机线性切换 (方案 A.1):
+  //   未开始 → 进行中   (status 变更)
+  //   进行中 → 完成 modal (弹 4 字段沉淀)
+  //   已完成 → 完成 modal (重新编辑 CV)
+  // 已完成是终态,回退走"成就库 → 撤销" (api.undoAchievement)
+  //
+  // Round 1 旧版是"未开始 ↔ 进行中" 双向循环,堵死了完成路径
+  // (因为整行 click 是展开详情, 状态按钮又跳过了"完成"档)。
+  // 修复于 2026-07-16。
   const cycleStatus = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (task.status === "未开始") {
       await api.updateTask(task.id, { status: "进行中" });
       onChange();
-    } else if (task.status === "进行中") {
-      // 进行中 → 未开始 (回到 backlog)
-      await api.updateTask(task.id, { status: "未开始" });
-      onChange();
     } else {
-      // 已完成 — 不再支持回退,需要走成就库"撤销"
+      // 进行中 / 已完成 — 都弹 modal (4 字段沉淀 / 重新编辑 CV)
       onRequestComplete(task);
     }
   };
@@ -766,11 +767,10 @@ function TaskRow({
     onRequestComplete(task);
   };
 
-  // "开始"按钮 - 未开始任务可一键切到进行中
-  const startTask = async (e: React.MouseEvent) => {
+  // 展开/收起 (整行 click 不再负责,避免跟"完成"冲突)
+  const toggleExpand = (e: React.MouseEvent) => {
     e.stopPropagation();
-    await api.updateTask(task.id, { status: "进行中" });
-    onChange();
+    setExpanded((v) => !v);
   };
 
   const remove = async (e: React.MouseEvent) => {
@@ -818,26 +818,27 @@ function TaskRow({
       }`}
     >
       {/* 第一行:主信息 - 状态/标题/due/删除 */}
+      {/* 整行 = 完成 (弹 4 字段 modal, task-cockpit 风格) */}
       <div
         className={`flex items-center gap-2 px-2.5 py-2 cursor-pointer`}
-        onClick={() => !editingTitle && setExpanded((e) => !e)}
+        onClick={() => !editingTitle && onRequestComplete(task)}
       >
-        {/* 状态按钮(单击循环 ○ ↔ ◐; 已完成保留 modal 入口) */}
+        {/* 状态按钮(线性: 未开始→进行中→完成 modal) */}
         <button
           onClick={cycleStatus}
           onMouseEnter={() => setHover(true)}
           onMouseLeave={() => setHover(false)}
           className={`w-5 h-5 flex items-center justify-center flex-shrink-0 transition ${
             task.status === "已完成"
-              ? "text-success cursor-default"
+              ? "text-success"
               : "text-fg-muted hover:text-accent"
           }`}
           title={
             task.status === "未开始"
               ? "点击切到进行中"
               : task.status === "进行中"
-              ? "点击回到未开始"
-              : "已完成"
+              ? "点击完成任务 (弹窗填结果 / CV)"
+              : "已完成 - 点击重新编辑 CV"
           }
         >
           <span className="text-[15px] leading-none">
@@ -845,16 +846,21 @@ function TaskRow({
           </span>
         </button>
 
-        {/* "开始"快捷按钮 - 未开始任务 hover 时显示, 单击切到进行中(不弹窗) */}
-        {task.status === "未开始" && (
-          <button
-            onClick={startTask}
-            className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center flex-shrink-0 text-fg-muted hover:text-success transition"
-            title="开始（切到进行中）"
-          >
-            <Play size={11} strokeWidth={2.5} fill="currentColor" />
-          </button>
-        )}
+        {/* 展开/收起 chevron - hover 显示, 整行 click 已经是"完成"了,
+            展开走显式按钮 (跟状态按钮、完成按钮并列) */}
+        <button
+          onClick={toggleExpand}
+          className={`w-4 h-5 flex items-center justify-center flex-shrink-0 text-fg-muted hover:text-fg transition ${
+            expanded ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          }`}
+          title={expanded ? "收起详情" : "展开详情 (description / checklist)"}
+        >
+          <ChevronRight
+            size={12}
+            strokeWidth={2}
+            className={`transition-transform ${expanded ? "rotate-90" : ""}`}
+          />
+        </button>
 
         {/* 标题 */}
         <div className="flex-1 min-w-0 flex items-center gap-2">
@@ -898,12 +904,12 @@ function TaskRow({
           )}
         </div>
 
-        {/* 完成按钮(已完成任务保留一个明显的✅ hover 入口, 触发 modal 重新编辑 cv) */}
-        {task.status === "已完成" && (
+        {/* ✅ 完成按钮 - 所有非已完成态都显示, 触发 modal (跟整行 click 同效) */}
+        {task.status !== "已完成" && (
           <button
             onClick={openComplete}
-            className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center flex-shrink-0 text-fg-muted hover:text-accent transition"
-            title="编辑成就 CV"
+            className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center flex-shrink-0 text-fg-muted hover:text-success transition"
+            title="完成 (弹窗填结果 / CV / 复盘)"
           >
             <Check size={13} strokeWidth={2.5} />
           </button>
