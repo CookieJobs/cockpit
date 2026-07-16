@@ -128,9 +128,13 @@ async def chat_stream(req: ChatRequest):
     - text: { delta: "..." }                （多次，累积成完整文本）
     - tool_start: { id, name, args }         （0-N 次，LLM 决定）
     - tool_end: { id, result, ok }           （与 tool_start 一一对应）
-    - end: { persisted, usage, tool_calls }  （终止信号，整个流结束）
+    - end: { persisted, cot_blocks, tool_calls }  （终止信号）
 
     任何阶段都可能 emit error: { message }，客户端应立即关闭流。
+
+    `cot` 事件是**内部**事件（API 层捕获，**不**透传给客户端），用于
+    把完整的 CoT 原文累积到 end 事件的 cot_blocks 字段，让前端"显示
+    CoT"开关可以按需展示。
 
     持久化策略：等 run_chat_stream 完整结束后再统一持久化（避免流中断
     留下半截消息）。end 事件里的 persisted 字段告诉前端是否成功。
@@ -147,55 +151,49 @@ async def chat_stream(req: ChatRequest):
         history_dicts = [{"role": m.role, "content": m.content} for m in req.history]
 
     async def event_gen():
-        # 起始事件
+        # 起始事件（带 used_llm 标记，反映 prefer_llm 真实意图）
         yield _sse_format("start", {
             "session_id": req.session_id,
-            "used_llm": True,
+            "used_llm": req.prefer_llm,
         })
 
-        # 校验 LLM 客户端
-        try:
-            from app.llm.chat_engine import run_chat_stream
-            from app.llm.router import get_verified_client
+        from app.llm.chat_engine import run_chat_stream
 
-            client = await get_verified_client()
-        except Exception as e:
-            logger.exception("Failed to init LLM client for stream")
-            yield _sse_format("error", {"message": f"LLM init failed: {e}"})
-            return
-
-        if client is None:
-            yield _sse_format("error", {
-                "message": "No LLM client available. Configure API key in settings."
-            })
-            return
-
-        # 累积（用于持久化）
+        # 累积（用于持久化 + end 事件）
         full_text = ""
         tool_calls_summary: list[dict] = []
         tool_result_by_id: dict[str, str] = {}
+        cot_blocks: list[str] = []  # 完整 think 块原文（API 层捕获，不透传）
 
         try:
             async for event in run_chat_stream(
-                req.text, history=history_dicts, client=client
+                req.text,
+                history=history_dicts,
+                prefer_llm=req.prefer_llm,
             ):
                 etype = event.get("type")
-                # 透传
-                yield _sse_format(etype, event.get("data", {}))
                 # 累积
                 if etype == "text":
                     full_text += event["data"]["delta"]
+                    yield _sse_format("text", event["data"])
                 elif etype == "tool_start":
                     tool_calls_summary.append({
                         "id": event["data"]["id"],
                         "name": event["data"]["name"],
                         "args": event["data"].get("args") or {},
                     })
+                    yield _sse_format("tool_start", event["data"])
                 elif etype == "tool_end":
                     tool_result_by_id[event["data"]["id"]] = event["data"]["result"]
+                    yield _sse_format("tool_end", event["data"])
+                elif etype == "cot":
+                    # 内部事件：捕获但不透传给客户端（避免污染 SSE 契约）
+                    cot_blocks.append(event["data"]["text"])
                 elif etype == "error":
-                    # error 已 emit，直接终止（持久化跳过）
+                    # error 透传给客户端 + 终止
+                    yield _sse_format("error", event["data"])
                     return
+                # 其它未知事件类型不处理
         except Exception as e:
             logger.exception("Stream run_chat_stream failed")
             yield _sse_format("error", {"message": f"Stream failed: {e}"})
@@ -224,12 +222,13 @@ async def chat_stream(req: ChatRequest):
                     f"Failed to persist streamed chat turn for session {req.session_id}"
                 )
 
-        # 终止事件
+        # 终止事件（带 cot_blocks 供前端"显示 CoT"开关使用）
         yield _sse_format("end", {
             "persisted": persisted,
             "session_id": req.session_id,
             "text_length": len(full_text),
             "tool_calls": tool_calls_summary or None,
+            "cot_blocks": cot_blocks or None,
         })
 
     return StreamingResponse(

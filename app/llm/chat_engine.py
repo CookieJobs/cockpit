@@ -455,47 +455,59 @@ async def run_chat_stream(
     history: list[Message] | None = None,
     client: LLMClient | None = None,
     max_tool_rounds: int = 8,
+    prefer_llm: bool = True,
 ) -> AsyncIterator[StreamEvent]:
-    """流式单次对话（含多轮 tool calling）。
+    """流式单次对话（含多轮 tool calling + 关键词 fallback）。
 
-    与 run_chat 行为一致，但通过 async generator 边推进边 yield 事件：
-    - {"type": "start", "data": {"used_llm": True}} — 整体开始
+    行为与 run_chat 一致（LLM 优先 / 失败自动 fallback 关键词 / 可选
+    prefer_llm=False 强制走关键词），但通过 async generator 边推进边
+    yield 事件：
     - {"type": "text", "data": {"delta": "..."}} — 文本增量（已 strip CoT）
     - {"type": "tool_start", "data": {"id", "name", "args"}} — 工具开始
     - {"type": "tool_end", "data": {"id", "result", "ok"}} — 工具结束
+    - {"type": "cot", "data": {"text": "<think>...</think>"}} — CoT 块
+      完成时（API 层捕获，**不**透传给客户端，用于填到 end 事件）
     - {"type": "error", "data": {"message": "..."}} — 错误（流终止信号）
 
-    **不** yield 终止的 end 事件 —— 终止信号由 StopAsyncIteration 表达，
-    由 API 层（app/api/chat.py）决定何时发 final end（带持久化结果）。
+    **不** yield start/end —— 由 API 层（app/api/chat.py）统一管理。
 
-    CoT 处理：text 事件是**已 strip** 的相对增量。具体做法是每收到一个
-    raw delta，累积到 round_text_raw → 跑一次 strip_think_blocks → 取
-    与上一份 stripped 末尾的差量 emit。这样流式过程中用户看不到 think
-    块的内部字符（即使 CoT 跨多个 delta 才关闭）。
+    CoT 处理：text 事件是**已 strip** 的相对增量。具体做法是每收到
+    raw delta，累积到 round_text_raw → 跑一次 strip_think_blocks →
+    取与上一份 stripped 末尾的差量 emit。同时，原始 round_text_raw
+    上的完整 think 块被捕获并 yield `cot` 事件，让 API 层在 end 事件
+    里带上完整的 CoT 原文（用于"显示 CoT"开关）。
     """
-    if client is None:
-        client = get_client()
-    if client is None:
-        yield {
-            "type": "error",
-            "data": {
-                "message": "No LLM client available. Set API key in .env or use keyword commands."
-            },
-        }
+    # 1. 决定走 LLM 还是关键词
+    if prefer_llm:
+        if client is None:
+            client = get_client()
+        if client is None:
+            # LLM 不可用 → fallback 关键词
+            logger.info("No LLM client, falling back to keyword stream")
+            async for ev in _run_keyword_stream(user_text):
+                yield ev
+            return
+    else:
+        # 强制走关键词
+        async for ev in _run_keyword_stream(user_text):
+            yield ev
         return
 
+    # 2. 走 LLM 流式
     messages: list[Message] = list(history or [])
     messages.append({"role": "user", "content": user_text})
 
     tool_calls_made: list[dict[str, Any]] = []
-
-    # **不** yield start —— 由 API 层（app/api/chat.py）统一发，避免重复
 
     for round_idx in range(max_tool_rounds):
         # 本轮累积（已 strip 视角）
         round_text_raw = ""
         round_text_clean = ""
         round_tool_calls: list[ToolCall] = []
+        # 本轮已 yield 过的完整 think 块（用 set 去重 —— 用位置/长度
+        # 跟踪不可靠，因为 think 块在累积到 </think> 时可能跨越位置边界，
+        # raw[offset:] 切片会截断整块）
+        round_yielded_cot: set[str] = set()
 
         try:
             async for event in client.stream_chat(messages, SYSTEM_PROMPT, TOOLS):
@@ -503,7 +515,13 @@ async def run_chat_stream(
                 if etype == "text":
                     delta = event["data"]["delta"]
                     round_text_raw += delta
-                    # 流式版 strip：处理 think 块未关闭的情况
+                    # 1) 捕获新增的完整 think 块，yield cot 事件
+                    for m in _THINK_BLOCK_RE.finditer(round_text_raw):
+                        block_text = m.group(0)
+                        if block_text not in round_yielded_cot:
+                            yield {"type": "cot", "data": {"text": block_text}}
+                            round_yielded_cot.add(block_text)
+                    # 2) 流式版 strip：处理 think 块未关闭的情况
                     new_clean = strip_think_blocks_incremental(round_text_raw)
                     # 计算相对增量（可能为空，例如在 think 块中）
                     if len(new_clean) > len(round_text_clean):
@@ -525,11 +543,10 @@ async def run_chat_stream(
                     return
                 # 其它事件（来自 LLM 客户端的 end 等）忽略
         except Exception as e:
-            logger.exception("Stream LLM call failed")
-            yield {
-                "type": "error",
-                "data": {"message": f"LLM stream call failed: {e}"},
-            }
+            logger.exception("Stream LLM call failed, falling back to keyword")
+            # LLM 流式失败 → fallback 关键词
+            async for ev in _run_keyword_stream(user_text):
+                yield ev
             return
 
         # round 结束：构造 assistant 消息（含 text + tool_use blocks）
@@ -590,3 +607,33 @@ async def run_chat_stream(
 
     # 超过 max_tool_rounds：end 事件由 API 层负责
     return
+
+
+async def _run_keyword_stream(user_text: str) -> AsyncIterator[StreamEvent]:
+    """关键词模式流式（一次性 yield 全部事件，不假装打字机延迟）。
+
+    关键词响应本身就是 < 100ms 的 db 操作，逐字流式没有意义反而
+    拖慢体感。所以这里把整段 text 一次性 yield。
+    """
+    from app.core.chat import dispatch_keyword
+
+    response = await dispatch_keyword(user_text)
+    # 关键词响应：单次 text（整段）
+    yield {"type": "text", "data": {"delta": response.text}}
+    # 无 tool_calls / CoT
+    # 不 yield end —— API 层负责
+
+
+def _iter_new_think_blocks(text: str, start: int) -> list[str]:
+    """返回 [start, len(text)) 范围内新增的完整 think 块原文 list。
+
+    完整 think 块 = `<think>...</think>` 形式（_THINK_BLOCK_RE 匹配）。
+
+    ⚠️  此函数**不再使用** —— chat_engine.run_chat_stream 改用
+    `round_yielded_cot: set` 跟踪已 yield 块（位置切片会截断跨越
+    offset 边界的 think 块，导致捕获失败）。保留仅为向后兼容。
+    """
+    if not text or start >= len(text):
+        return []
+    new_part = text[start:]
+    return _THINK_BLOCK_RE.findall(new_part)
