@@ -255,6 +255,17 @@ function ProjectCard({
   onChange: () => void;
 }) {
   const taskCount = project.tasks.length;
+  const [editingName, setEditingName] = useState(false);
+  const [hovering, setHovering] = useState(false);
+
+  const updateName = async (newName: string) => {
+    setEditingName(false);
+    const trimmed = newName.trim();
+    if (!project.id || !trimmed || trimmed === project.name) return;
+    await api.updateProject(project.id, { name: trimmed });
+    onChange();
+  };
+
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!project.id) return;
@@ -264,8 +275,13 @@ function ProjectCard({
     await api.deleteProject(project.id);
     onChange();
   };
+
   return (
-    <div className="rounded-md bg-bg border border-border overflow-hidden">
+    <div
+      className="rounded-md bg-bg border border-border overflow-hidden"
+      onMouseEnter={() => setHovering(true)}
+      onMouseLeave={() => setHovering(false)}
+    >
       <div className="group flex items-center gap-2 px-2 py-1.5 hover:bg-bg-tertiary transition">
         <button
           onClick={onToggle}
@@ -277,19 +293,64 @@ function ProjectCard({
               expanded ? "rotate-90" : ""
             }`}
           />
-          <span className="flex-1 text-left text-sm text-fg truncate">
-            {project.name}
-          </span>
+          {editingName ? (
+            <input
+              type="text"
+              defaultValue={project.name}
+              autoFocus
+              onBlur={(e) => updateName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  updateName((e.target as HTMLInputElement).value);
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setEditingName(false);
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              className="flex-1 bg-bg border border-accent rounded px-1.5 py-0.5 text-sm text-fg focus:outline-none"
+            />
+          ) : (
+            <span
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                if (project.id) setEditingName(true);
+              }}
+              className="flex-1 text-left text-sm text-fg truncate"
+              title="双击编辑名称"
+            >
+              {project.name}
+            </span>
+          )}
           <span className="text-xs text-fg-muted flex-shrink-0">{taskCount}</span>
         </button>
         {project.id && (
-          <button
-            onClick={handleDelete}
-            className="opacity-0 group-hover:opacity-100 text-fg-muted hover:text-danger transition flex-shrink-0"
-            title="删除项目"
+          <div
+            className={`flex items-center gap-0.5 flex-shrink-0 transition-opacity ${
+              hovering && !editingName ? "opacity-100" : "opacity-0"
+            }`}
           >
-            <Trash2 size={12} />
-          </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingName(true);
+              }}
+              className="text-fg-muted hover:text-fg transition p-0.5"
+              title="编辑项目名称"
+            >
+              <Edit2 size={11} />
+            </button>
+            <button
+              onClick={handleDelete}
+              className="text-fg-muted hover:text-danger transition p-0.5"
+              title="删除项目"
+            >
+              <Trash2 size={11} />
+            </button>
+          </div>
         )}
       </div>
       {expanded && (
