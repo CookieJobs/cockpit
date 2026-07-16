@@ -26,13 +26,78 @@ const SHOW_COT_STORAGE_KEY = "cockpit_show_cot";
 type Message = {
   id: string;
   role: "user" | "agent";
-  content: string;
+  // 新流式消息：events 按 LLM 实际产出顺序（text 段 + tool 块交错）
+  // 老消息（历史 session 加载）没有 events 字段，渲染时回退到 content+toolCalls
+  events?: AgentEventItem[];
+  // 老消息兼容：text 全文 + tool 列表（历史持久化格式）
+  content?: string;
   toolCalls?: ToolCallState[];
   cotBlocks?: string[]; // 完整 think 块原文（仅本轮 session 流式时拿到；历史不存）
   streaming?: boolean; // agent 消息：是否正在流式
   usedLLM?: boolean;
   timestamp: number;
 };
+
+// 流式事件项：按时间序累积。text 段会被相邻 text 事件合并（减少 list 项数）。
+export type AgentEventItem =
+  | { kind: "text"; content: string }
+  | { kind: "tool"; tc: ToolCallState };
+
+/**
+ * 纯函数：把一个 SSE 事件应用到 events 数组，返回新数组。
+ * - text delta：合并到最后一个 text 事件（没有则 push 新 text）
+ * - tool_start：append 新 tool 事件（status: calling）
+ * - tool_end：找到对应 tool 事件，update tc 的 result/ok/status
+ * - 其它事件（start/cot/end/error）：events 数组不动
+ *
+ * 抽出来做 pure function 方便 unit test（不依赖 React state）。
+ */
+export function applyStreamEvent(
+  events: AgentEventItem[],
+  event: { type: string; data: any }
+): AgentEventItem[] {
+  if (event.type === "text") {
+    const delta = event.data?.delta ?? "";
+    if (!delta) return events;
+    const last = events[events.length - 1];
+    if (last && last.kind === "text") {
+      const updated = [...events];
+      updated[updated.length - 1] = { ...last, content: last.content + delta };
+      return updated;
+    }
+    return [...events, { kind: "text", content: delta }];
+  }
+  if (event.type === "tool_start") {
+    return [
+      ...events,
+      {
+        kind: "tool",
+        tc: {
+          id: event.data.id,
+          name: event.data.name,
+          args: event.data.args || {},
+          status: "calling",
+        },
+      },
+    ];
+  }
+  if (event.type === "tool_end") {
+    return events.map((e) =>
+      e.kind === "tool" && e.tc.id === event.data.id
+        ? {
+            ...e,
+            tc: {
+              ...e.tc,
+              result: event.data.result,
+              ok: event.data.ok,
+              status: event.data.ok ? "done" : "error",
+            },
+          }
+        : e
+    );
+  }
+  return events; // start / cot / end / error 不动 events 数组
+}
 
 const SUGGESTIONS = [
   "我现在该干啥？",
@@ -301,13 +366,13 @@ export function ChatWindow({ onAction }: { onAction?: () => void }) {
       content: trimmed,
       timestamp: Date.now(),
     };
-    // 预创建 streaming agent message（content 从空开始，工具调用 list 跟着 SSE 事件生长）
+    // 预创建 streaming agent message：events 数组按 LLM 实际产出顺序累积
+    // （text 段 + tool 块交错），流式过程中光标始终在最后一个 text 事件末尾
     const agentMsgId = `a-${Date.now()}`;
     const agentMsg: Message = {
       id: agentMsgId,
       role: "agent",
-      content: "",
-      toolCalls: [],
+      events: [],
       streaming: true,
       timestamp: Date.now(),
     };
@@ -324,34 +389,11 @@ export function ChatWindow({ onAction }: { onAction?: () => void }) {
 
     try {
       await api.chatStream(trimmed, sessionId, (event) => {
-        if (event.type === "text") {
-          patchAgent((m) => ({ ...m, content: m.content + event.data.delta }));
-        } else if (event.type === "tool_start") {
+        if (event.type === "text" || event.type === "tool_start" || event.type === "tool_end") {
+          // 用纯函数 applyStreamEvent 累积 events
           patchAgent((m) => ({
             ...m,
-            toolCalls: [
-              ...(m.toolCalls || []),
-              {
-                id: event.data.id,
-                name: event.data.name,
-                args: event.data.args || {},
-                status: "calling",
-              },
-            ],
-          }));
-        } else if (event.type === "tool_end") {
-          patchAgent((m) => ({
-            ...m,
-            toolCalls: (m.toolCalls || []).map((tc) =>
-              tc.id === event.data.id
-                ? {
-                    ...tc,
-                    result: event.data.result,
-                    ok: event.data.ok,
-                    status: event.data.ok ? "done" : "error",
-                  }
-                : tc
-            ),
+            events: applyStreamEvent(m.events || [], event),
           }));
         } else if (event.type === "end") {
           patchAgent((m) => ({
@@ -361,24 +403,49 @@ export function ChatWindow({ onAction }: { onAction?: () => void }) {
             cotBlocks: event.data.cot_blocks || undefined,
           }));
         } else if (event.type === "error") {
-          patchAgent((m) => ({
-            ...m,
-            content: m.content + (m.content ? "\n\n" : "") + `❌ ${event.data.message}`,
-            streaming: false,
-          }));
+          // 错误：append 到最后一个 text 事件（或 push 新 text）
+          const errMsg = `❌ ${event.data.message}`;
+          patchAgent((m) => {
+            const events = m.events || [];
+            const last = events[events.length - 1];
+            if (last && last.kind === "text") {
+              const updated = [...events];
+              updated[updated.length - 1] = {
+                ...last,
+                content: last.content + (last.content ? "\n\n" : "") + errMsg,
+              };
+              return { ...m, events: updated, streaming: false };
+            }
+            return {
+              ...m,
+              events: [...events, { kind: "text", content: errMsg }],
+              streaming: false,
+            };
+          });
         }
-        // 'start' 事件：暂不处理
+        // 'start' / 'cot' 事件：暂不处理（cot 由 API 层捕获后放 end.cot_blocks）
       });
       if (onAction) onAction();
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);
-      patchAgent((m) => ({
-        ...m,
-        content: m.content
-          ? `${m.content}\n\n❌ 错误：${errMsg}`
-          : `❌ 错误：${errMsg}`,
-        streaming: false,
-      }));
+      patchAgent((m) => {
+        const events = m.events || [];
+        const last = events[events.length - 1];
+        const errText = `❌ 错误：${errMsg}`;
+        if (last && last.kind === "text") {
+          const updated = [...events];
+          updated[updated.length - 1] = {
+            ...last,
+            content: last.content + (last.content ? "\n\n" : "") + errText,
+          };
+          return { ...m, events: updated, streaming: false };
+        }
+        return {
+          ...m,
+          events: [...events, { kind: "text", content: errText }],
+          streaming: false,
+        };
+      });
     } finally {
       setLoading(false);
     }
@@ -456,14 +523,6 @@ export function ChatWindow({ onAction }: { onAction?: () => void }) {
             className={`flex ${m.role === "user" ? "justify-end" : "justify-start"} fade-in`}
           >
             <div className="max-w-[85%] min-w-[200px]">
-              {/* Tool calls 展示（流式工具卡：默认展开 args + result） */}
-              {m.toolCalls && m.toolCalls.length > 0 && (
-                <div className="mb-1.5 space-y-1">
-                  {m.toolCalls.map((tc) => (
-                    <ToolCallCard key={tc.id} tc={tc} />
-                  ))}
-                </div>
-              )}
               <div
                 className={`rounded-lg px-4 py-2.5 ${
                   m.role === "user"
@@ -473,10 +532,7 @@ export function ChatWindow({ onAction }: { onAction?: () => void }) {
               >
                 {m.role === "agent" ? (
                   <AgentMessageContent
-                    content={m.content}
-                    streaming={!!m.streaming}
-                    hasToolCalls={(m.toolCalls?.length ?? 0) > 0}
-                    cotBlocks={m.cotBlocks}
+                    message={m}
                     showCot={showCot}
                   />
                 ) : (
@@ -651,45 +707,106 @@ function formatRelativeTime(iso: string): string {
 
 /**
  * Agent 消息内容：
- * - streaming 期间：纯文本 + 末尾闪烁光标（不渲染 markdown，
- *   避免 markdown 库每次 re-render 解析开销 + 闪烁更舒服）
- * - 结束后：renderMarkdown 完整渲染
- * - 工具调用但文本空：显示「✅ 已执行」
- * - 完全空：显示「（无响应）」
- * - 有 cotBlocks 且 CoT 开关打开：下方追加可折叠的 CoT 区域
+ * - 新流式消息（有 events 字段）：按事件时间序渲染（text 段 + tool 块
+ *   交错），流式期间最后一个 text 段末尾带闪烁光标
+ * - 老消息（无 events 字段，回退到 content + toolCalls 分离格式）：
+ *   tool 列表在上 + text 一次性 markdown 渲染
+ * - CoT 折叠块：仅 showCot && cotBlocks.length > 0 时显示
  */
 function AgentMessageContent({
-  content,
-  streaming,
-  hasToolCalls,
-  cotBlocks,
+  message,
   showCot,
 }: {
-  content: string;
-  streaming: boolean;
-  hasToolCalls: boolean;
-  cotBlocks?: string[];
+  message: Message;
   showCot: boolean;
 }) {
-  if (streaming) {
-    if (!content) {
-      return (
-        <div className="text-sm text-fg-muted">
-          {hasToolCalls ? "执行中…" : "思考中…"}
-        </div>
-      );
-    }
+  const hasEvents = message.events && message.events.length > 0;
+
+  if (hasEvents) {
     return (
-      <div className="text-sm whitespace-pre-wrap">
-        {content}
-        <span className="cursor-blink">▍</span>
+      <EventsView
+        events={message.events!}
+        streaming={!!message.streaming}
+        showCot={showCot}
+        cotBlocks={message.cotBlocks}
+      />
+    );
+  }
+
+  // 退化路径：老消息（content + toolCalls 分离）
+  const text = message.content || (message.toolCalls?.length ? "✅ 已执行" : "（无响应）");
+  return (
+    <div className="space-y-2">
+      {message.toolCalls && message.toolCalls.length > 0 && (
+        <div className="space-y-1">
+          {message.toolCalls.map((tc) => (
+            <ToolCallCard key={tc.id} tc={tc} />
+          ))}
+        </div>
+      )}
+      <div className="markdown text-sm">{renderMarkdown(text)}</div>
+      {showCot && message.cotBlocks && message.cotBlocks.length > 0 && (
+        <CotBlock blocks={message.cotBlocks} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * EventsView：按事件时间序渲染（text 段 + tool 块交错）
+ * - streaming 期间：text 用纯文本（不跑 markdown） + 最后一段末尾闪烁光标
+ * - 结束后：text 段跑 markdown 渲染
+ * - tool 卡按 ToolCallCard 默认展开
+ */
+function EventsView({
+  events,
+  streaming,
+  showCot,
+  cotBlocks,
+}: {
+  events: AgentEventItem[];
+  streaming: boolean;
+  showCot: boolean;
+  cotBlocks?: string[];
+}) {
+  if (events.length === 0) {
+    return (
+      <div className="text-sm text-fg-muted">
+        {streaming ? "思考中…" : "（无响应）"}
       </div>
     );
   }
-  const text = content || (hasToolCalls ? "✅ 已执行" : "（无响应）");
+  // 找最后一个 text 事件索引（光标只放这里）
+  const lastTextIdx = (() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].kind === "text") return i;
+    }
+    return -1;
+  })();
+
   return (
     <div className="space-y-2">
-      <div className="markdown text-sm">{renderMarkdown(text)}</div>
+      {events.map((e, i) => {
+        if (e.kind === "text") {
+          const isLastText = i === lastTextIdx;
+          if (streaming && isLastText) {
+            return (
+              <div key={`text-${i}`} className="text-sm whitespace-pre-wrap">
+                {e.content}
+                <span className="cursor-blink">▍</span>
+              </div>
+            );
+          }
+          // 非流式 OR 非最后 text 段：跑 markdown
+          return (
+            <div key={`text-${i}`} className="markdown text-sm">
+              {renderMarkdown(e.content)}
+            </div>
+          );
+        }
+        // tool 块
+        return <ToolCallCard key={`tool-${e.tc.id}`} tc={e.tc} />;
+      })}
       {showCot && cotBlocks && cotBlocks.length > 0 && (
         <CotBlock blocks={cotBlocks} />
       )}
