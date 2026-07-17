@@ -102,7 +102,6 @@ async def tool_add_task(
     description: str = "",
     priority: str = "中",
     due: str | None = None,
-    next_action: str = "",
     blocked: bool = False,
 ) -> dict:
     """新建任务（直接进 todo）。
@@ -130,7 +129,7 @@ async def tool_add_task(
     try:
         t = await storage.add_task(TaskCreate(
             project=project, title=title, description=description, priority=prio,
-            due=due, next_action=next_action, blocked=blocked,
+            due=due, blocked=blocked,
         ))
     except ValueError as e:
         return {"error": str(e)}
@@ -143,7 +142,6 @@ async def tool_update_task(
     description: str | None = None,
     priority: str | None = None,
     due: str | None = None,
-    next_action: str | None = None,
     blocked: bool | None = None,
     status: str | None = None,
     draft: bool | None = None,
@@ -167,8 +165,6 @@ async def tool_update_task(
             return {"error": f"Invalid status: {status}"}
     if due is not None:
         kwargs["due"] = due
-    if next_action is not None:
-        kwargs["next_action"] = next_action
     if blocked is not None:
         kwargs["blocked"] = blocked
     if draft is not None:
@@ -379,7 +375,6 @@ TOOLS: list[dict[str, Any]] = [
                 "description": {"type": "string", "description": "任务详情 / 上下文（可选）"},
                 "priority": {"type": "string", "enum": ["高", "中", "低"], "description": "优先级（默认中）"},
                 "due": {"type": "string", "description": "截止日期 YYYY-MM-DD"},
-                "next_action": {"type": "string", "description": "下一步具体动作"},
                 "blocked": {"type": "boolean", "description": "是否被外部阻塞"},
             },
             "required": ["project", "title"],
@@ -394,7 +389,6 @@ TOOLS: list[dict[str, Any]] = [
             "- 「优先级改成高/中/低」 / 「重要程度调一下」 → `update_task(id, priority=\"高\")`\n"
             "- 「标记为阻塞」 / 「解除阻塞」 → `update_task(id, blocked=true|false)`\n"
             "- 「状态改成进行中/已完成」 → `update_task(id, status=\"IN_PROGRESS\"|\"DONE\")`\n"
-            "- 「next_action 改成：发邮件给 Y」 → `update_task(id, next_action=\"...\")`\n"
             "- 「任务描述补充：...」 / 「任务详情写一下：...」 → `update_task(id, description=\"...\")`\n"
             "- 「任务改名」 → `update_task(id, title=\"...\")`\n\n"
             "**重要**：听到这些意图时，**先 list_tasks 找 id**，再调本工具。**不要 add_task 重建同名任务**。"
@@ -408,7 +402,6 @@ TOOLS: list[dict[str, Any]] = [
                 "priority": {"type": "string", "enum": ["高", "中", "低"]},
                 "status": {"type": "string", "enum": ["未开始", "进行中", "已完成"]},
                 "due": {"type": "string", "description": "YYYY-MM-DD 或 null 清除"},
-                "next_action": {"type": "string"},
                 "blocked": {"type": "boolean"},
                 "draft": {"type": "boolean", "description": "true=待确认 false=已确认"},
             },

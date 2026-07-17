@@ -9,7 +9,7 @@ def _make_task(id: str, **kwargs) -> Task:
     defaults = dict(
         id=id, project="proj_1", title=f"task-{id}",
         status=TaskStatus.NOT_STARTED, priority=Priority.MEDIUM,
-        due=None, next_action="", blocked=False, draft=False, created_at=date.today(),
+        due=None, blocked=False, draft=False, created_at=date.today(),
         completed_at=None, checklist=[],
     )
     defaults.update(kwargs)

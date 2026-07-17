@@ -206,7 +206,6 @@ class TaskBase(CockpitModel):
     description: str = Field(default="", max_length=5000, description="任务详情 / 上下文")
     priority: Priority = Field(default=Priority.MEDIUM)
     due: Optional[date] = None
-    next_action: str = Field(default="", max_length=500)
     blocked: bool = False
     checklist: List[ChecklistItem] = Field(default_factory=list)
 
@@ -223,7 +222,6 @@ class TaskUpdate(CockpitModel):
     priority: Optional[Priority] = None
     status: Optional[TaskStatus] = None
     due: Optional[date] = None
-    next_action: Optional[str] = Field(None, max_length=500)
     blocked: Optional[bool] = None
     draft: Optional[bool] = None
     checklist: Optional[list[str]] = None
@@ -282,7 +280,6 @@ class FocusItem(CockpitModel):
     priority: Priority
     due: Optional[date] = None
     blocked: bool
-    next_action: str = ""
 
 
 class ProjectSnapshot(CockpitModel):

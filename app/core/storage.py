@@ -71,7 +71,6 @@ class TaskORM(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=TaskStatus.NOT_STARTED.value)
     priority: Mapped[str] = mapped_column(String(10), nullable=False, default=Priority.MEDIUM.value)
     due: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    next_action: Mapped[str] = mapped_column(String(500), default="", nullable=False)
     blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     draft: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
@@ -194,6 +193,8 @@ async def create_tables() -> None:
         # Schema migrations（idempotent — 加过的列会报错被吞掉）
         await _migrate_add_column(conn, "projects", "description", "TEXT NOT NULL DEFAULT ''")
         await _migrate_add_column(conn, "tasks", "description", "TEXT NOT NULL DEFAULT ''")
+        # 2026-07-17: 删 next_action 列（与 description 语义重复，UI 早已不用）
+        await _migrate_drop_column(conn, "tasks", "next_action")
 
 
 async def _migrate_add_column(conn, table: str, column: str, col_type: str) -> None:
@@ -203,6 +204,20 @@ async def _migrate_add_column(conn, table: str, column: str, col_type: str) -> N
         logger.info(f"Migrated: added {table}.{column}")
     except Exception:
         # 列已存在或其他原因 — 静默忽略
+        pass
+
+
+async def _migrate_drop_column(conn, table: str, column: str) -> None:
+    """如果表存在且列存在，删列。SQLite 3.35+ 支持 ALTER TABLE DROP COLUMN。
+
+    旧版本 / 列不存在会抛错被吞掉 — 安全幂等。注意 SQLite DROP COLUMN 有
+    限制（列不能被索引、不能是 PK、不能有 CHECK 约束引用等），违反会失败，
+    也走静默 ignore（用户已决定硬删 — 失败说明 schema 卡住，需要人工处理）。
+    """
+    try:
+        await conn.exec_driver_sql(f"ALTER TABLE {table} DROP COLUMN {column}")
+    except Exception:
+        # 列已不存在或 DROP 失败 — 静默忽略
         pass
 
 
@@ -258,7 +273,6 @@ def _task_to_pydantic(t: TaskORM) -> Task:
         status=TaskStatus(t.status),
         priority=Priority(t.priority),
         due=t.due,
-        next_action=t.next_action,
         blocked=t.blocked,
         draft=t.draft,
         created_at=t.created_at,
@@ -386,7 +400,6 @@ async def add_task(data: TaskCreate) -> Task:
             status=TaskStatus.NOT_STARTED.value,
             priority=data.priority.value,
             due=data.due,
-            next_action=data.next_action,
             blocked=data.blocked,
             draft=False,  # 新建任务直接进入 todo，无需二次确认
             created_at=date.today(),
@@ -429,8 +442,6 @@ async def update_task(tid: str, data: TaskUpdate) -> Optional[Task]:
             t.status = data.status.value
         if data.due is not None:
             t.due = data.due
-        if data.next_action is not None:
-            t.next_action = data.next_action
         if data.blocked is not None:
             t.blocked = data.blocked
         if data.draft is not None:
@@ -565,7 +576,6 @@ async def undo_completion(aid: str) -> Optional[Task]:
             status=TaskStatus.IN_PROGRESS.value,
             priority=Priority.MEDIUM.value,
             due=None,
-            next_action="",
             blocked=False,
             draft=False,
             created_at=date.today(),
@@ -901,7 +911,6 @@ async def build_snapshot() -> Snapshot:
             priority=t.priority,
             due=t.due,
             blocked=t.blocked,
-            next_action=t.next_action,
         )
         for t in focus_tasks
     ]

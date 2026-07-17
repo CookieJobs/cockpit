@@ -50,7 +50,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
   };
 
   // 完成任务弹窗的 state：哪个 task 正在被"完成"
-  // 接受 Pick<Task, "id" | "title">，focus 卡片（FocusItem）只有 id+title+next_action，
+  // 接受 Pick<Task, "id" | "title">，focus 卡片（FocusItem）也满足最小接口，
   // 但同样支持完整 Task 对象
   const [completingTask, setCompletingTask] = useState<Pick<Task, "id" | "title"> | null>(null);
 
@@ -321,14 +321,6 @@ function FocusItem({
           </span>
         )}
       </div>
-
-      {/* next_action 行（继承自 task-cockpit focus 卡：显示"下一步"） */}
-      {item.next_action && (
-        <div className="pl-[26px] pr-1 text-[12px] text-fg-secondary truncate">
-          <span className="text-fg-muted/70 mr-1">▸</span>
-          {item.next_action}
-        </div>
-      )}
     </div>
   );
 }
@@ -906,7 +898,7 @@ function TaskRow({
           改: 条件里不再用 'priority !== 低' 这种隐式反向判断, 改用
           'task.priority || ...' 让 PriorityMenu 永远显示 (priority 总是有值, truthy)
       */}
-      {(task.priority || task.draft || task.blocked || totalCount > 0 || task.next_action || taskAgeDays(task.created_at) >= 2) && (
+      {(task.priority || task.draft || task.blocked || totalCount > 0 || taskAgeDays(task.created_at) >= 2) && (
         <div className="flex items-center gap-3 pl-[42px] pr-3 pb-1.5 text-[12px] text-fg-muted">
           {/* 优先级 */}
           <div onClick={(e) => e.stopPropagation()}>
@@ -936,16 +928,6 @@ function TaskRow({
           {task.status !== "已完成" && taskAgeDays(task.created_at) >= 2 && (
             <span className="text-fg-muted/70" title={`创建于 ${task.created_at}`}>
               挂了 {taskAgeDays(task.created_at)} 天
-            </span>
-          )}
-
-          {/* next_action */}
-          {task.next_action && (
-            <span
-              className="truncate flex-1 min-w-0"
-              title={task.next_action}
-            >
-              <span className="text-fg-muted/70">▸</span> {task.next_action}
             </span>
           )}
         </div>

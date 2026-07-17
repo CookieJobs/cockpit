@@ -22,7 +22,7 @@ export function CompleteTaskModal({
   onClose,
   onSave,
 }: {
-  // 接受最小接口：focus 卡片只有 id+title+next_action，但同样支持完整 Task
+  // 接受最小接口：focus 卡片只暴露 id+title，但同样支持完整 Task
   task: Pick<Task, "id" | "title">;
   onClose: () => void;
   onSave: (data: {
