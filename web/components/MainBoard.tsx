@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import useSWR from "swr";
-import { api, type Snapshot, type Project, type Task, statusIcon, dueColor, dueLabel, taskAgeDays, projectEmoji, type Priority } from "@/lib/api";
-import { Check, Trash2, ChevronRight, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2 } from "lucide-react";
+import { api, type Snapshot, type Project, type Task, type TaskStatus, statusIcon, dueColor, dueLabel, taskAgeDays, projectEmoji, type Priority } from "@/lib/api";
+import { Check, Trash2, ChevronRight, ChevronDown, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2 } from "lucide-react";
 import { ChatWindow } from "./ChatWindow";
 import { CompleteTaskModal } from "./CompleteTaskModal";
 import Link from "next/link";
@@ -742,32 +742,22 @@ function TaskRow({
 
   const dueCls = dueColor(task.due);
 
-  // 状态机线性切换 (方案 A.1):
-  //   未开始 → 进行中   (status 变更)
-  //   进行中 → 完成 modal (弹 4 字段沉淀)
-  //   已完成 → 完成 modal (重新编辑 CV)
-  // 已完成是终态,回退走"成就库 → 撤销" (api.undoAchievement)
-  //
-  // Round 1 旧版是"未开始 ↔ 进行中" 双向循环,堵死了完成路径
-  // (因为整行 click 是展开详情, 状态按钮又跳过了"完成"档)。
-  // 修复于 2026-07-16。
-  const cycleStatus = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (task.status === "未开始") {
-      await api.updateTask(task.id, { status: "进行中" });
-      onChange();
-    } else {
-      // 进行中 / 已完成 — 都弹 modal (4 字段沉淀 / 重新编辑 CV)
-      onRequestComplete(task);
-    }
+  // 状态机 linear 切 (v2, 2026-07-17):
+  //   未开始 ↔ 进行中  — 通过 StatusMenu 下拉切换 (PATCH status)
+  //   完成 (任意状态)   — 通过 StatusMenu"完成 ✨" 项 / 整行 click / (已删) hover ✅
+  //                     弹 4 字段 modal
+  // 已沉淀 task 在 storage 层已被删除, 看板永远看不到"已完成" 状态,
+  // 所以下拉里 status 只有 2 个有效选项 + 1 个"完成" 触发器 = 3 行
+  const updateStatus = async (s: Exclude<TaskStatus, "已完成">) => {
+    await api.updateTask(task.id, { status: s });
+    onChange();
   };
 
-  const openComplete = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const requestComplete = () => {
     onRequestComplete(task);
   };
 
-  // 展开/收起 (整行 click 不再负责,避免跟"完成"冲突)
+  // 展开/收起 (整行 click 已是"完成",展开走显式 chevron 避免冲突)
   const toggleExpand = (e: React.MouseEvent) => {
     e.stopPropagation();
     setExpanded((v) => !v);
@@ -823,31 +813,15 @@ function TaskRow({
         className={`flex items-center gap-2 px-2.5 py-2 cursor-pointer`}
         onClick={() => !editingTitle && onRequestComplete(task)}
       >
-        {/* 状态按钮(线性: 未开始→进行中→完成 modal) */}
-        <button
-          onClick={cycleStatus}
-          onMouseEnter={() => setHover(true)}
-          onMouseLeave={() => setHover(false)}
-          className={`w-5 h-5 flex items-center justify-center flex-shrink-0 transition ${
-            task.status === "已完成"
-              ? "text-success"
-              : "text-fg-muted hover:text-accent"
-          }`}
-          title={
-            task.status === "未开始"
-              ? "点击切到进行中"
-              : task.status === "进行中"
-              ? "点击完成任务 (弹窗填结果 / CV)"
-              : "已完成 - 点击重新编辑 CV"
-          }
-        >
-          <span className="text-[15px] leading-none">
-            {statusIcon(task.status)}
-          </span>
-        </button>
+        {/* 状态下拉 (v2: 替换原 cycleStatus 单字符按钮) */}
+        <StatusMenu
+          status={task.status}
+          onChange={updateStatus}
+          onComplete={requestComplete}
+        />
 
         {/* 展开/收起 chevron - hover 显示, 整行 click 已经是"完成"了,
-            展开走显式按钮 (跟状态按钮、完成按钮并列) */}
+            展开走显式按钮 (跟状态下拉并列) */}
         <button
           onClick={toggleExpand}
           className={`w-4 h-5 flex items-center justify-center flex-shrink-0 text-fg-muted hover:text-fg transition ${
@@ -904,16 +878,9 @@ function TaskRow({
           )}
         </div>
 
-        {/* ✅ 完成按钮 - 所有非已完成态都显示, 触发 modal (跟整行 click 同效) */}
-        {task.status !== "已完成" && (
-          <button
-            onClick={openComplete}
-            className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center flex-shrink-0 text-fg-muted hover:text-success transition"
-            title="完成 (弹窗填结果 / CV / 复盘)"
-          >
-            <Check size={13} strokeWidth={2.5} />
-          </button>
-        )}
+        {/* ✅ 完成 hover 按钮已删 (v2 改造):
+            下拉里"完成 ✨" 项 + 整行 click 已经是完成入口,
+            第三个 hover 入口视觉重复且容易误触, 去掉 */}
 
         {/* due 编辑器 - 永远右对齐 */}
         <div onClick={(e) => e.stopPropagation()}>
@@ -1113,6 +1080,140 @@ function PriorityMenu({
               {p}
             </button>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function StatusMenu({
+  status,
+  onChange,
+  onComplete,
+}: {
+  status: TaskStatus;
+  onChange: (s: Exclude<TaskStatus, "已完成">) => void;
+  onComplete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // 当前状态的视觉编码 (继承 task-cockpit statusIcon 符号)
+  const currentIcon =
+    status === "未开始" ? "○" : status === "进行中" ? "◐" : "●";
+  const currentColor =
+    status === "已完成"
+      ? "text-success"
+      : status === "进行中"
+      ? "text-accent"
+      : "text-fg-secondary";
+
+  // 点外面关闭
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Esc 关闭 (基础可达性)
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open]);
+
+  // 列表项: 未开始 / 进行中 (已完成 不可达 — 看板里 task 永远不显示, 因为完成即删除)
+  // 加一个独立的'完成 ✨' 项作为主动完成入口, 弹 4 字段 modal
+  const items: { key: Exclude<TaskStatus, "已完成">; icon: string; label: string }[] = [
+    { key: "未开始", icon: "○", label: "未开始" },
+    { key: "进行中", icon: "◐", label: "进行中" },
+  ];
+
+  return (
+    <div ref={ref} className="relative flex-shrink-0">
+      <button
+        ref={buttonRef}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((o) => !o);
+          }
+        }}
+        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[12px] hover:bg-bg-tertiary transition ${currentColor}`}
+        title={`状态: ${status} (点击切换)`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className="text-[14px] leading-none">{currentIcon}</span>
+        <span className="font-medium">{status}</span>
+        <ChevronDown
+          size={10}
+          strokeWidth={2.5}
+          className={`text-fg-muted transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 top-7 z-20 bg-bg-secondary border border-border rounded-md shadow-lg py-0.5 min-w-[140px]"
+          role="listbox"
+        >
+          {items.map((it) => {
+            const isCurrent = it.key === status;
+            return (
+              <button
+                key={it.key}
+                role="option"
+                aria-selected={isCurrent}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isCurrent) onChange(it.key);
+                  setOpen(false);
+                  buttonRef.current?.focus();
+                }}
+                className={`w-full text-left px-2 py-1.5 hover:bg-bg-tertiary text-[12px] flex items-center gap-2 ${
+                  isCurrent ? "text-accent" : "text-fg"
+                }`}
+              >
+                <span className="text-[14px] leading-none">{it.icon}</span>
+                <span>{it.label}</span>
+                {isCurrent && (
+                  <span className="ml-auto text-[10px] text-fg-muted">当前</span>
+                )}
+              </button>
+            );
+          })}
+          {/* 分隔 + 完成项 (主动完成入口 — 弹 4 字段 modal) */}
+          <div className="border-t border-border/60 my-0.5" />
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onComplete();
+            }}
+            className="w-full text-left px-2 py-1.5 hover:bg-bg-tertiary text-[12px] flex items-center gap-2 text-success"
+            title="点击弹窗填结果 / CV / 复盘"
+          >
+            <Check size={11} strokeWidth={2.5} />
+            <span>完成</span>
+            <span className="ml-auto text-[11px]">✨</span>
+          </button>
         </div>
       )}
     </div>

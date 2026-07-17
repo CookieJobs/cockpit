@@ -105,7 +105,7 @@ Cockpit 跟 task-cockpit skill 是同源项目，但**产品形态不同**。tas
 
 - 改优先级（点色点 → 弹小菜单选 高/中/低）
 - 改 due（点 due 标签 → 弹 date input）
-- 改 status（点 ○ / ◐ → 循环切换）
+- 改 status（点状态下拉 → 选 未开始 / 进行中；选"完成 ✨" 弹 modal 沉淀成就）
 - 改标题（双击 → inline input）
 - checklist 增删改（行内勾选 / 行内加）
 
@@ -131,7 +131,7 @@ Cockpit 跟 task-cockpit skill 是同源项目，但**产品形态不同**。tas
 - `reflection` 可选（不强迫 — task-cockpit SKILL.md 第 ② 步明确 "复盘可选"）
 - `cv_status` ready / pending 二选一（ready 立刻能用，pending 挂起后续在成就库补全后升级）
 
-**所有完成入口都走 modal**（看板 status 按钮、FocusItem 单击、TaskRow 已完成按钮、对话 complete_task 工具）— 不要让凑数 cv 绕过去。
+**所有完成入口都走 modal**（看板 status 按钮、FocusItem 单击、TaskRow 整行、状态下拉"完成 ✨"、对话 complete_task 工具）— 不要让凑数 cv 绕过去。
 
 ## Changelog：2026-07-16 借鉴 task-cockpit 8 项
 
@@ -141,9 +141,44 @@ Cockpit 跟 task-cockpit skill 是同源项目，但**产品形态不同**。tas
 |---|---|---|---|
 | 1 | **4 字段完成弹窗** | `web/components/CompleteTaskModal.tsx` (新) + MainBoard 挂载 | 取代 `cv: 完成「${title}」` 凑数 |
 | 2 | **FocusItem 显示 next_action** | MainBoard FocusItem | 跟 TaskRow 对齐 |
-| 3 | **状态机单击循环** (○ ↔ ◐) | MainBoard TaskRow `cycleStatus` + Play 按钮 | 修复了"无法切到进行中"的旧 bug |
+| 3 | **状态机单击循环** (○ ↔ ◐) | MainBoard TaskRow `cycleStatus` + Play 按钮 | 修复了"无法切到进行中"的旧 bug (此版已被 v2 下拉替代, 见下) |
 | 4 | **项目 deterministic emoji** | `lib/api.ts` `projectEmoji` + MainBoard ProjectCard | 50 emoji 池子，hash 选 |
 | 5 | **任务"挂起 N 天"** | `lib/api.ts` `taskAgeDays` + MainBoard TaskRow meta | 阈值 2 天 |
 | 6 | **"今天已完成" 折叠区** | MainBoard DoneTodaySection | 用上 snapshot.done_today 旧数据 |
 | 7 | **AGENTS.md 设计哲学段** | 本文件 | 写清对话驱动 vs inline edit 边界 |
 | 8 | **轮询 diff 优化** | （无需改） | SWR 自带 ETag，验证过 |
+
+## Changelog：2026-07-17 状态菜单化 v2
+
+**背景**: Round 1 的 cycleStatus (○ ↔ ◐ 单字符循环) 用户嫌"○◐ 状态按钮不好",
+信息密度低 + 字符对用户不熟 + 跟 PriorityMenu 下拉风格不一致。
+
+**v2 方案** (commit pending):
+
+- `StatusMenu` 组件 (MainBoard.tsx, 跟 PriorityMenu 同结构)
+  - 触发按钮: 色点 + 状态文字 + ⌄ 箭头 (色点 + 文字 双编码, 不用记符号)
+  - 下拉 3 行:
+    - ○ 未开始 (当前项高亮 accent, 立刻 PATCH status)
+    - ◐ 进行中 (当前项高亮 accent, 立刻 PATCH status)
+    - ───── (分隔)
+    - ✅ 完成 ✨ (弹 4 字段 modal, 不直接切 status)
+  - click outside / Esc 关闭, Tab focus + Enter/Space 打开 (基础可达性)
+  - 方向键选 / 完整 ARIA role (留 TODO, 跟 PriorityMenu 一起做)
+
+- **删 cycleStatus 函数 + Play "开始" 按钮 + hover ✅ 按钮**
+  (三个状态切换入口并入下拉, 视觉去重, 防误触)
+- **整行 click 保持** = 完成 modal (muscle memory 保留)
+- **完成路径现在只剩 2 个手动入口**:
+  - 整行 click → modal
+  - 状态下拉 → "完成 ✨" → modal
+  - 加上 FocusItem 整行 click + chat LLM 工具, 全部到同一 modal
+
+**为什么不直接 PATCH status="已完成"**:
+- 已沉淀的 task 在 storage 层**已被删除** (storage.complete_task 先写 achievement 再删 task)
+- 所以"已完成"状态在看板运行时**永远不可达**
+- 下拉里放"已完成" 选项会误导用户: 选了之后弹了 modal 不是"切状态"
+- 改成显式"完成 ✨" 项, 视觉明确"这一项会弹窗"
+
+**视觉去重决策**:
+- Round 1 改造时加了 hover ✅ 完成按钮, 跟整行 click 重复
+- v2 直接删, 下拉里"完成 ✨" 是统一入口
