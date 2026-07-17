@@ -900,8 +900,13 @@ function TaskRow({
         </button>
       </div>
 
-      {/* 第二行:meta(只在有内容时显示) */}
-      {(task.priority !== "低" || task.draft || task.blocked || totalCount > 0 || task.next_action || taskAgeDays(task.created_at) >= 2) && (
+      {/* 第二行:meta(有内容时显示)
+          修复 2026-07-17: 旧条件 'task.priority !== "低"' 让 priority=低 + 啥都没的任务
+          第二行整个不显示, priority 色点随之不可见 → 用户报"只有高、中, 没有低"
+          改: 条件里不再用 'priority !== 低' 这种隐式反向判断, 改用
+          'task.priority || ...' 让 PriorityMenu 永远显示 (priority 总是有值, truthy)
+      */}
+      {(task.priority || task.draft || task.blocked || totalCount > 0 || task.next_action || taskAgeDays(task.created_at) >= 2) && (
         <div className="flex items-center gap-3 pl-[42px] pr-3 pb-1.5 text-[12px] text-fg-muted">
           {/* 优先级 */}
           <div onClick={(e) => e.stopPropagation()}>
@@ -1024,12 +1029,15 @@ function PriorityMenu({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  // '低' 用 bg-fg-secondary (#a0a0a0), 比原 bg-fg-muted (#666) 在 dark theme
+  // 上可见, 同时跟"高=红/中=黄" 形成"红黄灰" 三档色梯度
+  // 修复于 2026-07-17 — 用户报"任务优先级只有高、中, 没有低"
   const dotColor =
     priority === "高"
       ? "bg-danger"
       : priority === "中"
       ? "bg-warning"
-      : "bg-fg-muted";
+      : "bg-fg-secondary";
 
   useEffect(() => {
     if (!open) return;
@@ -1074,7 +1082,7 @@ function PriorityMenu({
                     ? "bg-danger"
                     : p === "中"
                     ? "bg-warning"
-                    : "bg-fg-muted"
+                    : "bg-fg-secondary"
                 }`}
               />
               {p}
