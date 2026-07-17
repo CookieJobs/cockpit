@@ -22,24 +22,25 @@ export function ToolCallCard({ tc }: { tc: ToolCallState }) {
   const [expanded, setExpanded] = useState(true);
 
   // 状态徽标
+  // 修于 2026-07-17: 加 whitespace-nowrap, 防止 header 被挤窄时"完成"被汉字逐字断行成两列
   let StatusBadge: React.ReactNode;
   if (tc.status === "calling") {
     StatusBadge = (
-      <span className="ml-auto flex items-center gap-1 text-fg-muted text-[10px]">
+      <span className="ml-auto flex items-center gap-1 text-fg-muted text-[10px] whitespace-nowrap shrink-0">
         <Loader2 size={10} className="animate-spin" />
-        调用中…
+        调用中
       </span>
     );
   } else if (tc.status === "done") {
     StatusBadge = (
-      <span className="ml-auto flex items-center gap-1 text-green-400 text-[10px]">
+      <span className="ml-auto flex items-center gap-1 text-green-400 text-[10px] whitespace-nowrap shrink-0">
         <Check size={10} />
         完成
       </span>
     );
   } else {
     StatusBadge = (
-      <span className="ml-auto flex items-center gap-1 text-red-400 text-[10px]">
+      <span className="ml-auto flex items-center gap-1 text-red-400 text-[10px] whitespace-nowrap shrink-0">
         <X size={10} />
         失败
       </span>
@@ -55,7 +56,8 @@ export function ToolCallCard({ tc }: { tc: ToolCallState }) {
       >
         <Wrench size={11} className="text-fg-muted shrink-0" />
         <span className="font-mono text-fg-secondary shrink-0">{tc.name}</span>
-        <span className="text-fg-muted truncate text-[10px]">
+        {/* 摘要段 flex-1 min-w-0 吃掉中间所有空间, 给 StatusBadge 让位 */}
+        <span className="text-fg-muted truncate text-[10px] flex-1 min-w-0">
           {summarizeArgs(tc.args)}
         </span>
         {StatusBadge}
