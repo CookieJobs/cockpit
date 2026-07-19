@@ -81,7 +81,9 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
                 }`}
                 title={llmStatus.available ? `LLM: ${llmStatus.model}` : "无 LLM,使用关键词模式"}
               >
-                {llmStatus.available ? "● LLM" : "○ 关键词"}
+                {llmStatus.available
+                  ? `● ${llmStatus.model || "?"}`
+                  : "○ 关键词"}
               </span>
             )}
             <Link
