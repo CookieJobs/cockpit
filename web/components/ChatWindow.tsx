@@ -253,7 +253,7 @@ export function ChatWindow({
               id: "welcome",
               role: "agent",
               content:
-                "你好！我是Cockpit 🤖\n\n可以试试说「我现在该干啥」「添加任务 XXX」「修 bug 完成了」\n\n带 ● LLM 徽章时我用 LLM 理解，无徽章时用关键词模式。\n对话已自动保存，刷新页面不会丢失～",
+                "你好！我是 Cockpit 🤖\n不替你干活，替你记住你干过什么、要干什么。\n\n试试这样跟我说话：\n·「我现在该干啥」 — 拉今天的清单\n·「接了个 X，要做 A、B、C」 — 一句话拆成项目 + 任务\n·「修 XX 完成了」 — 沉淀成简历级成就\n·「生成本周周报」 — 帮你从成就库组织\n\n搞错了随时说「撤销」。",
               timestamp: Date.now(),
             },
           ]);
