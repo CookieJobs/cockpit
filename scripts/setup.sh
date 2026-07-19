@@ -33,9 +33,12 @@ else
 fi
 
 echo ""
-echo "==> ✅ 环境准备好。下一步："
-echo "    make dev   # 后端（终端 1）"
-echo "    make web   # 前端（终端 2）"
-echo "    或 make all  # 一终端起两边"
+echo "==> ✅ 环境准备好（服务还没启动，需要再跑一条启动命令）"
 echo ""
-echo "    访问 http://localhost:3000 → 右上角 ⚙️ 配 LLM"
+echo "==> 启动服务（任选其一）："
+echo "    make all          # 一终端起后端+前端（推荐：最简单）"
+echo "    make dev          # 终端 1：后端  http://localhost:7842"
+echo "    make web          # 终端 2：前端  http://localhost:3000"
+echo ""
+echo "==> 启动后再访问："
+echo "    http://localhost:3000  → 右上角 ⚙️ 配 LLM"
