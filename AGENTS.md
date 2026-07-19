@@ -244,3 +244,32 @@ Cockpit 跟 task-cockpit skill 是同源项目，但**产品形态不同**。tas
   - `Makefile` help target 文案"日常：'make dev'+'make web' / 嫌麻烦：'make all'" 也偏引导"哪个方便"，没强调"必须启动才能访问"
   - 想统一改的话，把 help 也对齐成"启动服务（任选其一）"的格式
 - **修法位置**：`scripts/setup.sh` 末尾 echo 块（~25 行）
+
+### 8. Python 3.11 + 隐式依赖 greenlet：后端起不来的双重坑（修于 2026-07-19）
+
+- **症状**：`make all` 之后后端端口没监听，进程"在跑"但 curl 永远超时。手动前台跑 uvicorn 才发现有错
+- **两个独立根因**（连着栽两次）：
+  1. **`app/api/tasks.py` NameError** — `complete_task` 函数（line 65）参数类型 `CompleteTaskRequest`，但 class 定义在 line 95（函数之后）。Python 3.11 默认 PEP 526 行为，**函数注解立即求值**，import 阶段就爆
+     - 720b67e 加 `CompleteTaskRequest` 时能跑，是因为 Python 3.12+ 默认 PEP 649 lazy 注解
+     - 切到 3.11.7 立刻爆。**Python 3.11 没 `from __future__ import annotations` = 注解不 lazy**
+  2. **`greenlet` 隐式依赖漏装** — SQLAlchemy 2.x async 强制需要 `greenlet`，但 `sqlalchemy` 包没把它列为硬依赖。`make setup` 走 `pip install -e .[dev]` 时漏装，lifespan 启动时报：
+     ```
+     File ".../sqlalchemy/util/concurrency.py", line 81, in _not_implemented
+         raise ValueError("the greenlet library is required to use this function. No module named 'greenlet'")
+     ```
+     - 错误栈看起来很恐怖（FastAPI merged_lifespan 反复 await 同一失败操作，栈深度 6+ 层），但**根因就是底层这一个 ValueError**
+- **修法**：
+  1. `app/api/tasks.py` 顶部加 `from __future__ import annotations`，所有注解变 lazy 字符串
+  2. `pyproject.toml` 显式声明 `"greenlet>=3.0"` 在 dependencies 里（与 sqlalchemy 并列）
+- **教训**：
+  - **Python 版本敏感度** — 3.11 vs 3.12 在注解语义上行为不同，跨版本时这种坑容易爆。**所有定义在文件下方的 Pydantic model 都建议加 `from __future__ import annotations`** 防一手
+  - **"装上 sqlalchemy + aiosqlite ≠ 能跑 async"** — SQLAlchemy async 还有个隐藏的 greenlet 依赖。**显式声明 + 文档标注**比依赖 pip 隐式解析稳
+  - **错误栈"看起来很复杂"≠ 根因复杂** — FastAPI/Starlette 嵌套 lifespan 会让单个 ValueError 栈深度翻 6 倍，**找最深一行的 `raise` 才是真因**
+  - **`make setup` 跑完 ≠ 服务能起** — 装依赖 + 起服务是两件事，setup 引导文案修了（见 #7），但**依赖完整性也得靠 setup 测出来**——可以把 `uvicorn app.main:app --port 7842 &` + sleep 3 + curl 加进 setup.sh 末尾做 smoke test
+- **可参考的运行时探针**：
+  ```bash
+  # 看 uvicorn 进程是否真在监听
+  lsof -nP -iTCP:7842 -sTCP:LISTEN
+  # CLOSED 状态 = 进程在但端口没绑 = 启动失败
+  ```
+- **修法位置**：`app/api/tasks.py:1`、`pyproject.toml:38`
