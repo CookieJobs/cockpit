@@ -503,7 +503,12 @@ export function ChatWindow({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            send(input);
+            const trimmed = input.trim();
+            // 双重保险: input 在 loading 时已 disabled, 按钮也禁用,
+            // 但 trim 后可能为空 (如纯空格), 这里再 guard 一次
+            if (!trimmed) return;
+            send(trimmed);
+            setInput(""); // 发送后清空输入框（bug fix: 之前 send() 后没清, 体验是"重发"）
           }}
           className="flex items-center gap-2"
         >
@@ -658,6 +663,17 @@ function AgentMessageContent({
   }
 
   // 退化路径：老消息（content + toolCalls 分离）
+  // 注：新流式消息的初始 stub 是 events=[] + content=undefined + toolCalls=undefined,
+  // 这里 hasEvents=false 也是它走的路径，所以下面要优先判断 streaming，
+  // 否则用户刚发完消息会看到"（无响应）"闪烁 (bug fix: 2026-07-20)
+  if (message.streaming) {
+    return (
+      <div className="text-sm text-fg-muted flex items-center gap-1">
+        <Sparkles size={12} className="animate-pulse" />
+        <span>思考中…</span>
+      </div>
+    );
+  }
   const text = message.content || (message.toolCalls?.length ? "✅ 已执行" : "（无响应）");
   return (
     <div className="space-y-2">
