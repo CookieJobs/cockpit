@@ -79,9 +79,21 @@ cockpit/
 
 ### 环境要求
 
-- Python 3.11+
-- Node.js 18+（前端）
+- **Python 3.11+** — macOS 自带是 3.9，需要装新版
+  - macOS 推荐: `brew install python@3.12`
+  - Linux / 想要多版本管理: `brew install pyenv && pyenv install 3.12`
+- **Node.js 18+**（前端）— macOS 推荐 `brew install node`
 - macOS / Linux
+- **国内网络** 建议设代理（npm/pip/brew 拉国外源会撞墙，几 KB/s）:
+  ```bash
+  export HTTPS_PROXY=http://127.0.0.1:7890
+  export HTTP_PROXY=http://127.0.0.1:7890
+  # 端口换成你自己的代理（macOS 系统设置 → 网络 → 代理 里看）
+  ```
+- 没有 Homebrew？装一下: `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
+
+> venv 名字提示: `make setup` 默认建在 `.venv`，但如果你的环境对 `.venv` 路径有特殊权限（比如某些 IDE/沙箱），
+> 会落到 `.venv312` 之类的非标名字 — 不影响跑，启动命令相应换成 `.venv312/bin/uvicorn` 即可。
 
 ### 一键启动（推荐）
 
@@ -131,6 +143,7 @@ uvicorn app.main:app --reload --port 7842
 # 前端（另一个终端）
 cd web
 npm install
+cp .env.example .env.local   # ⚠️ 这一步必做：不建前端会打错端口（404）
 npm run dev
 # 访问 http://localhost:3000
 ```
