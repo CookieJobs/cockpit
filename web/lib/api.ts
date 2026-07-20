@@ -1,6 +1,10 @@
 // Cockpit API 客户端
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
+// 默认指向本地后端端口，跟 .env 里的 COCKPIT_PORT 对齐（默认 7842）。
+// 显式设 NEXT_PUBLIC_API_BASE 可覆盖（远程/容器部署时）。
+// 留空会回退到相对路径（next dev 自己 :3000），那是个常见踩坑点 ——
+// 所以我们选"宁可打错端口也不要静默 fallback"：默认就是 dev 的正确值。
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:7842";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -12,7 +16,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`${res.status}: ${err}`);
+    // 如果拿到的是 HTML（很可能是 next 的 404 页面），截短 + 提示一下根因，
+    // 避免用户对着 100KB 的 HTML 报错抓瞎。
+    const isHtml = err.trimStart().startsWith("<!");
+    const hint = isHtml
+      ? `（响应是 HTML 不是 JSON —— 通常是 NEXT_PUBLIC_API_BASE 没指向后端，或后端没启动。当前 API_BASE=${API_BASE}）`
+      : "";
+    const trimmed = isHtml ? `${err.slice(0, 200)}…` : err;
+    throw new Error(`${res.status}: ${trimmed}${hint}`);
   }
   return res.json();
 }

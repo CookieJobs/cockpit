@@ -64,3 +64,26 @@
   # CLOSED 状态 = 进程在但端口没绑 = 启动失败
   ```
 - **修法位置**：`app/api/tasks.py:1`、`pyproject.toml:38`
+
+## #9. `NEXT_PUBLIC_API_BASE` 没设 → 前端 fetch 静默打错端口（修于 2026-07-20）
+
+- **症状**：用户 `make setup` + `make all` 之后访问 `http://localhost:3000`，控制台报
+  `404: <!DOCTYPE html>...next-error-h1...`。**响应是 next dev 自己的 404 HTML 页面**，不是后端 JSON
+- **三个独立根因叠加**（每个都不致命，合起来每个新用户必踩）：
+  1. **`web/lib/api.ts` 默认值 `""` 太宽容** — `const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";`
+     - 空字符串 + `fetch(\`${API_BASE}${path}\`)` 相对路径 = 打 next dev 自己 :3000
+     - 而 next 没有自己的 `/api/*` route（全部在后端 :7842），所以 next 返回 404 HTML
+     - **没有警告、没有错误**——纯静默
+  2. **`scripts/setup.sh` 没建 `web/.env.local`** — 后端有 `cp .env.example .env` 步骤，但前端**没有对应 `web/.env.example` 模板**，setup 流程也没创建
+  3. **`api.ts` 错误信息没用** — `throw new Error(\`${res.status}: ${err}\`)` 把 next 的 100KB HTML 整个塞错误信息里，用户抓瞎
+- **修法**（3 个文件）：
+  1. 新建 `web/.env.example` — 列出 `NEXT_PUBLIC_API_BASE=http://127.0.0.1:7842` 默认值
+  2. `scripts/setup.sh` 加 `[5/5]` 步骤 — 若 `web/.env.local` 不存在则从 `.env.example` 复制
+  3. `web/lib/api.ts`:
+     - 默认值 `""` → `"http://127.0.0.1:7842"`（宁可打错端口也不要静默 fallback 到相对路径）
+     - `request()` 错误处理：检测响应是 HTML 时截短到 200 字符 + 加 hint "（响应是 HTML 不是 JSON —— 通常是 NEXT_PUBLIC_API_BASE 没指向后端...）"
+- **教训**：
+  - **"默认值兜底" 反模式** — API_BASE/DB_URL/API_KEY 这种**必须配**的变量，**别用 `||` 兜底成空字符串**。要么必填（启动时报清晰错误），要么给一个 dev 友好的默认值（"宁可打错端口也不要静默错"）
+  - **错误信息检测内容类型** — `res.text()` 拿到 HTML 还是 JSON 是**重要诊断信号**。检测到 HTML 应该截短 + 提示"是不是打错端口了"，而不是整个塞错误信息
+  - **"前端用相对路径" 的隐患** — `fetch("/api/x")` 在 next dev 里**不会自动代理到后端**，也不会报错。如果你想让前端代码"零配置"工作，要么配 `API_BASE` 默认值，要么在 next.config.js 里写 `rewrites()` 代理
+- **修法位置**：`web/lib/api.ts:5`（默认值）、`web/lib/api.ts:15`（HTML 检测）、`web/.env.example`（新）、`scripts/setup.sh` `[5/5]` 步骤

@@ -24,12 +24,20 @@ else
   echo "    .env 已存在，跳过"
 fi
 
-echo "==> [4/4] 前端依赖..."
+echo "==> [4/5] 前端依赖..."
 if [ ! -d "web/node_modules" ]; then
   (cd web && npm install)
   echo "    已装 web/node_modules"
 else
   echo "    web/node_modules 已存在，跳过"
+fi
+
+echo "==> [5/5] 前端 .env.local..."
+if [ ! -f "web/.env.local" ] && [ -f "web/.env.example" ]; then
+  cp web/.env.example web/.env.local
+  echo "    已生成 web/.env.local（默认指向 http://127.0.0.1:7842）"
+else
+  echo "    web/.env.local 已存在或无模板，跳过"
 fi
 
 echo ""

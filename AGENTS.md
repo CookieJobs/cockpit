@@ -27,6 +27,7 @@
 | 6 | 端到端 UX 路径静态分析测试方法论 | [04-testing-strategy.md](./docs/lessons/04-testing-strategy.md) |
 | 7 | `make setup` 引导歧义 | [03-fastapi-and-tooling.md](./docs/lessons/03-fastapi-and-tooling.md) |
 | 8 | Python 3.11 + greenlet 双重坑 | [03-fastapi-and-tooling.md](./docs/lessons/03-fastapi-and-tooling.md) |
+| 9 | `NEXT_PUBLIC_API_BASE` 没设 → 前端 fetch 静默打错端口 | [03-fastapi-and-tooling.md](./docs/lessons/03-fastapi-and-tooling.md) |
 
 新增 lessons 写到 `docs/lessons/` 对应主题文件, AGENTS.md 入口只放索引（保持主文件轻量）。
 
