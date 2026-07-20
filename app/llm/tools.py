@@ -208,7 +208,7 @@ async def tool_complete_task(
     try:
         status = CVStatus(cv_status)
     except ValueError:
-        return {"error": f"Invalid cv_status: {cv_status}. Must be ready/pending."}
+        return {"error": f"Invalid cv_status: {cv_status}. Must be ready/needs_data/pending."}
     a = await storage.complete_task(
         id, outcome=outcome, reflection=reflection, cv=cv, cv_status=status,
     )
@@ -229,12 +229,21 @@ async def tool_list_achievements(
     project: str | None = None,
     since: str | None = None,
     only_ready: bool = False,
+    cv_status: str | None = None,
 ) -> dict:
     """列出成就。"""
     from datetime import date
+    from app.core.models import CVStatus
     since_date = date.fromisoformat(since) if since else None
+    status_filter: CVStatus | None = None
+    if cv_status is not None:
+        try:
+            status_filter = CVStatus(cv_status)
+        except ValueError:
+            return {"error": f"Invalid cv_status: {cv_status}"}
     items = await storage.list_achievements(
         project_name=project, since=since_date, only_ready=only_ready,
+        cv_status=status_filter,
     )
     return {"items": [a.model_dump(mode="json") for a in items], "count": len(items)}
 
@@ -438,7 +447,7 @@ TOOLS: list[dict[str, Any]] = [
                 "outcome": {"type": "string", "description": "用户描述的结果（必填）"},
                 "reflection": {"type": "string", "description": "用户复盘反思（可选）"},
                 "cv": {"type": "string", "description": "agent 生成的 CV 描述（必填，动词开头，含影响/结果）"},
-                "cv_status": {"type": "string", "enum": ["ready", "pending"], "description": "ready=素材充分 / pending=挂起待补"},
+                "cv_status": {"type": "string", "enum": ["ready", "needs_data", "pending"], "description": "ready=素材充分 / needs_data=cv 已写但还差数据 / pending=挂起待补"},
             },
             "required": ["id", "outcome", "cv"],
         },
@@ -461,6 +470,7 @@ TOOLS: list[dict[str, Any]] = [
                 "project": {"type": "string", "description": "项目名（不是 ID）"},
                 "since": {"type": "string", "description": "起始日期 YYYY-MM-DD"},
                 "only_ready": {"type": "boolean", "description": "只返回 cvStatus=ready"},
+                "cv_status": {"type": "string", "enum": ["ready", "needs_data", "pending"], "description": "按 cv 状态精确过滤（与 only_ready 二选一，cv_status 优先）"},
             },
             "required": [],
         },
@@ -473,7 +483,7 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "id": {"type": "string", "description": "成就 ID"},
                 "cv": {"type": "string", "description": "新的 CV 描述"},
-                "cv_status": {"type": "string", "enum": ["ready", "pending"]},
+                "cv_status": {"type": "string", "enum": ["ready", "needs_data", "pending"]},
             },
             "required": ["id"],
         },

@@ -15,64 +15,20 @@
 
 ## 踩过的坑（已修，但教训值得记）
 
-### 1. TaskRow checkbox 二次确认 UX bug（修于 2026-07-13）
+完整 lessons 已拆到 [`docs/lessons/`](./docs/lessons/README.md) — 按主题分文件管理（2026-07-20 立）。
 
-- **症状**：点任务前面的状态圆圈 → 圆圈变对号 → 2 秒后对号变回圆圈 → 任务没完成
-- **根因**：`TaskRow` 状态按钮用了双击确认（`confirming` state + 2s `setTimeout` 重置），但**没有视觉提示告诉用户要点第二次**。旁边的 `FocusItem` 是单击直接完成 — 两个区域行为不一致更诡异
-- **教训**：重要操作要么"单击 + undo 窗口"（带 toast），要么"显式二次确认按钮"，不要靠"图标变一下就当确认" — 用户根本看不懂
-- **修法位置**：`web/components/MainBoard.tsx` TaskRow（约 314 行起）
+| # | Lesson | 文件 |
+|---|---|---|
+| 1 | TaskRow 二次确认 UX bug | [01-frontend-ux-bugs.md](./docs/lessons/01-frontend-ux-bugs.md) |
+| 2 | LLM CoT 暴露 + markdown fallback 误执行 | [02-llm-pitfalls.md](./docs/lessons/02-llm-pitfalls.md) |
+| 3 | FastAPI simple type 参数 body 丢失 | [03-fastapi-and-tooling.md](./docs/lessons/03-fastapi-and-tooling.md) |
+| 4 | TaskRow 状态机循环堵死"完成"路径 | [01-frontend-ux-bugs.md](./docs/lessons/01-frontend-ux-bugs.md) |
+| 5 | "低" 优先级色点不可见 | [01-frontend-ux-bugs.md](./docs/lessons/01-frontend-ux-bugs.md) |
+| 6 | 端到端 UX 路径静态分析测试方法论 | [04-testing-strategy.md](./docs/lessons/04-testing-strategy.md) |
+| 7 | `make setup` 引导歧义 | [03-fastapi-and-tooling.md](./docs/lessons/03-fastapi-and-tooling.md) |
+| 8 | Python 3.11 + greenlet 双重坑 | [03-fastapi-and-tooling.md](./docs/lessons/03-fastapi-and-tooling.md) |
 
-### 2. LLM CoT 暴露 + markdown fallback 误执行风险（修于 2026-07-13）
-
-- **症状**：DeepSeek R1 / MiniMax M3 等推理模型在 content 字段写 `<think>...</think>`，整条管道没过滤直接渲染给用户；更严重的是 `chat_engine.py` 的 markdown tool call fallback 用正则扫 `response.text` 解析 `functions.xxx(args)` 伪调用 — 如果 LLM 在 CoT 思维里写了 `functions.delete_task(...)`，**会被当真工具调用执行**（潜在不可逆数据丢失）
-- **根因**：chat_engine 没处理 CoT 块，前后端 markdown 渲染都不过滤
-- **教训**：
-  - **后端**必须在 LLM 响应**入口**就剥离 CoT（`strip_think_blocks` 在 `chat_engine.py`），不能让任何下游路径（fallback 解析 / 持久化 / 前端显示）拿到带 CoT 的 text
-  - **前端**再做一次 defense-in-depth（处理旧 session 历史里残留的 CoT）
-  - markdown tool call fallback **永远是正则 + 白名单**，必须假设输入里可能有 CoT / 注释 / 乱码
-- **覆盖范围**：匹配 `<think>` / `<thinking>` / `<reasoning>` 三个变体，case-insensitive，容忍空白
-- **修法位置**：
-  - 后端：`app/llm/chat_engine.py`（`_THINK_BLOCK_RE` + `strip_think_blocks`）
-  - 前端：`web/components/ChatWindow.tsx`（`stripThinkBlocks` 在 `extractTextFromAnthropicContent` 之后）
-
-### 3. `/api/tasks/{tid}/complete` simple type 参数 body 丢失（修于 2026-07-16）
-
-- **症状**：前端 CompleteTaskModal POST 4 字段 (outcome/cv/reflection/cv_status) 给后端，任务**确实完成了**, achievement **也入库了**, 但**所有 4 字段值都是空字符串**。
-- **根因**：路由端点签名是 `complete_task(tid, outcome: str = "", reflection: str = "", cv: str = "", cv_status: str = "ready")`。FastAPI 看到 `str` 这种 simple type 参数会**默认当 query 解析** — 整个 JSON body 被忽略，所有字段走默认值空串。
-- **教训**：
-  - **FastAPI 端点接 JSON body 必须用 Pydantic BaseModel**，不要用 simple type 参数（这是 memory 里 `python-web-backend-gotchas` 第 3 条，但 storage 层 pytest 测不到这个 — 端点级才暴露）
-  - **测试要打到端点级**：storage 层测试全过不代表 API 行为正确。要加 `TestClient` 走 HTTP 真实路径的回归测试。
-  - 这次 bug 潜伏了至少一个迭代期 — `add_task` 用了 `TaskCreate` Pydantic model 没事，但 `complete_task` 用了 simple type 就翻车
-- **修法位置**：
-  - 后端：`app/api/tasks.py` — 加 `CompleteTaskRequest` BaseModel 接 body
-  - 测试：`app/tests/test_api_complete_task.py`（新文件，4 个端点级 regression test 锁住）
-
-### 4. TaskRow 状态机循环堵死"完成"路径（修于 2026-07-16）
-
-- **症状**：用户报"我**现在不能通过手动操作来完成某一个任务了**！这是极其严重的产品逻辑 bug"。看板所有 task 都没法手动完成，只能去 chat 让 LLM 调 `complete_task` 工具。
-- **根因**（双重瞎）：
-  1. Round 1 抄 task-cockpit `STATUS_CYCLE` 时只抄了"未开始 ↔ 进行中"两档循环，**漏了"完成"档**。看代码：
-     ```ts
-     if (task.status === "未开始") → "进行中"
-     else if (task.status === "进行中") → "未开始"  // ❌ 永远到不了"已完成"
-     else onRequestComplete(task)  // 只有"已完成"会触发 modal
-     ```
-  2. **整行 click 是 `setExpanded` (展开详情)**, 不是"完成"。task-cockpit 原版整行 click 是触发完成, 我以为"已经有人处理", **没核对就发车了**。两个语义撞了, 完成路径被堵死。
-  3. 我写好了 `openComplete` 函数 (4 字段 modal 入口), 但**只在 `status === "已完成"` 时才挂按钮** (dead code 写法), 又是漏。
-- **教训**：
-  - **抄代码时必须核对每个分支的触发条件, 不要假设上下文"已经存在"**。我以为整行 click 已经是完成, 实际是展开详情。
-  - **状态机是 linear 还是 cycle 是产品决策**, 不是 UI 习惯问题。"完成"是终态, 不该循环, 跟其他两档不在一个维度。
-  - **凡是用户报"我没法 X"的产品 bug, 优先怀疑自己的状态机/路由设计**, 不要怪用户不会用。
-  - **端到端 UX 路径必须用人话走一遍**: "我点 ○ → 任务开始", "我点 ◐ → 弹 modal 填结果 → 任务完成", "已完成任务怎么撤销? → 走成就库"。三个场景都得能走通, 不是只测 API 通。
-- **修法**（方案 A.1）：
-  - 状态机改 linear: 未开始 → 进行中 → 完成 modal。已完成是终态, 回退走成就库"撤销" (`api.undoAchievement`)
-  - 整行 click 改 onRequestComplete (弹 4 字段 modal, task-cockpit 风格)
-  - 加 hover chevron 按钮控制展开/收起 (替换整行 click)
-  - "完成" hover 按钮扩到所有非已完成态 (不再限制 `status === "已完成"`)
-  - 删除 Play "开始" 按钮 (状态按钮已能完成同样功能, 视觉重复)
-- **修法位置**：
-  - `web/components/MainBoard.tsx` TaskRow — `cycleStatus` + 整行 onClick + chevron 按钮
-  - 测试盲点: 端点级 pytest 不覆盖前端 UX 路径, 这个 bug 只能人肉走查发现
+新增 lessons 写到 `docs/lessons/` 对应主题文件, AGENTS.md 入口只放索引（保持主文件轻量）。
 
 ## 易踩但还没炸的隐患
 
@@ -182,94 +138,19 @@ Cockpit 跟 task-cockpit skill 是同源项目，但**产品形态不同**。tas
 - Round 1 改造时加了 hover ✅ 完成按钮, 跟整行 click 重复
 - v2 直接删, 下拉里"完成 ✨" 是统一入口
 
-### 5. "低" 优先级色点不可见（修于 2026-07-17）
+## Changelog：2026-07-20 兑现 #1 周报/述职 workspace + 4 项 UX 升级
 
-- **症状**：用户报"任务优先级 我看只有「高」、「中」没有「低」"
-- **根因**（双重盲点）：
-  1. `PriorityMenu` 触发按钮 dotColor "低" 用 `bg-fg-muted` (#666), 1.5px 圆点在 dark theme 几乎不可见
-  2. `TaskRow` 第二行 meta 条件里 `task.priority !== "低"` 这个隐式反向判断, 让 priority=低 + 啥都没的任务**整个 meta 行不显示**, PriorityMenu (色点) 随之不可见 — 即使色点可见, 在第二行隐藏的情况下用户也看不到
-- **修法**：
-  - dotColor "低" 改 `bg-fg-secondary` (#a0a0a0) — 亮灰, 跟"红黄"形成"红黄灰"三档色梯度
-  - 第二行 meta 条件改成 `(task.priority || task.draft || ...)` — `task.priority` 总是 truthy, PriorityMenu 永远渲染
-- **教训**：
-  - **enum 视觉编码不要用"接近背景色"的弱对比** (#666 vs #0a0a0a), dark theme 1.5px 元素至少用 #a0a0a0
-  - **隐式反向判断 (`!== "低"`) 是危险的反模式**, 不读注释根本看不懂为什么隐藏
-  - 用 `task.priority ||` 这种正向判断, 语义清楚 (priority 永远显示)
-- **修法位置**：`web/components/MainBoard.tsx` PriorityMenu + TaskRow meta 条件
+兑现上次对话（"看一下这个项目然后说一下有什么新想法"）批准的方向：
 
-### 6. 端到端 UX 路径静态分析测试 (2026-07-17 立)
+| # | 项 | 位置 | 备注 |
+|---|---|---|---|
+| 1 | **周报/述职 workspace** | `web/app/report/page.tsx` + `web/lib/templates.ts` | 时间范围 × 模板, 左侧升级入口, 右侧 markdown 草稿 + 复制/下载 .md |
+| 3 | `cvStatus` 三态 (ready / needs_data / pending) | `app/core/models.py` + CompleteTaskModal + achievements 页 | 述职升级路径中间态, 成就库按状态过滤 |
+| 4a | **项目归档 UI** | `web/components/MainBoard.tsx` ProjectCard / ProjectsSection | Archive 按钮 + "已归档 N"开关 + 恢复 |
+| 4b | **ChatWindow 重构** | `web/lib/hooks/useChatStream.ts` | 869 → 776 行, 流式状态机抽到独立 hook, 6 个不变量测试锁住 |
+| 4c | **`/today` 晨间 ritual** | `web/app/today/page.tsx` | 大日期 + greeting + focus 5 + 完成 button + 已完成折叠 |
+| 4d | **AGENTS.md 拆 lessons** | `docs/lessons/{01..04}-*.md` | 275 → 141 行, 按主题分文件, 主页只放索引 |
 
-**背景**：用户明确要求"不装乱七八糟的东西, 直接解决问题" — 不装 playwright/chromium 跑 E2E, 改用**静态分析测试** catch 80% 同类 bug。
+**回归**：84 → **108** tests pass（+24: cvStatus 模型/存储/API/UI + 3 组新不变量测试锁住 UI 入口）
 
-**新增文件**：`app/tests/test_complete_path_invariants.py` (10 个不变量测试)
-
-**覆盖的 7 类不变量**：
-1. onRequestComplete 透传 — TaskRow 必须能从 MainBoard 顶层拿到 onRequestComplete
-2. 整行 onClick 接 onRequestComplete — 防"完成路径堵死"再发生
-3. cycleStatus 函数不能再有 — Round 1 堵死根因
-4. StatusMenu 内部定义 + 渲染 — 状态下拉不能删
-5. StatusMenu "完成 ✨" 项 + onComplete + ✨ 标识 — 4 字段 modal 触发器
-6. TaskRow 不再有 hover ✅ 完成按钮 — 跟下拉"完成 ✨"重复
-7. PriorityMenu "低" 颜色用 bg-fg-secondary — 防"低不可见"再发生
-8. TaskRow meta 行条件含 `task.priority ||` — 防 priority=低 整行被隐藏再发生
-
-**测试技巧**：
-- `_strip_comments_and_strings(src)` 先把注释替换成空白, 避免注释里字面量触发误报 (但**保留字符串字面量**, 因为 Cockpit 大量用中文 enum 值, strip 会破坏位置)
-- `_find_function_body_with_ts_types(src, name)` 跨 TS 类型注解提取函数 body (跳过 args + type body 两层 `{}`)
-- 所有失败信息都含**历史 bug 描述 + 修法建议**, 不只是"哪里坏了"
-
-**对比 E2E 的取舍**：
-- E2E 100% 覆盖运行时, 但需要浏览器 (~150MB chromium), 安装/启动慢, 装依赖**值得花时间**时再用
-- 静态分析 ~80% 覆盖 (能 catch 源码层 bug, 不能 catch runtime state bug), **零依赖秒级跑**
-- 两个互补, 这次先用静态分析
-
-### 7. `make setup` 引导歧义：以为装完就能访问（修于 2026-07-17）
-
-- **症状**：用户跑完 `make setup`，直接打开 `http://localhost:3000` → "localhost 拒绝了我们的连接请求"。必须再跑 `make all` 才能访问
-- **根因**：
-  - `make setup` 的语义是**环境准备**（venv + pip + .env + npm install），**没有启动任何服务**
-  - 但 `scripts/setup.sh` 末尾输出是"下一步：make dev / make web / make all" + "访问 http://localhost:3000"
-  - 用户的第一反应是"环境准备好 = 装好了 = 能直接打开"，**没说清楚还要再跑一条启动命令**
-  - "访问 localhost:3000" 出现在 setup 输出里，但端口上根本没服务在跑
-- **修法**：
-  - 加醒目警告："服务还没启动，需要再跑一条启动命令"
-  - 把"一终端 `make all`"放第一位（多数新用户的最简路径）
-  - "访问 localhost:3000" 挪到"启动后"标题下 — 语义上"启动 → 访问"的顺序才对
-  - "下一步" 改成 "启动服务（任选其一）" — 强调这是个**必须执行**的步骤
-- **教训**：
-  - **环境准备类脚本的末尾输出要明确"服务状态"** — 准备完了 ≠ 启动了
-  - 引导重心应该是"用户下一步必须做什么"，不是"哪个方便"
-  - "访问 URL" 一定要跟"启动服务"绑在同一个上下文里出现，不能孤立
-- **没改但同样有歧义**（待办）：
-  - `Makefile` help target 文案"日常：'make dev'+'make web' / 嫌麻烦：'make all'" 也偏引导"哪个方便"，没强调"必须启动才能访问"
-  - 想统一改的话，把 help 也对齐成"启动服务（任选其一）"的格式
-- **修法位置**：`scripts/setup.sh` 末尾 echo 块（~25 行）
-
-### 8. Python 3.11 + 隐式依赖 greenlet：后端起不来的双重坑（修于 2026-07-19）
-
-- **症状**：`make all` 之后后端端口没监听，进程"在跑"但 curl 永远超时。手动前台跑 uvicorn 才发现有错
-- **两个独立根因**（连着栽两次）：
-  1. **`app/api/tasks.py` NameError** — `complete_task` 函数（line 65）参数类型 `CompleteTaskRequest`，但 class 定义在 line 95（函数之后）。Python 3.11 默认 PEP 526 行为，**函数注解立即求值**，import 阶段就爆
-     - 720b67e 加 `CompleteTaskRequest` 时能跑，是因为 Python 3.12+ 默认 PEP 649 lazy 注解
-     - 切到 3.11.7 立刻爆。**Python 3.11 没 `from __future__ import annotations` = 注解不 lazy**
-  2. **`greenlet` 隐式依赖漏装** — SQLAlchemy 2.x async 强制需要 `greenlet`，但 `sqlalchemy` 包没把它列为硬依赖。`make setup` 走 `pip install -e .[dev]` 时漏装，lifespan 启动时报：
-     ```
-     File ".../sqlalchemy/util/concurrency.py", line 81, in _not_implemented
-         raise ValueError("the greenlet library is required to use this function. No module named 'greenlet'")
-     ```
-     - 错误栈看起来很恐怖（FastAPI merged_lifespan 反复 await 同一失败操作，栈深度 6+ 层），但**根因就是底层这一个 ValueError**
-- **修法**：
-  1. `app/api/tasks.py` 顶部加 `from __future__ import annotations`，所有注解变 lazy 字符串
-  2. `pyproject.toml` 显式声明 `"greenlet>=3.0"` 在 dependencies 里（与 sqlalchemy 并列）
-- **教训**：
-  - **Python 版本敏感度** — 3.11 vs 3.12 在注解语义上行为不同，跨版本时这种坑容易爆。**所有定义在文件下方的 Pydantic model 都建议加 `from __future__ import annotations`** 防一手
-  - **"装上 sqlalchemy + aiosqlite ≠ 能跑 async"** — SQLAlchemy async 还有个隐藏的 greenlet 依赖。**显式声明 + 文档标注**比依赖 pip 隐式解析稳
-  - **错误栈"看起来很复杂"≠ 根因复杂** — FastAPI/Starlette 嵌套 lifespan 会让单个 ValueError 栈深度翻 6 倍，**找最深一行的 `raise` 才是真因**
-  - **`make setup` 跑完 ≠ 服务能起** — 装依赖 + 起服务是两件事，setup 引导文案修了（见 #7），但**依赖完整性也得靠 setup 测出来**——可以把 `uvicorn app.main:app --port 7842 &` + sleep 3 + curl 加进 setup.sh 末尾做 smoke test
-- **可参考的运行时探针**：
-  ```bash
-  # 看 uvicorn 进程是否真在监听
-  lsof -nP -iTCP:7842 -sTCP:LISTEN
-  # CLOSED 状态 = 进程在但端口没绑 = 启动失败
-  ```
-- **修法位置**：`app/api/tasks.py:1`、`pyproject.toml:38`
+> Lessons #5-#8 完整内容已迁移到 [`docs/lessons/`](./docs/lessons/README.md), 这里不重复。

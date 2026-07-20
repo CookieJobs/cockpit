@@ -211,6 +211,65 @@ async def test_complete_task_pending_status(temp_db):
 
 
 @pytest.mark.asyncio
+async def test_complete_task_needs_data_status(temp_db):
+    """needs_data 中间态（2026-07-20 立）: cv 已写但还差数据。
+
+    跟 pending 区别：pending 是"没写完"，needs_data 是"写了但承认不全"。
+    """
+    p = await storage.add_project(ProjectCreate(name="x"))
+    t = await storage.add_task(TaskCreate(project=p.id, title="x"))
+
+    a = await storage.complete_task(
+        t.id,
+        outcome="搞了 X",
+        cv="主导 X 改版上线（具体指标待补）",
+        cv_status=CVStatus.NEEDS_DATA,
+    )
+    assert a.cv_status == CVStatus.NEEDS_DATA
+    # cv 文本应保留
+    assert "待补" in a.cv
+
+
+@pytest.mark.asyncio
+async def test_list_achievements_filter_by_cv_status(temp_db):
+    """list_achievements 的 cv_status 精确过滤（2026-07-20 立）。"""
+    p = await storage.add_project(ProjectCreate(name="x"))
+    t1 = await storage.add_task(TaskCreate(project=p.id, title="t1"))
+    t2 = await storage.add_task(TaskCreate(project=p.id, title="t2"))
+    t3 = await storage.add_task(TaskCreate(project=p.id, title="t3"))
+    await storage.complete_task(t1.id, outcome="o", cv="c", cv_status=CVStatus.READY)
+    await storage.complete_task(t2.id, outcome="o", cv="c", cv_status=CVStatus.NEEDS_DATA)
+    await storage.complete_task(t3.id, outcome="o", cv="c", cv_status=CVStatus.PENDING)
+
+    ready = await storage.list_achievements(cv_status=CVStatus.READY)
+    needs = await storage.list_achievements(cv_status=CVStatus.NEEDS_DATA)
+    pending = await storage.list_achievements(cv_status=CVStatus.PENDING)
+
+    assert len(ready) == 1
+    assert len(needs) == 1
+    assert len(pending) == 1
+    assert ready[0].cv_status == CVStatus.READY
+    assert needs[0].cv_status == CVStatus.NEEDS_DATA
+    assert pending[0].cv_status == CVStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_needs_data_to_ready_upgrade(temp_db):
+    """needs_data → ready 升级路径（典型场景：3 个月后补全数据）。"""
+    p = await storage.add_project(ProjectCreate(name="x"))
+    t = await storage.add_task(TaskCreate(project=p.id, title="x"))
+    a = await storage.complete_task(
+        t.id, outcome="o", cv="主导改版", cv_status=CVStatus.NEEDS_DATA
+    )
+    # 升级
+    upgraded = await storage.update_achievement_cv(
+        a.id, AchievementUpdate(cv="主导 App 改版，DAU +5%", cv_status=CVStatus.READY)
+    )
+    assert upgraded.cv == "主导 App 改版，DAU +5%"
+    assert upgraded.cv_status == CVStatus.READY
+
+
+@pytest.mark.asyncio
 async def test_complete_task_not_found(temp_db):
     a = await storage.complete_task("task_xxx", outcome="o", cv="cv")
     assert a is None

@@ -539,6 +539,7 @@ async def list_achievements(
     project_name: Optional[str] = None,
     since: Optional[date] = None,
     only_ready: bool = False,
+    cv_status: Optional[CVStatus] = None,
 ) -> list[Achievement]:
     async with get_session() as session:
         stmt = select(AchievementORM).order_by(AchievementORM.date.desc())
@@ -546,7 +547,11 @@ async def list_achievements(
             stmt = stmt.where(AchievementORM.project == project_name)
         if since:
             stmt = stmt.where(AchievementORM.date >= since)
-        if only_ready:
+        if cv_status is not None:
+            # 精确状态过滤（2026-07-20 立 needs_data 后, 比 only_ready 更灵活）
+            stmt = stmt.where(AchievementORM.cv_status == cv_status.value)
+        elif only_ready:
+            # 兼容旧 API: only_ready=true 仍走 ready
             stmt = stmt.where(AchievementORM.cv_status == CVStatus.READY.value)
         result = await session.execute(stmt)
         return [_achievement_to_pydantic(a) for a in result.scalars()]

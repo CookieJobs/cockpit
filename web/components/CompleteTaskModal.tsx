@@ -153,7 +153,7 @@ export function CompleteTaskModal({
           />
         </div>
 
-        {/* cv_status */}
+        {/* cv_status — 三态（2026-07-20 立 needs_data 中间态）*/}
         <div className="px-5 pt-3">
           <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted mb-1.5">
             CV 状态
@@ -162,29 +162,48 @@ export function CompleteTaskModal({
             <button
               type="button"
               onClick={() => setCvStatus("ready")}
-              className={`flex-1 px-3 py-2 rounded-md text-[13px] border transition ${
+              className={`flex-1 px-2 py-2 rounded-md text-[12px] border transition ${
                 cvStatus === "ready"
                   ? "bg-success/10 border-success text-success"
                   : "bg-bg border-border text-fg-muted hover:text-fg"
               }`}
             >
-              ✅ 已有具体成果，直接入库
+              <div>✅ ready</div>
+              <div className="text-[10px] mt-0.5 opacity-80">具体成果</div>
             </button>
             <button
               type="button"
-              onClick={() => setCvStatus("pending")}
-              className={`flex-1 px-3 py-2 rounded-md text-[13px] border transition ${
-                cvStatus === "pending"
+              onClick={() => setCvStatus("needs_data")}
+              className={`flex-1 px-2 py-2 rounded-md text-[12px] border transition ${
+                cvStatus === "needs_data"
                   ? "bg-warning/10 border-warning text-warning"
                   : "bg-bg border-border text-fg-muted hover:text-fg"
               }`}
             >
-              ⏳ 结果待补充，先存草稿
+              <div>📊 needs data</div>
+              <div className="text-[10px] mt-0.5 opacity-80">cv 已写，差数据</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCvStatus("pending")}
+              className={`flex-1 px-2 py-2 rounded-md text-[12px] border transition ${
+                cvStatus === "pending"
+                  ? "bg-fg-muted/10 border-fg-muted text-fg-secondary"
+                  : "bg-bg border-border text-fg-muted hover:text-fg"
+              }`}
+            >
+              <div>⏳ pending</div>
+              <div className="text-[10px] mt-0.5 opacity-80">先存草稿</div>
             </button>
           </div>
+          {cvStatus === "needs_data" && (
+            <div className="mt-2 text-[11px] text-fg-muted leading-relaxed">
+              适合"当时记了大概、知道还差数据但不想现在补" — 成就库会显示橙色提示，3 个月后写述职时一眼能挑出来。
+            </div>
+          )}
           {cvStatus === "pending" && (
             <div className="mt-2 text-[11px] text-fg-muted leading-relaxed">
-              pending 项不会丢 — 后续在成就库点编辑可补全数据后升级为 ready。
+              草稿项不会丢 — 后续在成就库点编辑可补全数据后升级为 ready。
             </div>
           )}
         </div>

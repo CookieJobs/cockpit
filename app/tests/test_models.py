@@ -92,6 +92,14 @@ def test_achievement_cv_status_default():
     assert a.reflection == ""
 
 
+def test_cv_status_enum_has_three_states():
+    """CVStatus 三态（2026-07-20 立 needs_data 中间态）。"""
+    assert CVStatus.READY.value == "ready"
+    assert CVStatus.NEEDS_DATA.value == "needs_data"
+    assert CVStatus.PENDING.value == "pending"
+    assert len(CVStatus) == 3
+
+
 def test_achievement_id_format():
     """成就 ID 应以 done_ 开头。"""
     a = Achievement(task_id="task_xxx", project_id="proj_xxx", project="p", title="t")

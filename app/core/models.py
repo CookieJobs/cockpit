@@ -55,9 +55,16 @@ class TaskStatus(str, Enum):
 
 
 class CVStatus(str, Enum):
-    """成就的 CV 状态。"""
-    PENDING = "pending"   # 数据模糊、待补充
-    READY = "ready"       # 数据充分、可用
+    """成就的 CV 状态。
+
+    三态（2026-07-20 立 needs_data 中间态）：
+    - pending: 当时只记了大概，待补充
+    - needs_data: 已写 cv，但**知道自己还差数据/对比/方法论**（橙色徽章提示）
+    - ready: 数据充分、可用
+    """
+    PENDING = "pending"      # 数据模糊、待补充
+    NEEDS_DATA = "needs_data"  # cv 已写但还差关键数据（升级路径中间态）
+    READY = "ready"          # 数据充分、可用
 
 
 # ===== Checklist =====

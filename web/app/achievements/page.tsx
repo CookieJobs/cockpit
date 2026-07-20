@@ -1,14 +1,18 @@
 "use client";
 
 import useSWR from "swr";
-import { api, type Achievement } from "@/lib/api";
-import { ArrowLeft, CheckCircle2, Circle, Edit2, Undo2 } from "lucide-react";
+import { api, type Achievement, type CVStatus } from "@/lib/api";
+import { ArrowLeft, CheckCircle2, Circle, AlertCircle, Edit2, Undo2, ArrowUpCircle, Filter } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
+type StatusFilter = "all" | "needs_data" | "pending" | "ready";
+
 export default function AchievementsPage() {
-  const { data: items, mutate } = useSWR<Achievement[]>("/api/achievements", () =>
-    api.listAchievements()
+  const [filter, setFilter] = useState<StatusFilter>("all");
+  const { data: items, mutate } = useSWR<Achievement[]>(
+    ["/api/achievements", filter],
+    () => filter === "all" ? api.listAchievements() : api.listAchievements({ cv_status: filter as CVStatus })
   );
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -29,6 +33,12 @@ export default function AchievementsPage() {
   const undo = async (id: string) => {
     if (!confirm("撤销这个成就？任务会恢复到进行中状态。")) return;
     await api.undoAchievement(id);
+    mutate();
+  };
+
+  // 把 pending / needs_data 升级为 ready（2026-07-20 立 needs_data 后补的入口）
+  const upgrade = async (a: Achievement) => {
+    await api.updateAchievement(a.id, { cv_status: "ready" });
     mutate();
   };
 
@@ -57,6 +67,29 @@ export default function AchievementsPage() {
           </div>
         </div>
 
+        {/* 状态过滤 — 让 needs_data 中间态可被发现 + 批量升级 */}
+        <div className="flex items-center gap-2 mb-4 text-sm">
+          <Filter size={14} className="text-fg-muted" />
+          {([
+            { k: "all", label: "全部" },
+            { k: "needs_data", label: "📊 还差数据" },
+            { k: "pending", label: "⏳ 草稿" },
+            { k: "ready", label: "✅ ready" },
+          ] as { k: StatusFilter; label: string }[]).map((it) => (
+            <button
+              key={it.k}
+              onClick={() => setFilter(it.k)}
+              className={`px-2.5 py-1 rounded text-[12px] transition ${
+                filter === it.k
+                  ? "bg-accent/15 text-accent"
+                  : "text-fg-muted hover:text-fg hover:bg-bg-tertiary"
+              }`}
+            >
+              {it.label}
+            </button>
+          ))}
+        </div>
+
         {Object.keys(groups).length === 0 ? (
           <div className="rounded-lg border border-border bg-bg-secondary p-8 text-center text-fg-muted">
             还没有成就。完成任务后会沉淀在这里 ✨
@@ -81,6 +114,8 @@ export default function AchievementsPage() {
                             <div className="flex items-center gap-2 mb-1">
                               {a.cv_status === "ready" ? (
                                 <CheckCircle2 size={14} className="text-success flex-shrink-0" />
+                              ) : a.cv_status === "needs_data" ? (
+                                <AlertCircle size={14} className="text-warning flex-shrink-0" />
                               ) : (
                                 <Circle size={14} className="text-fg-muted flex-shrink-0" />
                               )}
@@ -88,6 +123,16 @@ export default function AchievementsPage() {
                               <span className="text-xs px-2 py-0.5 rounded bg-bg-tertiary text-fg-secondary">
                                 {a.project}
                               </span>
+                              {a.cv_status === "needs_data" && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning font-medium">
+                                  📊 还差数据
+                                </span>
+                              )}
+                              {a.cv_status === "pending" && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-fg-muted/15 text-fg-muted font-medium">
+                                  ⏳ 草稿
+                                </span>
+                              )}
                             </div>
                             {editingId === a.id ? (
                               <div className="mt-2 space-y-2">

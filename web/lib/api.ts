@@ -21,7 +21,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export type Priority = "高" | "中" | "低";
 export type TaskStatus = "未开始" | "进行中" | "已完成";
-export type CVStatus = "pending" | "ready";
+export type CVStatus = "pending" | "needs_data" | "ready";
 
 export interface ChecklistItem {
   text: string;
@@ -238,11 +238,12 @@ export const api = {
 
   // ===== Achievements =====
 
-  listAchievements: (params?: { project?: string; since?: string; only_ready?: boolean }) => {
+  listAchievements: (params?: { project?: string; since?: string; only_ready?: boolean; cv_status?: CVStatus }) => {
     const search = new URLSearchParams();
     if (params?.project) search.set("project", params.project);
     if (params?.since) search.set("since", params.since);
-    if (params?.only_ready) search.set("only_ready", "true");
+    if (params?.cv_status) search.set("cv_status", params.cv_status);
+    else if (params?.only_ready) search.set("only_ready", "true");
     const q = search.toString();
     return request<Achievement[]>(`/api/achievements${q ? `?${q}` : ""}`);
   },

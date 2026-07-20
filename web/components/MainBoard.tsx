@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import useSWR from "swr";
 import { api, type Snapshot, type Project, type Task, type TaskStatus, statusIcon, dueColor, dueLabel, taskAgeDays, projectEmoji, type Priority } from "@/lib/api";
-import { Check, Trash2, ChevronRight, ChevronDown, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2 } from "lucide-react";
+import { Check, Trash2, ChevronRight, ChevronDown, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2, Archive, ArchiveRestore, Sparkles } from "lucide-react";
 import { ChatWindow } from "./ChatWindow";
 import { CompleteTaskModal } from "./CompleteTaskModal";
 import Link from "next/link";
@@ -86,6 +86,21 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
                   : "○ 关键词"}
               </span>
             )}
+            <Link
+              href="/today"
+              className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary"
+              title="晨间 ritual：聚焦今天要做的"
+            >
+              今天
+            </Link>
+            <Link
+              href="/report"
+              className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
+              title="周报/述职 workspace"
+            >
+              <Sparkles size={11} />
+              写周报
+            </Link>
             <Link
               href="/achievements"
               className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary"
@@ -429,6 +444,15 @@ function ProjectsSection({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [newProjectName, setNewProjectName] = useState("");
   const [showInput, setShowInput] = useState(false);
+  // 已归档项目开关 + 数据（默认隐藏，开了之后单独显示在下方）
+  const [showArchived, setShowArchived] = useState(false);
+  const { data: allProjects, mutate: refreshArchived } = useSWR<Project[]>(
+    showArchived ? "/api/projects?include_archived=true" : null,
+    () => api.listProjects(true)
+  );
+  const archivedProjects = (allProjects || []).filter(
+    (p) => p.archived && !snapshot.projects.some((sp) => sp.id === p.id)
+  );
 
   const createProject = async () => {
     if (!newProjectName.trim()) return;
@@ -438,20 +462,38 @@ function ProjectsSection({
     onChange();
   };
 
+  const restoreProject = async (id: string) => {
+    await api.updateProject(id, { archived: false });
+    refreshArchived();
+    onChange();
+  };
+
   return (
     <div>
       <SectionHeader
         title="项目"
         count={snapshot.projects.length}
         right={
-          <button
-            onClick={() => setShowInput((s) => !s)}
-            className="text-[12px] text-fg-muted hover:text-fg transition flex items-center gap-1 px-2 py-0.5 rounded hover:bg-bg-tertiary"
-            title="新建项目"
-          >
-            <Plus size={12} />
-            新建
-          </button>
+          <div className="flex items-center gap-2">
+            {archivedProjects.length > 0 && (
+              <button
+                onClick={() => setShowArchived((s) => !s)}
+                className="text-[12px] text-fg-muted hover:text-fg transition flex items-center gap-1 px-2 py-0.5 rounded hover:bg-bg-tertiary"
+                title="显示已归档项目"
+              >
+                <Archive size={12} />
+                {showArchived ? "隐藏" : "已归档"} {archivedProjects.length}
+              </button>
+            )}
+            <button
+              onClick={() => setShowInput((s) => !s)}
+              className="text-[12px] text-fg-muted hover:text-fg transition flex items-center gap-1 px-2 py-0.5 rounded hover:bg-bg-tertiary"
+              title="新建项目"
+            >
+              <Plus size={12} />
+              新建
+            </button>
+          </div>
         }
       />
       {showInput && (
@@ -490,6 +532,38 @@ function ProjectsSection({
           </div>
         )}
       </div>
+
+      {/* 已归档项目（默认折叠，2026-07-20 立）*/}
+      {showArchived && archivedProjects.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-border/40">
+          <div className="text-[11px] uppercase tracking-[0.1em] text-fg-muted font-semibold px-2 mb-2">
+            已归档
+          </div>
+          <div className="space-y-1.5">
+            {archivedProjects.map((p) => (
+              <div
+                key={p.id}
+                className="rounded-xl bg-bg-tertiary/20 border border-border/40 px-3 py-2 flex items-center gap-2"
+              >
+                <span className="text-[14px] flex-shrink-0 opacity-60">
+                  {projectEmoji(p.id)}
+                </span>
+                <span className="flex-1 text-[14px] text-fg-muted truncate">
+                  {p.name}
+                </span>
+                <button
+                  onClick={() => restoreProject(p.id)}
+                  className="text-[11px] text-fg-muted hover:text-accent transition flex items-center gap-1 px-2 py-1 rounded hover:bg-bg-tertiary"
+                  title="恢复项目"
+                >
+                  <ArchiveRestore size={12} />
+                  恢复
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -529,6 +603,17 @@ function ProjectCard({
       return;
     }
     await api.deleteProject(project.id);
+    onChange();
+  };
+
+  // 归档项目（2026-07-20 立）— 不删数据, 把项目从主列表移到"已归档" 区
+  const handleArchive = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!project.id) return;
+    if (!confirm(`归档项目「${project.name}」?\n\n项目会从主列表移到"已归档"区, 任务数据保留, 可随时恢复。`)) {
+      return;
+    }
+    await api.updateProject(project.id, { archived: true });
     onChange();
   };
 
@@ -628,6 +713,13 @@ function ProjectCard({
               title="编辑项目名称"
             >
               <Edit2 size={12} />
+            </button>
+            <button
+              onClick={handleArchive}
+              className="text-fg-muted hover:text-warning transition p-1 rounded hover:bg-bg-secondary"
+              title="归档项目（任务数据保留, 可恢复）"
+            >
+              <Archive size={12} />
             </button>
             <button
               onClick={handleDelete}

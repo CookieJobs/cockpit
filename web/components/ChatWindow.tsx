@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { api, type ChatResponse, type ChatHistoryMessage, type ChatSession } from "@/lib/api";
 import { renderMarkdown } from "./Markdown";
 import { ToolCallCard, type ToolCallState } from "./ToolCallCard";
+import { useChatStream, type ChatMessage } from "@/lib/hooks/useChatStream";
 import {
   Send,
   Sparkles,
@@ -24,22 +25,14 @@ import {
 const SESSION_STORAGE_KEY = "cockpit_session_id";
 const SHOW_COT_STORAGE_KEY = "cockpit_show_cot";
 
-type Message = {
-  id: string;
-  role: "user" | "agent";
-  // 新流式消息：events 按 LLM 实际产出顺序（text 段 + tool 块交错）
-  // 老消息（历史 session 加载）没有 events 字段，渲染时回退到 content+toolCalls
-  events?: AgentEventItem[];
-  // 老消息兼容：text 全文 + tool 列表（历史持久化格式）
-  content?: string;
-  toolCalls?: ToolCallState[];
-  cotBlocks?: string[]; // 完整 think 块原文（仅本轮 session 流式时拿到；历史不存）
-  streaming?: boolean; // agent 消息：是否正在流式
-  usedLLM?: boolean;
-  timestamp: number;
-};
+// ChatMessage 是 useChatStream hook 用的类型；这里留个 Message 别名兼容
+// 现有 UI 组件（AgentMessage 等）的 type 引用, 避免大改
+// ChatMessage 是 useChatStream hook 用的类型；这里留个 Message 别名兼容
+// 现有 UI 组件（AgentMessage 等）的 type 引用, 避免大改
+type Message = ChatMessage;
 
 // 流式事件项：按时间序累积。text 段会被相邻 text 事件合并（减少 list 项数）。
+// 类型定义在 useChatStream hook 内部, 这里 re-export 给 AgentMessage 用
 export type AgentEventItem =
   | { kind: "text"; content: string }
   | { kind: "tool"; tc: ToolCallState };
@@ -199,13 +192,20 @@ export function ChatWindow({
   onCollapse?: () => void;
 }) {
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [showCot, setShowCotState] = useState<boolean>(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 流式状态由 hook 拥有（2026-07-20 立 useChatStream）
+  const { messages, loading, send, setHistory, clear } = useChatStream({
+    sessionId,
+    onComplete: () => {
+      // 流式完成后通知父组件（刷新看板快照）
+      if (onAction) onAction();
+    },
+  });
 
   // 初始化 CoT 开关（localStorage → state）
   useEffect(() => {
@@ -245,10 +245,10 @@ export function ChatWindow({
         const { messages: histMsgs } = await api.listMessages(sid, 40);
         if (cancelled) return;
         if (histMsgs.length > 0) {
-          setMessages(historyToUI(histMsgs));
+          setHistory(historyToUI(histMsgs));
         } else {
           // 首次：显示欢迎
-          setMessages([
+          setHistory([
             {
               id: "welcome",
               role: "agent",
@@ -262,7 +262,7 @@ export function ChatWindow({
         console.error("Failed to init chat session:", e);
         if (cancelled) return;
         // 兜底：欢迎消息，无 session
-        setMessages([
+        setHistory([
           {
             id: "welcome",
             role: "agent",
@@ -275,7 +275,7 @@ export function ChatWindow({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [setHistory]);
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -295,7 +295,7 @@ export function ChatWindow({
       const { messages: histMsgs } = await api.listMessages(sid, 40);
       setSessionId(sid);
       setStoredSessionId(sid);
-      setMessages(histMsgs.length > 0 ? historyToUI(histMsgs) : [
+      setHistory(histMsgs.length > 0 ? historyToUI(histMsgs) : [
         {
           id: "welcome",
           role: "agent",
@@ -315,7 +315,7 @@ export function ChatWindow({
       await api.createSession(sid);
       setSessionId(sid);
       setStoredSessionId(sid);
-      setMessages([
+      setHistory([
         {
           id: "welcome",
           role: "agent",
@@ -363,100 +363,7 @@ export function ChatWindow({
     }
   };
 
-  const send = async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || !sessionId) return;
-
-    const userMsg: Message = {
-      id: `u-${Date.now()}`,
-      role: "user",
-      content: trimmed,
-      timestamp: Date.now(),
-    };
-    // 预创建 streaming agent message：events 数组按 LLM 实际产出顺序累积
-    // （text 段 + tool 块交错），流式过程中光标始终在最后一个 text 事件末尾
-    const agentMsgId = `a-${Date.now()}`;
-    const agentMsg: Message = {
-      id: agentMsgId,
-      role: "agent",
-      events: [],
-      streaming: true,
-      timestamp: Date.now(),
-    };
-    setMessages((m) => [...m, userMsg, agentMsg]);
-    setInput("");
-    setLoading(true);
-
-    // 工具函数：找到当前 agent message 并 patch
-    const patchAgent = (patch: (m: Message) => Message) => {
-      setMessages((msgs) =>
-        msgs.map((m) => (m.id === agentMsgId ? patch(m) : m))
-      );
-    };
-
-    try {
-      await api.chatStream(trimmed, sessionId, (event) => {
-        if (event.type === "text" || event.type === "tool_start" || event.type === "tool_end") {
-          // 用纯函数 applyStreamEvent 累积 events
-          patchAgent((m) => ({
-            ...m,
-            events: applyStreamEvent(m.events || [], event),
-          }));
-        } else if (event.type === "end") {
-          patchAgent((m) => ({
-            ...m,
-            streaming: false,
-            usedLLM: true,
-            cotBlocks: event.data.cot_blocks || undefined,
-          }));
-        } else if (event.type === "error") {
-          // 错误：append 到最后一个 text 事件（或 push 新 text）
-          const errMsg = `❌ ${event.data.message}`;
-          patchAgent((m) => {
-            const events = m.events || [];
-            const last = events[events.length - 1];
-            if (last && last.kind === "text") {
-              const updated = [...events];
-              updated[updated.length - 1] = {
-                ...last,
-                content: last.content + (last.content ? "\n\n" : "") + errMsg,
-              };
-              return { ...m, events: updated, streaming: false };
-            }
-            return {
-              ...m,
-              events: [...events, { kind: "text", content: errMsg }],
-              streaming: false,
-            };
-          });
-        }
-        // 'start' / 'cot' 事件：暂不处理（cot 由 API 层捕获后放 end.cot_blocks）
-      });
-      if (onAction) onAction();
-    } catch (e: unknown) {
-      const errMsg = e instanceof Error ? e.message : String(e);
-      patchAgent((m) => {
-        const events = m.events || [];
-        const last = events[events.length - 1];
-        const errText = `❌ 错误：${errMsg}`;
-        if (last && last.kind === "text") {
-          const updated = [...events];
-          updated[updated.length - 1] = {
-            ...last,
-            content: last.content + (last.content ? "\n\n" : "") + errText,
-          };
-          return { ...m, events: updated, streaming: false };
-        }
-        return {
-          ...m,
-          events: [...events, { kind: "text", content: errText }],
-          streaming: false,
-        };
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  // send 来自 useChatStream hook（2026-07-20 重构）— 流式状态机已抽到 web/lib/hooks/useChatStream.ts
 
   return (
     <div className="flex flex-col h-full bg-bg relative">
