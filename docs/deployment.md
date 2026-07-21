@@ -68,6 +68,8 @@ curl http://127.0.0.1:7842/api/health
 
 > **没填 LLM key 也能起**，只是聊天/任务拆解会走关键词 fallback（功能降级但 UI 正常）。
 
+> ⚠️ **`COCKPIT_ENV=production` 是必需的** — 静态服务（接管前端 `web/out/`）只在 production 模式下启用。dev/test 模式下即使 `web/out/` 存在也会跳过，避免本地 `make dev` 被旧 build 污染（dev 体验保持纯净，只走 `next dev :3000`）。
+
 ## 数据持久化
 
 SQLite 文件在容器内 `/data/cockpit.db`，通过 named volume `cockpit_data` 持久化到宿主机的 Docker volume 目录。
@@ -209,3 +211,10 @@ rm -rf /opt/cockpit
 | 数据目录 | `~/.cockpit/cockpit.db` | `/data/cockpit.db` (Docker volume) |
 | 改代码 | 即时生效 | 重新 `docker compose up -d --build` |
 | LLM key | `.env` 文件 | `deploy/.env.production` 文件 |
+| `COCKPIT_ENV` | `development`（默认） | `production`（docker-compose 自动设） |
+| 静态服务 | **自动禁用**（避免 `web/out/` 旧 build 污染） | **自动启用**（接管前端） |
+
+**本地 + 部署互不干扰的设计**：
+- 本地跑过 `npm run build` 也不影响 `make dev`（uvicorn 检测到 `COCKPIT_ENV=development` 跳过静态服务）
+- 部署也不会把本地 dev 用的 `.env` 误读（docker-compose 只读 `deploy/.env.production`）
+- 数据目录天然隔离（`~/.cockpit/` vs `/data/`），互不污染

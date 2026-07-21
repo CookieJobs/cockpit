@@ -20,8 +20,15 @@ RUN npm ci --no-audit --no-fund
 COPY web/ ./
 
 # 静态导出到 out/ 目录
-# 注: NEXT_PUBLIC_API_BASE 在 .env.production 设成 /api (相对路径),
-# 浏览器自动用当前 origin 拼, 部署在任意域名/IP 都不用改
+# 关键 (bug fix 2026-07-21): 必须显式注入 NEXT_PUBLIC_API_BASE="" (空字符串) 到 build env.
+# 否则本地 web/.env.local 里的 127.0.0.1:7842 会被 inline 进 bundle,
+# 部署后前端 fetch 连你本机 7842 (没服务) → "Failed to fetch".
+#
+# 注: 之前尝试 NEXT_PUBLIC_API_BASE=/api 会出 /api/api/... 双前缀 bug,
+# 因为 lib/api.ts 的 request 函数拼路径 `${API_BASE}${path}`, path 本身已含 /api/...
+# 修法: build 时注入空字符串, fetch 走相对路径, 浏览器自动拼 origin (同源).
+ARG NEXT_PUBLIC_API_BASE=""
+ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
 RUN npm run build
 
 # ===== 阶段 2: Python runtime =====

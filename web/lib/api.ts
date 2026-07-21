@@ -1,10 +1,22 @@
 // Cockpit API 客户端
 
-// 默认指向本地后端端口，跟 .env 里的 COCKPIT_PORT 对齐（默认 7842）。
-// 显式设 NEXT_PUBLIC_API_BASE 可覆盖（远程/容器部署时）。
-// 留空会回退到相对路径（next dev 自己 :3000），那是个常见踩坑点 ——
-// 所以我们选"宁可打错端口也不要静默 fallback"：默认就是 dev 的正确值。
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:7842";
+// API base URL 解析逻辑 (2026-07-21 修):
+// - dev (.env.local): NEXT_PUBLIC_API_BASE=http://127.0.0.1:7842 → 显式绝对地址
+// - production (Docker 部署): NEXT_PUBLIC_API_BASE=/api → 相对路径, 同源 fetch
+//
+// 防静默 fallback 踩坑 (历史 bug 2026-07-21):
+// 之前 fallback 是 http://127.0.0.1:7842, 但 Next.js build 时 .env.local
+// 优先级高于 .env.production, 本地开发设的 127.0.0.1:7842 会 inline 进 bundle,
+// 部署到服务器后前端 fetch 连你**本机** 7842 而不是服务器 7842, 必报
+// "Failed to fetch"。修法: Dockerfile build 时显式 ARG/ENV 覆盖, 这里
+// fallback 改成空字符串, 让 fetch 走相对路径 (相对当前页面 origin)。
+//
+// 注意: 在用户浏览器 dev 模式 (next dev) 下, 没设 env 时 fetch 相对路径
+// 会请求 next 自己 :3000/api/... → 404。所以保留 dev 模式 fallback 到 127.0.0.1:7842。
+const _isDev = process.env.NODE_ENV === "development";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE ||
+  (_isDev ? "http://127.0.0.1:7842" : "");
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
