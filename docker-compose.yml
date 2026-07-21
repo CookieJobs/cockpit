@@ -1,0 +1,61 @@
+# Cockpit Docker Compose 部署配置 (2026-07-21 立)
+#
+# 用法:
+#   1) 复制 deploy/.env.production.example 为 deploy/.env.production, 填 LLM API key
+#   2) 准备数据目录: mkdir -p /data/cockpit
+#   3) 构建并启动: docker compose up -d --build
+#   4) 查看日志: docker compose logs -f cockpit
+#   5) 停止: docker compose down
+#
+# 数据持久化:
+#   - named volume `cockpit_data` 挂到容器内 /data
+#   - SQLite 文件: /data/cockpit.db
+#   - 想看数据: docker compose exec cockpit ls -la /data
+#   - 想导出: docker compose cp cockpit:/data/cockpit.db ./
+#   - 想从备份恢复: docker compose cp ./backup.db cockpit:/data/cockpit.db
+
+services:
+  cockpit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cockpit:latest
+    container_name: cockpit
+    restart: unless-stopped
+    ports:
+      # 宿主机 7842 → 容器 7842
+      # 改宿主机端口: "8080:7842" (避免跟其他服务冲突)
+      - "7842:7842"
+    volumes:
+      # 持久化数据 (SQLite + 后续可能的导出文件)
+      - cockpit_data:/data
+    env_file:
+      # LLM API key 等敏感配置, 复制 .example 改名为 .env.production 后填入
+      - path: ./deploy/.env.production
+        required: false  # 没文件时也能起 (只是 LLM 调用会失败)
+    environment:
+      # 覆盖 env_file 中的同名变量 (确保 production 模式)
+      - COCKPIT_ENV=production
+      - COCKPIT_HOST=0.0.0.0
+      - COCKPIT_PORT=7842
+      - COCKPIT_DATA_DIR=/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7842/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  cockpit_data:
+    # named volume — Docker 管理的持久化卷
+    # 位置: /var/lib/docker/volumes/cockpit_cockpit_data/_data
+    # 想换位置: 改 driver_opts 或用 bind mount 替换:
+    #   - type: bind
+    #     source: /data/cockpit
+    #     target: /data

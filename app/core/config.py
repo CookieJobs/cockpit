@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     )
 
     # ===== 应用 =====
+    # 注: dev 默认值留给本地 / 单元测试。Docker 部署时通过环境变量
+    # COCKPIT_HOST=0.0.0.0 + COCKPIT_ENV=production 覆盖。
+    # 详见 docs/deployment.md
     cockpit_env: Literal["development", "production", "test"] = Field(
         default="development",
         alias="COCKPIT_ENV",
@@ -35,6 +38,8 @@ class Settings(BaseSettings):
         default=7842,
         alias="COCKPIT_PORT",
     )
+    # 默认 127.0.0.1（本地安全）。Docker 部署通过 env 覆盖成 0.0.0.0。
+    # 也可以显式通过 COCKPIT_HOST=0.0.0.0 启动本地 dev（但通常不需要）。
     cockpit_host: str = Field(
         default="127.0.0.1",
         alias="COCKPIT_HOST",
@@ -81,6 +86,15 @@ class Settings(BaseSettings):
 
     # ===== 安全 =====
     cockpit_encryption_key: str = Field(default="", alias="COCKPIT_ENCRYPTION_KEY")
+
+    # CORS 白名单（逗号分隔的 origin 列表）。默认开发期允许 3000 端口。
+    # Docker 部署时同源 (前端 build 由 FastAPI serve) 不会触发 CORS,
+    # 但如果加 nginx 反代 80→7842, origin 变化, 需要把反代 origin 加进来。
+    # 例: COCKPIT_CORS_ORIGINS="http://62.234.180.241,https://cockpit.example.com"
+    cockpit_cors_origins: str = Field(
+        default="http://localhost:3000,http://127.0.0.1:3000",
+        alias="COCKPIT_CORS_ORIGINS",
+    )
 
     def get_database_url(self) -> str:
         """获取异步数据库 URL（默认 SQLite via aiosqlite）。

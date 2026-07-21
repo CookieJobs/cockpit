@@ -1,0 +1,75 @@
+# Docker 构建时排除的文件 (2026-07-21 立)
+# 跟 .gitignore 类似但更激进, 减少构建上下文体积 + 避免泄露本地数据
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+.venv312/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# ===== Node / Next.js =====
+# 注意: web/node_modules 和 web/.next 必须在阶段 1 装/构建,
+# 所以这里**不**排除 web/。但排除前端自己的 .next 临时产物
+# (我们 build 出 web/out/ 才是要的)
+web/.next/
+web/.next.bak/
+
+# ===== 本地数据 =====
+# 防止本机数据被意外打进镜像
+data/
+deploy/data/
+.shiguang/
+
+# ===== 环境变量 / 凭证 =====
+# .env 永远不打进镜像 (含 LLM API key, 危险)
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.production  # 但 .env.production 是构建时 NEXT_PUBLIC_API_BASE 用的, 需要
+# 排除开发者本地的真实 .env.production (如有)
+web/.env.production.local
+
+# ===== IDE / OS =====
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+Thumbs.db
+
+# ===== 文档 / 测试产物 (可选, 留镜像小一点) =====
+# 文档不打到镜像, 服务器上也不需要
+# 但 README 是镜像里 cv 不到的, 留着方便 debug
+# README.md
+# AGENTS.md
+# docs/
+
+# 测试代码不进生产镜像
+app/tests/
+
+# 临时 / 缓存
+*.log
+logs/
+tmp/
+temp/
+.cache/
+
+# 备份文件
+.bak*/
+.bak-*/
+
+# Docker / 部署产物本身
+docker-compose.override.yml
+*.tar
