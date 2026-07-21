@@ -928,7 +928,7 @@ async def build_snapshot() -> Snapshot:
             continue
         p_tasks = [t for t in all_tasks if t.project == p.id]
         projects_grouped.append(ProjectSnapshot(
-            id=p.id, name=p.name, tasks=p_tasks
+            id=p.id, name=p.name, description=p.description, tasks=p_tasks
         ))
 
     # 未分组的 task

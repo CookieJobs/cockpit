@@ -65,6 +65,34 @@
   ```
 - **修法位置**：`app/api/tasks.py:1`、`pyproject.toml:38`
 
+## #10. `build_snapshot` 漏传 description 字段 → 前端永远看不到（修于 2026-07-21）
+
+- **症状**：项目在数据库里有 description 字段，LLM 工具 `list_projects` 能正确返回（"description": "提升产品中的AI含量及token消耗量"），但**前端 MainBoard 项目卡片无论展开/收起都不显示任何 description 文字**。用户以为前端没做这个功能。
+- **根因**（两个地方同时漏）：
+  1. **`app/core/storage.py:927-928` `build_snapshot()` 构造 `ProjectSnapshot` 时显式 kwarg 传字段，漏了 description**：
+     ```python
+     projects_grouped.append(ProjectSnapshot(
+         id=p.id, name=p.name, tasks=p_tasks   # ← 缺 description=p.description
+     ))
+     ```
+     ORM `p.description` 是有的，但没塞进 snapshot 里。`/api/snapshot` 出去的 JSON 整链路就丢了。
+  2. **`web/lib/api.ts` `ProjectSnapshot.description?: string` 是 optional** — 前端类型上没说必填，TS 不报错，运行时 `project.description` 是 `undefined`，`{project.description && <div>...}` 短路求值不渲染，**完全静默**
+- **为什么测试没拦住**：
+  - `test_build_snapshot_groups_by_project` 只验项目名/任务数，没验 description
+  - 测的是另一条路径 `list_projects` 走的是 `projects.py` 接口（直接 dump ORM 全字段），所以测试看到 description 是有的
+  - 同一份数据，两个接口行为不一致 —— 一个工具用 list_projects 看得到，dashboard 用 snapshot 看不到，用户对比之下更迷惑
+- **修法**（3 个文件 + 1 测试）：
+  1. `app/core/storage.py:928` 加 `description=p.description`
+  2. `app/core/models.py:296` `ProjectSnapshot.description: str = ""`（必填 + 默认空串）
+  3. `web/lib/api.ts:103` `description: string` 必填，TS 编译期就能发现使用方
+  4. `app/tests/test_storage.py` 新增 `test_build_snapshot_includes_project_description`，直接断言 snapshot.projects[].description 等于建项目时传入的值
+- **教训**：
+  - **"Pydantic model + 显式 kwarg 构造" 是 silent failure 高发区** — 加新字段时如果忘了在调用点加 kwarg，model 默认值会兜住（这里 `description: str = ""` 兜成空串），数据静默丢失。**改用 `ProjectSnapshot.model_validate({**all_orm_fields})` 或者从 ORM 直接 dump** 能消除这种漏传
+  - **"类型 optional = 允许 undefined"** = 前端另一道 silent failure。**字段在数据库有、在 LLM 工具返回里有，唯独 snapshot 里没有** —— 这种情况如果前端类型是 optional 就完全感知不到。**后端实际会送出的字段，前端类型就应该标必填**（即便兜底是空串）。optional 只给真正"可能没这个字段"的场景
+  - **同一份数据两条对外路径必须做一致性测试** — `list_projects` 和 `build_snapshot` 都暴露 project 全量信息，但走的是不同代码路径。如果只测一条，另一条就完全没保护
+  - **数据流可视化清单**很有用 — LLM 工具看到的有 / snapshot 看到的没有 / 前端展示 — 三层如果对不齐就一定有 bug
+- **修法位置**：`app/core/storage.py:928`、`app/core/models.py:296`、`web/lib/api.ts:103`、`app/tests/test_storage.py::test_build_snapshot_includes_project_description`
+
 ## #9. `NEXT_PUBLIC_API_BASE` 没设 → 前端 fetch 静默打错端口（修于 2026-07-20）
 
 - **症状**：用户 `make setup` + `make all` 之后访问 `http://localhost:3000`，控制台报

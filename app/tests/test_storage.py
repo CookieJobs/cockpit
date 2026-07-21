@@ -399,3 +399,27 @@ async def test_build_snapshot_groups_by_project(temp_db):
     project_names = [ps.name for ps in snapshot.projects]
     assert "P1" in project_names
     assert "P2" in project_names
+
+
+@pytest.mark.asyncio
+async def test_build_snapshot_includes_project_description(temp_db):
+    """build_snapshot 必须把 project.description 带出来,否则前端看板永远看不到。
+
+    历史 bug: storage.py:927 漏传 description 字段,前端 ProjectSnapshot 类型又是
+    optional,导致 description 有值也显示空白,UI 完全感知不到该字段存在。
+    """
+    p_with_desc = await storage.add_project(
+        ProjectCreate(name="有描述", description="提升产品中的AI含量及token消耗量")
+    )
+    p_empty_desc = await storage.add_project(ProjectCreate(name="无描述"))
+    await storage.add_task(TaskCreate(project=p_with_desc.id, title="t"))
+
+    snapshot = await storage.build_snapshot()
+
+    by_id = {ps.id: ps for ps in snapshot.projects}
+    assert by_id[p_with_desc.id].description == "提升产品中的AI含量及token消耗量"
+    assert by_id[p_empty_desc.id].description == ""
+    # 未分组的 project id=None 也得能跑通（不崩,空字符串）
+    orphan_groups = [ps for ps in snapshot.projects if ps.id is None]
+    if orphan_groups:
+        assert orphan_groups[0].description == ""

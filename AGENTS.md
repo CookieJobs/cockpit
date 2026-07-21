@@ -28,6 +28,9 @@
 | 7 | `make setup` 引导歧义 | [03-fastapi-and-tooling.md](./docs/lessons/03-fastapi-and-tooling.md) |
 | 8 | Python 3.11 + greenlet 双重坑 | [03-fastapi-and-tooling.md](./docs/lessons/03-fastapi-and-tooling.md) |
 | 9 | `NEXT_PUBLIC_API_BASE` 没设 → 前端 fetch 静默打错端口 | [03-fastapi-and-tooling.md](./docs/lessons/03-fastapi-and-tooling.md) |
+| 10 | `build_snapshot` 漏传 description → 前端永远看不到 | [03-fastapi-and-tooling.md](./docs/lessons/03-fastapi-and-tooling.md) |
+| 11 | TaskRow 4 个 ▾ 上下叠视觉堆叠 | [01-frontend-ux-bugs.md](./docs/lessons/01-frontend-ux-bugs.md) |
+| 12 | 整行 click = 完成 反直觉 (v2 推翻) | [01-frontend-ux-bugs.md](./docs/lessons/01-frontend-ux-bugs.md) |
 
 新增 lessons 写到 `docs/lessons/` 对应主题文件, AGENTS.md 入口只放索引（保持主文件轻量）。
 
@@ -104,12 +107,16 @@ Cockpit 跟 task-cockpit skill 是同源项目，但**产品形态不同**。tas
 | 7 | **AGENTS.md 设计哲学段** | 本文件 | 写清对话驱动 vs inline edit 边界 |
 | 8 | **轮询 diff 优化** | （无需改） | SWR 自带 ETag，验证过 |
 
-## Changelog：2026-07-17 状态菜单化 v2
+## Changelog：2026-07-17 状态菜单化 v2 (已被 2026-07-21 v3 推翻部分)
+
+> ⚠️ **2026-07-21 v3 推翻**: "整行 click = 完成 modal" 决策被推翻 (见下方 Changelog v3)。
+> 整行 90% 是空白, 空白点中也算"用户操作" 触发完成 modal → 用户报"红框空白点中不该触发"。
+> 改为 task-cockpit 原版: 整行 click = 展开/收起, 完成走 2 个显式入口 (StatusMenu popover + hover ✅ 按钮)。
 
 **背景**: Round 1 的 cycleStatus (○ ↔ ◐ 单字符循环) 用户嫌"○◐ 状态按钮不好",
 信息密度低 + 字符对用户不熟 + 跟 PriorityMenu 下拉风格不一致。
 
-**v2 方案** (commit pending):
+**v2 方案** (commit 00e3148, 已部分回退):
 
 - `StatusMenu` 组件 (MainBoard.tsx, 跟 PriorityMenu 同结构)
   - 触发按钮: 色点 + 状态文字 + ⌄ 箭头 (色点 + 文字 双编码, 不用记符号)
@@ -119,15 +126,10 @@ Cockpit 跟 task-cockpit skill 是同源项目，但**产品形态不同**。tas
     - ───── (分隔)
     - ✅ 完成 ✨ (弹 4 字段 modal, 不直接切 status)
   - click outside / Esc 关闭, Tab focus + Enter/Space 打开 (基础可达性)
-  - 方向键选 / 完整 ARIA role (留 TODO, 跟 PriorityMenu 一起做)
 
-- **删 cycleStatus 函数 + Play "开始" 按钮 + hover ✅ 按钮**
-  (三个状态切换入口并入下拉, 视觉去重, 防误触)
-- **整行 click 保持** = 完成 modal (muscle memory 保留)
-- **完成路径现在只剩 2 个手动入口**:
-  - 整行 click → modal
-  - 状态下拉 → "完成 ✨" → modal
-  - 加上 FocusItem 整行 click + chat LLM 工具, 全部到同一 modal
+- **删 cycleStatus 函数 + Play "开始" 按钮** (状态切换入口并入下拉, 视觉去重)
+- ~~**整行 click 保持** = 完成 modal~~ (v3 已推翻, 改 toggleExpand)
+- ~~**hover ✅ 按钮**: 删了 (跟整行 click 重复)~~ (v3 加回, 这次不重复)
 
 **为什么不直接 PATCH status="已完成"**:
 - 已沉淀的 task 在 storage 层**已被删除** (storage.complete_task 先写 achievement 再删 task)
@@ -135,9 +137,53 @@ Cockpit 跟 task-cockpit skill 是同源项目，但**产品形态不同**。tas
 - 下拉里放"已完成" 选项会误导用户: 选了之后弹了 modal 不是"切状态"
 - 改成显式"完成 ✨" 项, 视觉明确"这一项会弹窗"
 
-**视觉去重决策**:
-- Round 1 改造时加了 hover ✅ 完成按钮, 跟整行 click 重复
-- v2 直接删, 下拉里"完成 ✨" 是统一入口
+## Changelog：2026-07-21 TaskRow 整行 click 推翻 v3 (色点 button 形态 + 整行展开)
+
+**背景**: 2026-07-21 用户连报两个问题 —
+- **问题 1**: "红框区域 (task 标题右边空白) 点中不该触发完成"
+- **问题 2**: "红框区域 (task 第一行) 4 个 ▾ 上下叠, 视觉堆叠"
+
+**v3 方案** (2026-07-21 commit, 推翻 v2 部分):
+
+- **整行 click 改回 toggleExpand** (task-cockpit 原版)
+  - v2 决策"整行 click = 完成" 推翻, 空白点中不再误触
+  - 整行 click = 切换展开/收起详情区, 跟 task-cockpit 原版一致, 跟用户认知一致
+  - 完成走 2 个显式入口 (不重复, 不靠"整行空白点中"防堵死):
+    - ① StatusMenu 色点 popover 里的"完成 ✨" 项 (弹 4 字段 modal)
+    - ② hover 第一行时出现的 ✅ 按钮 (绿色 Check, opacity-0 + group-hover/row:opacity-100)
+  - lesson #4 "完成路径堵死" 的精神保住 — 靠显式按钮堵, 不靠整行 click
+
+- **StatusMenu / PriorityMenu 触发 button 改纯色点形态** (无文字 / 无 ▾ 箭头)
+  - 旧版 "○ 未开始 ▾" 三件套 + "● 高 ▾" 三件套 → 8-10x8-10 纯色点 button
+  - hover 显示 ring + bg 高亮, 提示"可点"
+  - click 弹下拉, 里面仍是 "● 高 / ● 中 / ● 低" / "● 未开始 / ● 进行中 / ✅ 完成 ✨"
+  - 旧版 lesson #1 教训 (色点必须可见) 保住 — 色点更大 (8x8 / 10x10 vs 旧 6x6)
+
+- **展开 chevron 从 button 改为指示器**
+  - 旧版 v2 设计的 "▸ 展开 chevron button" 删除, 整行 click 已经替代它的功能
+  - 新版第一行右侧加一个 **always 可见的小 chevron 指示器** (灰色 ▸ / 展开时 accent + 旋转 90°)
+  - 提示"这一行可展开", 但**不是 button**, 不参与 click
+
+- **第二行 meta 弱化** (去掉 PriorityMenu 文字版)
+  - PriorityMenu 已在第一行色点表示, 第二行 meta 不再放 priority 文字
+  - meta 条件从 `(task.priority || task.draft || ...)` 改成 `(task.draft || task.blocked || ...)`
+  - 只保留离散事件标签: 草稿 / 阻塞 / checklist 进度 / age days
+
+- **不变量测试 4 条改版**:
+  - #2 改: "整行 onClick **不能** 调 onRequestComplete" (v3 反转 v2 决策)
+  - #5 改: "TaskRow **必须有** hover ✅ 完成按钮" (v3 加回, 不重复)
+  - #7 改: "PriorityMenu 必须在第一行" (不依赖 meta 行兜底)
+  - #10 新增: "第一行 controls hover 才显示" (opacity-0 + group-hover/row:opacity-100)
+
+**为什么不靠"整行 click 提示"防误触**:
+- 加 hover 底色 + cursor 提示, 仍然治标不治本 — 整行 90% 是空白, 提示对"用户视觉没目标"的点不解决问题
+- 用户**视觉上没点任何东西** (只是点中行内空白), 弹完成 modal 一定反直觉
+- 真正解法: 整行 click = 跟视觉一致的"展开详情" 动作, 完成 = 用户**有意识点击**的显式入口
+
+**为什么不加 modal undo 兜底 (Toast 撤销)**:
+- 多一层状态管理 (toast + 撤销 API), 改造成本大
+- 真正需要"撤销" 的场景是用户**意识到自己误完成** → 现在 modal 弹出时按 Esc 或点取消, 跟撤销等价
+- 显式入口 (StatusMenu popover + hover ✅) 让"误完成"概率降到接近 0, 不需要 undo 兜底
 
 ## Changelog：2026-07-20 兑现 #1 周报/述职 workspace + 4 项 UX 升级
 

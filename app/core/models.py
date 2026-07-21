@@ -293,6 +293,7 @@ class ProjectSnapshot(CockpitModel):
     """项目快照（含任务）。"""
     id: Optional[str]
     name: str
+    description: str = ""
     tasks: list[Task]
 
 

@@ -100,7 +100,7 @@ export interface FocusItem {
 export interface ProjectSnapshot {
   id: string | null;
   name: string;
-  description?: string;
+  description: string;
   tasks: Task[];
 }
 
