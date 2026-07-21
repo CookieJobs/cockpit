@@ -128,37 +128,51 @@ def test_taskrow_signature_includes_onrequestcomplete():
     )
 
 
-# ===== 不变量 2: 整行 onClick 接 onRequestComplete =====
+# ===== 不变量 2: 整行 onClick ≠ 完成 (v2 设计, 2026-07-21) =====
 
 
-def test_row_onclick_triggers_on_request_complete():
-    """整行 TaskRow 第一行 div 的 onClick 必须调 onRequestComplete(task)。
+def test_row_onclick_does_NOT_trigger_complete():
+    """TaskRow 整行第一行 div 的 onClick **不能** 调 onRequestComplete(task)。
 
-    关键: 不能改成 setExpanded (那是展开详情, 不是完成)。
-    历史 bug (2026-07-16): 用户报"现在不能通过手动操作来完成某一个任务了",
-    根因是整行 onClick 是 setExpanded, 跟"完成 modal"路径撞了。
+    历史背景:
+    - v1 (2026-07-17): 整行 onClick = onRequestComplete, 解决 lesson #4 "完成路径堵死"
+    - v2 (2026-07-21): 整行 90% 是空白, 空白点中触发完成 modal 反直觉, 用户报
+      "红框区域点中不该触发完成"。改为 task-cockpit 原版: 整行 click = toggleExpand。
+      完成走 2 个显式入口: StatusMenu popover "完成 ✨" + hover ✅ 按钮。
+    - 防退化: 任何把整行 onClick 改回 onRequestComplete 的提交都会被这个不变量拦下。
+
+    这个不变量跟 v1 的 #2 (test_row_onclick_triggers_on_request_complete) 互斥 —
+    v1 锁住"整行必须接 onRequestComplete", v2 锁住"整行不能接 onRequestComplete"。
+    删 v1 加 v2 (commit 2026-07-21 跟着这次重构)。
     """
     src = read_mainboard()
-    # 找 TaskRow 内第一行的 div onClick
-    # TaskRow 函数体内: 找 onClick={...} 接 !editingTitle && onRequestComplete
     body = find_taskrow_body(src)
-    # 不强制要求 !editingTitle 守卫, 但必须接到 onRequestComplete(task)
-    assert "onRequestComplete(task)" in body, (
-        "TaskRow 整行 onClick 必须调 onRequestComplete(task) 触发完成 modal, "
-        "现在 TaskRow 函数体里没找到这个调用"
+
+    # 找第一行主行 (class 含 group/row flex items-center gap-1.5) — 这个 div 是整行 click 容器
+    first_row_match = re.search(
+        r'(<div\s+className=\{`group/row flex items-center gap-1\.5[^`]*`\}[\s\S]*?</div>)',
+        body,
     )
-    # 防退化: 不能是 setExpanded 独占 (历史 bug)
-    m = re.search(r"onClick=\{[^}]*setExpanded\(", body)
-    if m:
-        # 找到 setExpanded onClick, 检查是否同时有 onRequestComplete
-        # 如果只有 setExpanded, fail
-        onclick_pattern = re.findall(r"onClick=\{[^}]+\}", body)
-        only_setexpanded = all("setExpanded" in p and "onRequestComplete" not in p
-                              for p in onclick_pattern)
-        assert not only_setexpanded, (
-            "TaskRow 整行 onClick 只有 setExpanded 没有 onRequestComplete, "
-            "完成路径堵死 (历史 bug 2026-07-16)"
-        )
+    assert first_row_match, (
+        "TaskRow 第一行主行 div 找不到 (期望 class 含 'group/row flex items-center gap-1.5')"
+    )
+    first_row_div = first_row_match.group(1)
+
+    # 第一行 onClick 不能调 onRequestComplete (v2 反转)
+    assert "onRequestComplete" not in first_row_div, (
+        "TaskRow 整行 onClick 又调 onRequestComplete 了 — 退回 v1 设计。\n"
+        "v1 (2026-07-17): 整行 click = 完成 — 解决 lesson #4 堵死问题。\n"
+        "v2 (2026-07-21): 整行 90% 空白, 点空白触发完成反直觉, 用户报红框误触。\n"
+        "现在整行 click 必须是 toggleExpand, 完成走 2 个显式入口:\n"
+        "  ① StatusMenu popover '完成 ✨' 项\n"
+        "  ② hover 第一行时出现的 ✅ 按钮\n"
+        "修法: 第一行 onClick 改成 toggleExpand(e), 不要调 onRequestComplete"
+    )
+    # 整行 onClick 必须接 toggleExpand (v2 设计核心)
+    assert re.search(r"onClick=\{[^}]*toggleExpand", first_row_div), (
+        "TaskRow 整行 onClick 不是 toggleExpand — v2 设计要求整行 click 切换展开/收起。"
+        "修法: onClick={(e) => { if (editingTitle) return; toggleExpand(e); }}"
+    )
 
 
 # ===== 不变量 3: cycleStatus 函数不能再有 =====
@@ -329,25 +343,67 @@ def test_statusmenu_has_complete_item():
     assert "✨" in body, 'StatusMenu "完成" 项缺 ✨ 标识, 视觉提示用户这一项会弹窗'
 
 
-# ===== 不变量 5: TaskRow 不再有 hover ✅ 完成按钮 =====
+# ===== 不变量 5: TaskRow 必须有 hover ✅ 完成按钮 (v2 设计, 2026-07-21) =====
 
 
-def test_taskrow_no_hover_complete_button():
-    """TaskRow 不能有 hover ✅ 完成按钮 (跟 StatusMenu "完成 ✨" 重复, 防误触)。
+def test_taskrow_must_have_hover_complete_button():
+    """TaskRow 必须有 hover ✅ 完成按钮 (作为"完成"显式入口之一)。
 
-    历史 (commit 00e3148): Round 1 加了 hover ✅ 按钮, v2 删了,
-    整行 click + StatusMenu "完成 ✨" 是两个手动完成入口, 已经够用。
+    历史:
+    - v1 (2026-07-17): 加了 hover ✅ 又删了, 理由"整行 click + StatusMenu 完成项已 2 个入口"
+    - v2 (2026-07-21): 整行 click 改成 toggleExpand (不再重复), ✅ 按钮是"完成"
+      唯一可见入口之一, 加回。完成路径 = 2 个不重复入口:
+        ① StatusMenu 色点 popover "完成 ✨" 项
+        ② hover 第一行时出现的 ✅ 按钮 (requestComplete)
+
+    修法: 第一行 hover 出现一个绿色 Check icon button, onClick={requestComplete}。
+    title 含"完成" 标识。
     """
     src = read_mainboard()
     body = find_taskrow_body(src)
-    # 检查"完成" 标题的 hover 按钮 (不是 StatusMenu, 是 TaskRow 自己挂的)
-    assert 'title="完成' not in body, (
-        'TaskRow 还有 hover 完成按钮 (跟 StatusMenu "完成 ✨" 重复, 误触风险), '
-        "v2 已删, 不要回退"
+
+    # 找第一行主行 (group/row flex items-center gap-1.5) — 用花括号配对找
+    # 因为 onClick={(e) => { ... }} 嵌套花括号, 简单 regex 容易误判
+    first_row_start = body.find('className={`group/row flex items-center gap-1.5')
+    assert first_row_start >= 0, "TaskRow 第一行主行 div 找不到"
+    # 找该 div 完整的开标签 — 跳过 className 的 {`...`} 嵌套
+    # 简化: className 后面第一个 ` 是模板字符串闭, 然后是 className=,
+    # 后面是其他 attr, 直到第一个 > (在 onClick 表达式闭后)
+    # 这里用更宽松的方式: 找 onClick 开始到 })(以"onClick={" 后下一个完整的"})} or "{...}>" )
+    # 最稳: 找包含 onClick 且以 </div> 结束的大块
+    # 取 first_row_start 之后到下一个 "{expanded &&" 之前整段 (后续是第二行 + 展开区)
+    end_marker = body.find("{expanded &&", first_row_start)
+    if end_marker < 0:
+        end_marker = len(body)
+    first_row_div = body[first_row_start:end_marker]
+
+    # 第一行内必须有 hover ✅ 完成按钮 — 用更宽松的多条件 AND
+    has_request_complete_in_btn = bool(
+        re.search(r"<button[\s\S]*?requestComplete\s*\(\s*\)\s*;?[\s\S]*?</button>", first_row_div)
     )
-    # openComplete 函数是 TaskRow 内的旧函数, 替代是 requestComplete
-    assert "function openComplete" not in body and "const openComplete" not in body, (
-        "TaskRow 还在用 openComplete 函数, 已被 requestComplete (StatusMenu onComplete) 替代"
+    assert has_request_complete_in_btn, (
+        "TaskRow 第一行缺 hover ✅ 完成按钮 — v2 设计要求显式完成入口。\n"
+        "修法: 在第一行 hover 区域加 <button onClick={... requestComplete()} "
+        'className="opacity-0 group-hover/row:opacity-100 ... hover:text-success ..." '
+        'title="标记完成 (弹窗填结果 / CV)">'
+        "<Check size={13} /></button>"
+    )
+    # 找那个 button 整段 (用 Check icon 作为锚点)
+    hover_btn_match = re.search(
+        r"<button[\s\S]*?onClick[\s\S]*?requestComplete[\s\S]*?</button>",
+        first_row_div,
+    )
+    assert hover_btn_match
+    hover_btn = hover_btn_match.group(0)
+    # 必须 hover 才出现 (opacity-0 + group-hover/row:opacity-100)
+    assert "opacity-0" in hover_btn and "group-hover/row:opacity-100" in hover_btn, (
+        "hover ✅ 完成按钮没配 opacity-0 + group-hover/row:opacity-100, "
+        "它会一直显示, 视觉跟红框4元素堆叠问题回退"
+    )
+    # 视觉上暗示"完成" (success 绿)
+    assert "text-success" in hover_btn or "hover:text-success" in hover_btn, (
+        "hover ✅ 完成按钮缺 success 绿提示, 用户看不出这一项是「完成」 "
+        "(vs 删除的 danger 红、展开的 fg 灰)"
     )
 
 
@@ -376,28 +432,177 @@ def test_priority_low_uses_visible_color():
     )
 
 
-# ===== 不变量 7: TaskRow meta 行条件含 task.priority =====
+# ===== 不变量 7: PriorityMenu 必须在第一行主行内 (不依赖 meta 行存在) =====
 
 
-def test_taskrow_meta_row_includes_priority_condition():
-    """TaskRow 第二行 meta 行条件必须含 task.priority (让 PriorityMenu 永远显示)。
+def test_prioritymenu_is_in_first_row_not_meta_row():
+    """PriorityMenu 必须在 TaskRow 第一行主行内渲染, 不在第二行 meta 行。
 
-    历史 bug (2026-07-17): 旧条件 'task.priority !== "低"' 让 priority=低 + 啥都没
-    的任务整行 meta 不渲染, PriorityMenu (色点)随之不可见。
-    修法: 删 'task.priority !== "低"', 改成 'task.priority || ...' — priority 永远
-    渲染, PriorityMenu 永远可见。
+    历史背景:
+    - 2026-07-17: PriorityMenu 放在第二行 meta 区, 条件 'task.priority !== "低"'
+      让 priority=低 + 啥都没的任务第二行隐藏, PriorityMenu 色点随之不可见 (用户报
+      "只有高、中, 没有低")。修法是在 meta 条件加 'task.priority ||'。
+    - 2026-07-21: 重构 TaskRow 把 PriorityMenu 上提到第一行纯色点 button。
+      meta 行只剩离散事件标签 (草稿/阻塞/checklist/age), 不再需要 priority 兜底。
+      不变量现在锁的是"PriorityMenu 在第一行" — 跟"priority 色点永远可见"目标等价
+      但更直接 (不依赖 meta 行是否渲染)。
+
+    修法: 在 TaskRow 第一行 `<div className="group/row flex items-center gap-1.5 ...">`
+    内 (return 后第一个 flex 容器) 必须有 <PriorityMenu ... />。
     """
     src = read_mainboard()
     body = find_taskrow_body(src)
-    # 找 TaskRow 内 'task.priority' 出现在 meta 条件 (&& 链里)
-    # 期望: (task.priority || task.draft || task.blocked || ...)
-    assert "task.priority ||" in body, (
-        "TaskRow 第二行 meta 条件不再含 'task.priority ||', "
-        "priority=低 + 啥都没时 PriorityMenu 会被隐藏 (历史 bug 2026-07-17)。"
-        " 修法: 在第二行条件开头加 'task.priority ||', 让 PriorityMenu 永远渲染"
+
+    # 找第一行主行 (group/row flex) - 新的重构后 class 是 "group/row flex items-center gap-1.5"
+    # 同时支持旧的 "flex items-center gap-2" (回归保护)
+    first_row_match = re.search(
+        r'className=\{`group/row flex items-center gap-1\.5[^`]*`\}',
+        body,
     )
-    # 防退化: 不应该有 'task.priority !== "低"' 这种隐式反向判断
-    assert 'task.priority !== "低"' not in body, (
-        "TaskRow 还有 'task.priority !== \"低\"' 这种反向判断, "
-        "会让 priority=低 + 啥都没的任务第二行整行隐藏, 历史 bug 2026-07-17"
+    assert first_row_match, (
+        "TaskRow 第一行主行 div 找不到 (期望 class 含 'group/row flex items-center gap-1.5'), "
+        "可能第一行结构被改坏了, 锁住这个不变量防止回到 'PriorityMenu 藏在 meta 行' 状态"
+    )
+
+    # 找第一行结束 (下一个 </div> 之前一段) — 简化: 在第一行 div 开始到下一个 {expanded && (
+    # 之间的 JSX 块里必须有 <PriorityMenu
+    first_row_start = first_row_match.end()
+    # 找下一个 "expanded" 关键节点 (展开区 / 第二行 meta 条件 / return 末尾)
+    end_markers = ["{expanded &&", "第二行", "meta"]
+    first_row_end = len(body)
+    for marker in end_markers:
+        idx = body.find(marker, first_row_start)
+        if idx > 0 and idx < first_row_end:
+            first_row_end = idx
+    first_row = body[first_row_start:first_row_end]
+
+    assert "<PriorityMenu" in first_row, (
+        "PriorityMenu 不在 TaskRow 第一行主行内 — 当前可能落到了第二行 meta 区。"
+        "历史 bug (2026-07-17): priority=低 时色点不可见。"
+        "2026-07-21 重构后 PriorityMenu 应在第一行, 跟 StatusMenu 并列, 纯色点 button。"
+        "修法: 找到 TaskRow 函数, 把 <PriorityMenu ... /> 移到第一行 flex 容器内"
+    )
+
+
+# ===== 不变量 8: StatusMenu 触发按钮是纯色点 (无文字 / 无 ▾ 箭头) =====
+
+
+def test_statusmenu_trigger_is_pure_dot_no_text_no_chevron():
+    """StatusMenu 触发 button 不能渲染状态文字 (未开始/进行中) 也不能渲染 ▾ 箭头。
+
+    2026-07-21 重构: StatusMenu 从 '○ 未开始 ▾' 文字版改成纯色点 button —
+      默认 10x10 圆点 (灰/ accent/ 绿), hover ring 高亮, click 弹下拉。
+      旧版"○ 未开始 ▾" 三个元素挤在第一行, 跟 PriorityMenu "● 高 ▾" 上下叠,
+      一个 task 行 4 个 ▾ 箭头, 视觉噪音爆炸。
+
+    不变量锁住:
+    - 触发 button 内不能有 status 文字 (中文"未开始"/"进行中" 是 enum 字符串,
+      出现在 button JSX 里就是 bug)
+    - 触发 button 内不能有 ChevronDown icon (旧版下拉箭头)
+    - 触发 button 内必须有 2x2 / 2.5x2.5 圆点 (色点编码)
+    """
+    src = read_mainboard()
+    body = _find_function_body_with_ts_types(src, "StatusMenu")
+
+    # 找 StatusMenu 触发 button (第一个 <button ... onClick=... setOpen ... 的 button)
+    btn_match = re.search(
+        r'<button[\s\S]*?onClick=[\s\S]*?setOpen[\s\S]*?>[\s\S]*?</button>',
+        body,
+    )
+    assert btn_match, "StatusMenu 触发 button 找不到 (期望含 onClick={... setOpen ...})"
+    trigger_btn = btn_match.group(0)
+
+    # 不能含 status 文字 — 文字版本会让 task 第一行回到"○ 未开始 ▾" 三件套
+    for word in ("未开始", "进行中"):
+        assert word not in trigger_btn, (
+            f"StatusMenu 触发 button 里出现了状态文字 {word!r}, "
+            "2026-07-21 重构要求纯色点形态, 不显示文字。"
+            "如需看状态, hover 显示 title 属性即可"
+        )
+    # 不能有 ChevronDown — 触发 button 不应该有下拉箭头 (色点本身就是 button)
+    assert "ChevronDown" not in trigger_btn, (
+        "StatusMenu 触发 button 渲染了 ChevronDown 箭头, "
+        "2026-07-21 重构要求去掉下拉箭头, 纯色点 button 形态"
+    )
+    # 必须有色点 (w-2 / w-2.5 rounded-full)
+    assert re.search(r"w-2(?:\.5)?\s+h-2(?:\.5)?\s+rounded-full", trigger_btn), (
+        "StatusMenu 触发 button 找不到色点 div (期望 w-2/2.5 h-2/2.5 rounded-full), "
+        "2026-07-21 重构要求色点编码状态, 不再是单字符 ○◐●"
+    )
+
+
+# ===== 不变量 9: PriorityMenu 触发按钮是纯色点 (无文字 / 无 ▾ 箭头) =====
+
+
+def test_prioritymenu_trigger_is_pure_dot_no_text_no_chevron():
+    """PriorityMenu 触发 button 不能渲染 priority 文字也不能渲染 ▾ 箭头。
+
+    同 StatusMenu 不变量 8 — 同步改成纯色点 button。
+    """
+    src = read_mainboard()
+    body = _find_function_body_with_ts_types(src, "PriorityMenu")
+
+    btn_match = re.search(
+        r'<button[\s\S]*?onClick=[\s\S]*?setOpen[\s\S]*?>[\s\S]*?</button>',
+        body,
+    )
+    assert btn_match, "PriorityMenu 触发 button 找不到"
+    trigger_btn = btn_match.group(0)
+
+    # 不能含 priority 文字 — 文字版本会让 task 第一行回到"● 高 ▾" 三件套
+    for word in ("高", "中", "低"):
+        assert word not in trigger_btn, (
+            f"PriorityMenu 触发 button 里出现了 priority 文字 {word!r}, "
+            "2026-07-21 重构要求纯色点形态"
+        )
+    assert "ChevronDown" not in trigger_btn, (
+        "PriorityMenu 触发 button 渲染了 ChevronDown 箭头, "
+        "2026-07-21 重构要求去掉下拉箭头"
+    )
+    assert re.search(r"w-2\s+h-2\s+rounded-full", trigger_btn), (
+        "PriorityMenu 触发 button 找不到色点 div (期望 w-2 h-2 rounded-full), "
+        "2026-07-21 重构要求色点编码 priority"
+    )
+
+
+# ===== 不变量 10: TaskRow 第一行 controls (展开/删除) 必须 hover 才显示 =====
+
+
+def test_taskrow_first_row_controls_are_hover_only():
+    """TaskRow 第一行右侧的展开 chevron 和删除按钮必须 hover 才显示 (opacity-0 ... group-hover/row:opacity-100)。
+
+    2026-07-21 重构: TaskRow 第一行视觉极简 — 默认只显示 "色点 + 标题 + due",
+    展开/删除等"危险/低频" controls 默认隐藏, hover 第一行才出现。
+    防退化: 这些 controls 跟以前一样 opacity-0 ... group-hover:opacity-100,
+    但因为外层容器改成 group/row, hover 触发器是 group-hover/row (不是 group-hover)。
+
+    防退化: 不能让展开/删除按钮默认就 100% 可见 — 那会回到红框"4 个元素挤一起"的乱。
+    """
+    src = read_mainboard()
+    body = find_taskrow_body(src)
+    first_row_match = re.search(
+        r'className=\{`group/row flex items-center gap-1\.5[^`]*`\}',
+        body,
+    )
+    assert first_row_match, "TaskRow 第一行主行 div 找不到"
+    first_row_start = first_row_match.end()
+
+    # 找第一行 (到 {expanded && 之前)
+    end_markers = ["{expanded &&"]
+    first_row_end = len(body)
+    for marker in end_markers:
+        idx = body.find(marker, first_row_start)
+        if idx > 0 and idx < first_row_end:
+            first_row_end = idx
+    first_row = body[first_row_start:first_row_end]
+
+    # 展开 chevron 按钮必须有 group-hover/row:opacity-100
+    assert "group-hover/row:opacity-100" in first_row, (
+        "TaskRow 第一行的 controls 没配 group-hover/row:opacity-100, "
+        "它们会一直显示, 视觉噪音回到红框'4 个元素挤一起'的状态"
+    )
+    # 至少有一个 opacity-0 标记 (controls 默认隐藏)
+    assert "opacity-0" in first_row, (
+        "TaskRow 第一行 controls 缺少 opacity-0 默认隐藏标记, "
+        "默认全部显示会让色点编码方案失效"
     )

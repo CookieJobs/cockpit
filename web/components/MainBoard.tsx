@@ -583,10 +583,30 @@ function ProjectCard({
 }) {
   const taskCount = project.tasks.length;
   const [editingName, setEditingName] = useState(false);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descText, setDescText] = useState(project.description);
   const [hovering, setHovering] = useState(false);
   const [addingTask, setAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [addingBusy, setAddingBusy] = useState(false);
+
+  // 同步后端 description 变化到本地编辑 buffer
+  useEffect(() => {
+    setDescText(project.description);
+  }, [project.description]);
+
+  const saveDesc = async () => {
+    setEditingDesc(false);
+    if (!project.id) return;
+    if (descText === project.description) return;
+    await api.updateProject(project.id, { description: descText });
+    onChange();
+  };
+
+  const cancelDesc = () => {
+    setDescText(project.description);
+    setEditingDesc(false);
+  };
 
   const updateName = async (newName: string) => {
     setEditingName(false);
@@ -644,100 +664,142 @@ function ProjectCard({
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
     >
-      <div className="group flex items-center gap-2.5 px-3 py-2.5 hover:bg-bg-tertiary/60 transition">
-        <button
-          onClick={onToggle}
-          className="flex items-center gap-2.5 flex-1 min-w-0"
-        >
-          <ChevronRight
-            size={14}
-            strokeWidth={2}
-            className={`text-fg-muted transition-transform flex-shrink-0 ${
-              expanded ? "rotate-90" : ""
-            }`}
-          />
-          {editingName ? (
-            <input
-              type="text"
-              defaultValue={project.name}
-              autoFocus
-              onBlur={(e) => updateName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  updateName((e.target as HTMLInputElement).value);
-                }
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  setEditingName(false);
-                }
-              }}
-              onClick={(e) => e.stopPropagation()}
-              onDoubleClick={(e) => e.stopPropagation()}
-              className="flex-1 bg-bg border border-accent rounded-md px-2 py-1 text-[15px] text-fg focus:outline-none"
+      <div className="group px-3 pt-2.5 pb-1.5 hover:bg-bg-tertiary/60 transition">
+        {/* 标题行:chevron + name + count + 操作按钮 */}
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={onToggle}
+            className="flex items-center gap-2.5 flex-1 min-w-0"
+          >
+            <ChevronRight
+              size={14}
+              strokeWidth={2}
+              className={`text-fg-muted transition-transform flex-shrink-0 ${
+                expanded ? "rotate-90" : ""
+              }`}
             />
-          ) : (
-            <span
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                if (project.id) setEditingName(true);
-              }}
-              className="flex-1 text-left text-[15px] font-medium text-fg truncate flex items-center gap-1.5"
-              title="双击编辑名称"
-            >
-              <span className="text-[15px] flex-shrink-0">
-                {projectEmoji(project.id)}
+            {editingName ? (
+              <input
+                type="text"
+                defaultValue={project.name}
+                autoFocus
+                onBlur={(e) => updateName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    updateName((e.target as HTMLInputElement).value);
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setEditingName(false);
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                className="flex-1 bg-bg border border-accent rounded-md px-2 py-1 text-[15px] text-fg focus:outline-none"
+              />
+            ) : (
+              <span
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  if (project.id) setEditingName(true);
+                }}
+                className="flex-1 text-left text-[15px] font-medium text-fg truncate flex items-center gap-1.5"
+                title="双击编辑名称"
+              >
+                <span className="text-[15px] flex-shrink-0">
+                  {projectEmoji(project.id)}
+                </span>
+                {project.name}
               </span>
-              {project.name}
-            </span>
-          )}
-          {taskCount > 0 ? (
-            <span className="text-[12px] text-fg-secondary tabular-nums flex-shrink-0">
-              <span className={doneCount === taskCount ? "text-success" : "text-fg-secondary"}>
-                {doneCount}
+            )}
+            {taskCount > 0 ? (
+              <span className="text-[12px] text-fg-secondary tabular-nums flex-shrink-0">
+                <span className={doneCount === taskCount ? "text-success" : "text-fg-secondary"}>
+                  {doneCount}
+                </span>
+                <span className="text-fg-muted">/{taskCount}</span>
               </span>
-              <span className="text-fg-muted">/{taskCount}</span>
-            </span>
-          ) : (
-            <span className="text-[12px] text-fg-muted flex-shrink-0">0</span>
+            ) : (
+              <span className="text-[12px] text-fg-muted flex-shrink-0">0</span>
+            )}
+          </button>
+          {project.id && !editingName && (
+            <div className="flex items-center gap-0.5 flex-shrink-0 opacity-40 group-hover:opacity-100 transition-opacity">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingName(true);
+                }}
+                className="text-fg-muted hover:text-fg transition p-1 rounded hover:bg-bg-secondary"
+                title="编辑项目名称"
+              >
+                <Edit2 size={12} />
+              </button>
+              <button
+                onClick={handleArchive}
+                className="text-fg-muted hover:text-warning transition p-1 rounded hover:bg-bg-secondary"
+                title="归档项目（任务数据保留, 可恢复）"
+              >
+                <Archive size={12} />
+              </button>
+              <button
+                onClick={handleDelete}
+                className="text-fg-muted hover:text-danger transition p-1 rounded hover:bg-bg-secondary"
+                title="删除项目"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
           )}
-        </button>
+        </div>
+        {/* description 行:折叠也始终可见,点入可编辑 */}
         {project.id && !editingName && (
-          <div className="flex items-center gap-0.5 flex-shrink-0 opacity-40 group-hover:opacity-100 transition-opacity">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditingName(true);
-              }}
-              className="text-fg-muted hover:text-fg transition p-1 rounded hover:bg-bg-secondary"
-              title="编辑项目名称"
-            >
-              <Edit2 size={12} />
-            </button>
-            <button
-              onClick={handleArchive}
-              className="text-fg-muted hover:text-warning transition p-1 rounded hover:bg-bg-secondary"
-              title="归档项目（任务数据保留, 可恢复）"
-            >
-              <Archive size={12} />
-            </button>
-            <button
-              onClick={handleDelete}
-              className="text-fg-muted hover:text-danger transition p-1 rounded hover:bg-bg-secondary"
-              title="删除项目"
-            >
-              <Trash2 size={12} />
-            </button>
+          <div className="pl-[22px] mt-1 pr-1">
+            {editingDesc ? (
+              <div>
+                <textarea
+                  autoFocus
+                  value={descText}
+                  onChange={(e) => setDescText(e.target.value)}
+                  onBlur={saveDesc}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      saveDesc();
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      cancelDesc();
+                    }
+                  }}
+                  placeholder="项目目标 / 描述..."
+                  rows={2}
+                  className="w-full bg-bg border border-accent rounded px-2 py-1 text-[12px] leading-relaxed text-fg placeholder-fg-muted resize-none focus:outline-none"
+                />
+                <div className="flex items-center gap-2 mt-1 text-[10px] text-fg-muted">
+                  <span>⌘+Enter 保存 · Esc 取消</span>
+                </div>
+              </div>
+            ) : (
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingDesc(true);
+                }}
+                className="group/desc text-[12px] leading-relaxed text-fg-secondary truncate cursor-text hover:text-fg min-h-[1.25em] -mx-1 px-1 rounded hover:bg-bg-tertiary/40"
+                title={project.description || "点击添加项目描述"}
+              >
+                {project.description || (
+                  <span className="text-fg-muted italic">+ 添加项目描述</span>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
       {expanded && (
         <div className="px-2 pb-2 pt-1 bg-bg-tertiary/20 border-t border-border/40">
-          {project.description && (
-            <div className="px-3 py-2 text-[13px] text-fg-secondary whitespace-pre-wrap border-b border-border/40 mb-1">
-              {project.description}
-            </div>
-          )}
           <div className="space-y-0.5">
             {project.tasks.map((t) => (
               <TaskRow key={t.id} task={t} onChange={onChange} onRequestComplete={onRequestComplete} />
@@ -889,41 +951,45 @@ function TaskRow({
 
   return (
     <div
-      className={`group rounded-lg hover:bg-bg-tertiary/60 transition ${
+      className={`group/row rounded-lg hover:bg-bg-tertiary/60 transition ${
         task.draft ? "bg-accent/5 hover:bg-accent/10" : ""
       }`}
     >
-      {/* 第一行:主信息 - 状态/标题/due/删除 */}
-      {/* 整行 = 完成 (弹 4 字段 modal, task-cockpit 风格) */}
+      {/* 第一行:主信息 - 色点编码 + 标题 + due + hover 出现 controls
+          整行 = 展开/收起详情 (task-cockpit 原版)
+          重构 2026-07-21 v2: 推翻 v1 "整行 click = 完成" 决策。
+            v1 决策 (2026-07-17) 是为了解决 lesson #4 "完成路径堵死",但代价是
+            整行 90% 空白点中也算 "用户操作" → 弹完成 modal, 反直觉。
+            现在用 2 个显式完成入口替代:
+              ① StatusMenu 色点 popover 里的 "完成 ✨" 项
+              ② hover 第一行时出现的 ✅ 按钮
+            整行 click = toggleExpanded, 跟 task-cockpit 原版一致,
+            跟用户认知一致 (整行 = 展开, 空白 = 也能展开但没意外 modal)。 */}
       <div
-        className={`flex items-center gap-2 px-2.5 py-2 cursor-pointer`}
-        onClick={() => !editingTitle && onRequestComplete(task)}
+        className={`group/row flex items-center gap-1.5 px-2.5 py-2 cursor-pointer`}
+        onClick={(e) => {
+          // 状态点 / 优先级点 / due / hover 按钮 都已 e.stopPropagation,
+          // 这里只处理"点中标题区或空白" — toggle 展开/收起
+          if (editingTitle) return;
+          toggleExpand(e);
+        }}
       >
-        {/* 状态下拉 (v2: 替换原 cycleStatus 单字符按钮) */}
-        <StatusMenu
-          status={task.status}
-          onChange={updateStatus}
-          onComplete={requestComplete}
-        />
-
-        {/* 展开/收起 chevron - hover 显示, 整行 click 已经是"完成"了,
-            展开走显式按钮 (跟状态下拉并列) */}
-        <button
-          onClick={toggleExpand}
-          className={`w-4 h-5 flex items-center justify-center flex-shrink-0 text-fg-muted hover:text-fg transition ${
-            expanded ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-          }`}
-          title={expanded ? "收起详情" : "展开详情 (description / checklist)"}
-        >
-          <ChevronRight
-            size={12}
-            strokeWidth={2}
-            className={`transition-transform ${expanded ? "rotate-90" : ""}`}
+        {/* 状态色点 button (纯色点, click 弹下拉切换) */}
+        <div onClick={(e) => e.stopPropagation()}>
+          <StatusMenu
+            status={task.status}
+            onChange={updateStatus}
+            onComplete={requestComplete}
           />
-        </button>
+        </div>
+
+        {/* 优先级色点 button (纯色点, click 弹下拉切换) */}
+        <div onClick={(e) => e.stopPropagation()}>
+          <PriorityMenu priority={task.priority} onChange={updatePriority} />
+        </div>
 
         {/* 标题 */}
-        <div className="flex-1 min-w-0 flex items-center gap-2">
+        <div className="flex-1 min-w-0 flex items-center gap-2 ml-1">
           {editingTitle ? (
             <input
               type="text"
@@ -964,41 +1030,56 @@ function TaskRow({
           )}
         </div>
 
-        {/* ✅ 完成 hover 按钮已删 (v2 改造):
-            下拉里"完成 ✨" 项 + 整行 click 已经是完成入口,
-            第三个 hover 入口视觉重复且容易误触, 去掉 */}
-
         {/* due 编辑器 - 永远右对齐 */}
         <div onClick={(e) => e.stopPropagation()}>
           <DueEditor due={task.due} dueCls={dueCls} onChange={updateDue} />
         </div>
 
-        {/* 删除按钮 - 默认 40% 可见,hover 100% */}
+        {/* 展开状态指示器 (always 可见, 不是 button):
+            折叠时 → 灰色 ▸, 展开时 → 旋转 90° + accent 色
+            跟整行 click 同步, 不再是独立 button (v2 设计) */}
+        <span
+          className={`w-4 h-5 flex items-center justify-center flex-shrink-0 transition ${
+            expanded ? "text-accent rotate-90" : "text-fg-muted/40"
+          }`}
+          title={expanded ? "已展开" : "点击行展开详情"}
+        >
+          <ChevronRight size={12} strokeWidth={2} />
+        </span>
+
+        {/* 完成 ✅ hover 按钮 (v2 加回, 2026-07-21):
+            这次理由跟 v1 删时不同 — 整行 click 改成展开 (不再重复),
+            ✅ 按钮是"完成" 唯一显式可见入口之一 (另一个是 StatusMenu popover)。
+            视觉去重, 不会跟整行 click 误触。 */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            requestComplete();
+          }}
+          className="opacity-0 group-hover/row:opacity-100 w-5 h-5 flex items-center justify-center flex-shrink-0 text-fg-muted hover:text-success hover:bg-bg-tertiary rounded transition"
+          title="标记完成 (弹窗填结果 / CV)"
+        >
+          <Check size={13} strokeWidth={2.5} />
+        </button>
+
+        {/* 删除按钮 - hover 第一行时显示 */}
         <button
           onClick={(e) => {
             e.stopPropagation();
             remove(e);
           }}
-          className="opacity-0 group-hover:opacity-100 text-fg-muted hover:text-danger transition p-1 rounded hover:bg-bg-secondary"
+          className="opacity-0 group-hover/row:opacity-100 w-5 h-5 flex items-center justify-center flex-shrink-0 text-fg-muted hover:text-danger hover:bg-bg-tertiary rounded transition"
           title="删除任务"
         >
           <Trash2 size={12} />
         </button>
       </div>
 
-      {/* 第二行:meta(有内容时显示)
-          修复 2026-07-17: 旧条件 'task.priority !== "低"' 让 priority=低 + 啥都没的任务
-          第二行整个不显示, priority 色点随之不可见 → 用户报"只有高、中, 没有低"
-          改: 条件里不再用 'priority !== 低' 这种隐式反向判断, 改用
-          'task.priority || ...' 让 PriorityMenu 永远显示 (priority 总是有值, truthy)
-      */}
-      {(task.priority || task.draft || task.blocked || totalCount > 0 || taskAgeDays(task.created_at) >= 2) && (
-        <div className="flex items-center gap-3 pl-[42px] pr-3 pb-1.5 text-[12px] text-fg-muted">
-          {/* 优先级 */}
-          <div onClick={(e) => e.stopPropagation()}>
-            <PriorityMenu priority={task.priority} onChange={updatePriority} />
-          </div>
-
+      {/* 第二行:meta — 只显示离散事件标签, 不再放 PriorityMenu 文字版
+          2026-07-21 重构: priority 已经在第一行色点表示, 不需要第二行再写"高/中/低"
+          草稿/阻塞/checklist/age 仍保留, 它们是事件性 meta 不是常驻控件 */}
+      {(task.draft || task.blocked || totalCount > 0 || taskAgeDays(task.created_at) >= 2) && (
+        <div className="flex items-center gap-3 pl-3 pr-3 pb-1.5 text-[12px] text-fg-muted">
           {/* 草稿/阻塞标签 */}
           {task.draft && (
             <span className="px-1.5 py-0 rounded bg-accent/20 text-accent">
@@ -1103,11 +1184,17 @@ function PriorityMenu({
   priority: Priority;
   onChange: (p: Priority) => void;
 }) {
+  // (2026-07-21 重构): 任务行视觉去重,改纯色点 button 形态 —
+  //   默认 8x8 色点(不显示 "高/中/低" 文字,不带 ▾ 箭头)
+  //   hover 时显示 ring + bg 高亮,提示"可点"
+  //   click 弹 popover,里面仍是 "● 高 / ● 中 / ● 低" 三行可选
+  // 理由: 旧版 task 行有 4 个 ▾ 箭头(状态/priority/展开/due)上下叠,
+  //   PriorityMenu 自身又占第二行 meta 区带 "● 高 ▾",视觉噪音爆炸。
+  //   改后色点本身是 button,完成即状态切换,无文字无箭头。
+  // 色点颜色 (lesson #1 教训: 低优先级色点必须可见):
+  //   高 = bg-danger, 中 = bg-warning, 低 = bg-fg-secondary (#a0a0a0) 不再走 #666
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  // '低' 用 bg-fg-secondary (#a0a0a0), 比原 bg-fg-muted (#666) 在 dark theme
-  // 上可见, 同时跟"高=红/中=黄" 形成"红黄灰" 三档色梯度
-  // 修复于 2026-07-17 — 用户报"任务优先级只有高、中, 没有低"
   const dotColor =
     priority === "高"
       ? "bg-danger"
@@ -1126,6 +1213,16 @@ function PriorityMenu({
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
+  // Esc 关闭
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open]);
+
   return (
     <div ref={ref} className="relative flex-shrink-0">
       <button
@@ -1133,13 +1230,24 @@ function PriorityMenu({
           e.stopPropagation();
           setOpen((o) => !o);
         }}
-        className="p-0.5 hover:bg-bg-tertiary rounded"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((o) => !o);
+          }
+        }}
+        className={`w-5 h-5 flex items-center justify-center rounded transition ${
+          open ? "bg-bg-tertiary ring-1 ring-accent" : "hover:bg-bg-tertiary"
+        }`}
         title={`优先级: ${priority}(点击切换)`}
+        aria-label={`优先级 ${priority}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
       >
-        <span className={`block w-1.5 h-1.5 rounded-full ${dotColor}`} />
+        <span className={`block w-2 h-2 rounded-full ${dotColor}`} />
       </button>
       {open && (
-        <div className="absolute left-0 top-5 z-20 bg-bg-secondary border border-border rounded shadow-lg py-0.5 min-w-[80px]">
+        <div className="absolute left-0 top-6 z-20 bg-bg-secondary border border-border rounded-md shadow-lg py-0.5 min-w-[80px]">
           {(["高", "中", "低"] as const).map((p) => (
             <button
               key={p}
@@ -1153,7 +1261,7 @@ function PriorityMenu({
               }`}
             >
               <span
-                className={`w-1.5 h-1.5 rounded-full ${
+                className={`w-2 h-2 rounded-full ${
                   p === "高"
                     ? "bg-danger"
                     : p === "中"
@@ -1180,19 +1288,26 @@ function StatusMenu({
   onChange: (s: Exclude<TaskStatus, "已完成">) => void;
   onComplete: () => void;
 }) {
+  // (2026-07-21 重构): 跟 PriorityMenu 同步改纯色点 button 形态 —
+  //   默认 10x10 圆点 (未开始=灰/进行中=accent/已完成=success 绿)
+  //   hover 时显示 ring + bg 高亮,提示"可点"
+  //   click 弹 popover: "○ 未开始 / ◐ 进行中 / ─── / ✅ 完成 ✨"
+  //   完成是 action 不是 status, 仍保留在 popover 末尾
+  // 理由: 旧版 task 第一行 "○ 未开始 ▾" 跟第二行 "● 高 ▾" 上下叠两个 ▾,
+  //   加上 due 编辑器自己的 popover, 一个 task 行 3-4 个下拉箭头, 极乱。
+  //   改成色点后视觉锚点只剩"2 个色点 + 标题 + due", 干净。
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
-  // 当前状态的视觉编码 (继承 task-cockpit statusIcon 符号)
-  const currentIcon =
-    status === "未开始" ? "○" : status === "进行中" ? "◐" : "●";
-  const currentColor =
+  // 色点 (代替原来的 "○" "◐" "●" 单字符, 视觉更稳)
+  // 状态色梯度: 灰 → accent → 绿, 三档清晰
+  const dotColor =
     status === "已完成"
-      ? "text-success"
+      ? "bg-success"
       : status === "进行中"
-      ? "text-accent"
-      : "text-fg-secondary";
+      ? "bg-accent"
+      : "bg-fg-secondary";
 
   // 点外面关闭
   useEffect(() => {
@@ -1221,9 +1336,9 @@ function StatusMenu({
 
   // 列表项: 未开始 / 进行中 (已完成 不可达 — 看板里 task 永远不显示, 因为完成即删除)
   // 加一个独立的'完成 ✨' 项作为主动完成入口, 弹 4 字段 modal
-  const items: { key: Exclude<TaskStatus, "已完成">; icon: string; label: string }[] = [
-    { key: "未开始", icon: "○", label: "未开始" },
-    { key: "进行中", icon: "◐", label: "进行中" },
+  const items: { key: Exclude<TaskStatus, "已完成">; dotCls: string; label: string }[] = [
+    { key: "未开始", dotCls: "bg-fg-secondary", label: "未开始" },
+    { key: "进行中", dotCls: "bg-accent", label: "进行中" },
   ];
 
   return (
@@ -1240,22 +1355,19 @@ function StatusMenu({
             setOpen((o) => !o);
           }
         }}
-        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[12px] hover:bg-bg-tertiary transition ${currentColor}`}
+        className={`w-5 h-5 flex items-center justify-center rounded transition ${
+          open ? "bg-bg-tertiary ring-1 ring-accent" : "hover:bg-bg-tertiary"
+        }`}
         title={`状态: ${status} (点击切换)`}
+        aria-label={`状态 ${status}`}
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className="text-[14px] leading-none">{currentIcon}</span>
-        <span className="font-medium">{status}</span>
-        <ChevronDown
-          size={10}
-          strokeWidth={2.5}
-          className={`text-fg-muted transition-transform ${open ? "rotate-180" : ""}`}
-        />
+        <span className={`block w-2.5 h-2.5 rounded-full ${dotColor}`} />
       </button>
       {open && (
         <div
-          className="absolute left-0 top-7 z-20 bg-bg-secondary border border-border rounded-md shadow-lg py-0.5 min-w-[140px]"
+          className="absolute left-0 top-6 z-20 bg-bg-secondary border border-border rounded-md shadow-lg py-0.5 min-w-[140px]"
           role="listbox"
         >
           {items.map((it) => {
@@ -1275,7 +1387,7 @@ function StatusMenu({
                   isCurrent ? "text-accent" : "text-fg"
                 }`}
               >
-                <span className="text-[14px] leading-none">{it.icon}</span>
+                <span className={`block w-2.5 h-2.5 rounded-full ${it.dotCls}`} />
                 <span>{it.label}</span>
                 {isCurrent && (
                   <span className="ml-auto text-[10px] text-fg-muted">当前</span>
