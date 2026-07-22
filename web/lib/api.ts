@@ -480,6 +480,37 @@ export function taskAgeDays(createdAt: string | null | undefined): number {
   return Math.round((b.getTime() - a.getTime()) / 86400000);
 }
 
+/**
+ * 相对日期显示（"今天" / "昨天" / "N 天前" / "N 周前" / "M月D日"）
+ * 按"日历日"对比（不按小时），避免"今天"半夜前后跳来跳去。
+ * 用于"已沉淀"区显示每条成就距今多久 — 比纯日期更易扫读。
+ */
+export function relativeDate(d: string | null | undefined): string {
+  if (!d) return "";
+  const date = typeof d === "string" ? new Date(d) : d;
+  if (isNaN(date.getTime())) return "";
+  const dDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const nDay = new Date();
+  nDay.setHours(0, 0, 0, 0);
+  const diff = Math.round((nDay.getTime() - dDay.getTime()) / 86400000);
+  if (diff <= 0) return "今天";
+  if (diff === 1) return "昨天";
+  if (diff < 7) return `${diff} 天前`;
+  if (diff < 30) return `${Math.floor(diff / 7)} 周前`;
+  if (diff < 365) return `${date.getMonth() + 1}月${date.getDate()}日`;
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}
+
+/**
+ * 计算 N 天前的 YYYY-MM-DD 字符串 — 用于成就 / 项目维度的"近期"窗口过滤。
+ * 默认 7 天，跟 ProjectCard 的"已沉淀"区窗口一致。
+ */
+export function daysAgoISO(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
 // ===== 项目 deterministic emoji（继承自 task-cockpit dashboard.html）=====
 // 50 个 emoji 池子，按项目 id 字符串哈希取模——同一项目永远拿到同一个图标
 // （视觉稳定 + 跨刷新一致 + 跟项目名解耦可改）

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import useSWR from "swr";
-import { api, type Snapshot, type Project, type Task, type TaskStatus, statusIcon, dueColor, dueLabel, taskAgeDays, projectEmoji, type Priority } from "@/lib/api";
+import { api, type Snapshot, type Project, type Task, type Achievement, type TaskStatus, statusIcon, dueColor, dueLabel, taskAgeDays, projectEmoji, relativeDate, daysAgoISO, type Priority } from "@/lib/api";
 import { Check, Trash2, ChevronRight, ChevronDown, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2, Archive, ArchiveRestore, Sparkles } from "lucide-react";
 import { ChatWindow } from "./ChatWindow";
 import { CompleteTaskModal } from "./CompleteTaskModal";
@@ -658,6 +658,32 @@ function ProjectCard({
     (t) => t.status === "已完成"
   ).length;
 
+  // 项目内"近期已沉淀"子区 (2026-07-22 立, 方案A):
+  //   项目卡片里只显示 active tasks 看不到"刚干完的",
+  //   这里拉最近 7 天的成就 (按 project.name 过滤, 复用 storage.list_achievements),
+  //   折叠子区跟看板底部 "今天已完成" 一个套路, undo 按钮也复用。
+  //   只在项目展开时 fetch (SWR key 守门), 没数据就完全隐藏。
+  //   窗口 (7 天) 改成 30 / 全量只改一个常量 + 后端 since 参数。
+  const PROJECT_ACH_WINDOW_DAYS = 7;
+  const [achievementsOpen, setAchievementsOpen] = useState(true);
+  const { data: projectAchievements, mutate: refreshProjectAchievements } = useSWR<Achievement[]>(
+    expanded && project.id
+      ? `/api/achievements?project=${encodeURIComponent(project.name)}&since=${daysAgoISO(PROJECT_ACH_WINDOW_DAYS)}`
+      : null,
+    () => api.listAchievements({
+      project: project.name,
+      since: daysAgoISO(PROJECT_ACH_WINDOW_DAYS),
+    }),
+    { revalidateOnFocus: false }
+  );
+
+  const undoAchievement = async (aid: string) => {
+    if (!confirm("撤销这个成就？任务会恢复到任务列表。")) return;
+    await api.undoAchievement(aid);
+    refreshProjectAchievements();
+    onChange();
+  };
+
   return (
     <div
       className="rounded-xl bg-bg-tertiary/30 overflow-hidden"
@@ -853,6 +879,79 @@ function ProjectCard({
               </button>
             )}
           </div>
+
+          {/* 项目内"近期已沉淀"子区 (2026-07-22 立, 方案A)
+              只在 (展开 + 有数据) 时显示, 7 天窗口由 PROJECT_ACH_WINDOW_DAYS 控制
+              视觉对齐 DoneTodaySection: 折叠头 + check + title + 相对时间 + hover undo */}
+          {expanded && projectAchievements && projectAchievements.length > 0 && (
+            <div className="mt-2 mx-1.5 rounded-md border border-border/30 bg-bg-tertiary/30 overflow-hidden">
+              <button
+                onClick={() => setAchievementsOpen((o) => !o)}
+                className="w-full px-2.5 py-1.5 flex items-center gap-1.5 text-left hover:bg-bg-tertiary/60 transition"
+              >
+                <ChevronRight
+                  size={11}
+                  strokeWidth={2}
+                  className={`text-fg-muted transition-transform flex-shrink-0 ${
+                    achievementsOpen ? "rotate-90" : ""
+                  }`}
+                />
+                <span className="text-[10px] uppercase tracking-[0.1em] text-fg-muted font-semibold">
+                  ✓ 已沉淀
+                </span>
+                <span className="text-[11px] text-fg-secondary tabular-nums">
+                  {projectAchievements.length}
+                </span>
+                <span className="text-[10px] text-fg-muted/60">
+                  · {PROJECT_ACH_WINDOW_DAYS} 天内
+                </span>
+                <span className="ml-auto text-[10px] text-fg-muted/60">
+                  {achievementsOpen ? "收起" : "展开"}
+                </span>
+              </button>
+              {achievementsOpen && (
+                <div className="border-t border-border/30 divide-y divide-border/20">
+                  {projectAchievements.map((a) => (
+                    <div
+                      key={a.id}
+                      className="px-2.5 py-1.5 flex items-center gap-2 group/item hover:bg-bg-tertiary/40 transition"
+                    >
+                      <Check size={11} className="text-success flex-shrink-0" strokeWidth={2.5} />
+                      <span className="flex-1 truncate text-[12px] text-fg-secondary">
+                        {a.title}
+                      </span>
+                      {a.cv_status === "pending" && (
+                        <span className="text-[9px] px-1 py-0 rounded bg-warning/20 text-warning font-medium flex-shrink-0">
+                          CV 待补
+                        </span>
+                      )}
+                      <span className="text-[10px] text-fg-muted/70 flex-shrink-0 tabular-nums">
+                        {relativeDate(a.date)}
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          undoAchievement(a.id);
+                        }}
+                        className="opacity-0 group-hover/item:opacity-100 text-fg-muted hover:text-danger transition p-0.5 rounded flex-shrink-0"
+                        title="撤销（恢复任务到任务列表）"
+                      >
+                        <Undo2 size={10} />
+                      </button>
+                    </div>
+                  ))}
+                  {projectAchievements.length >= 5 && (
+                    <Link
+                      href={`/achievements?project=${encodeURIComponent(project.name)}`}
+                      className="block px-2.5 py-1.5 text-[10px] text-fg-muted hover:text-accent transition"
+                    >
+                      查看全部 →
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -929,6 +1028,14 @@ function TaskRow({
     onChange();
   };
 
+  // (2026-07-22) 通用 inline-edit 助手 — blocked / draft 等"语义性 meta" 字段
+  // 跟 priority / due 一样走 PATCH + SWR revalidate, 不做乐观更新 (跟现有 inline edit 一致)
+  // 入口统一在 StatusMenu popover 末尾, 不在第二行 meta 徽章上加 click (避免双入口)
+  const updateField = async (field: "blocked" | "draft", value: boolean) => {
+    await api.updateTask(task.id, { [field]: value });
+    onChange();
+  };
+
   const addChecklistItem = async () => {
     if (!newChecklistText.trim()) return;
     await api.checklistAdd(task.id, newChecklistText.trim());
@@ -978,8 +1085,12 @@ function TaskRow({
         <div onClick={(e) => e.stopPropagation()}>
           <StatusMenu
             status={task.status}
+            blocked={task.blocked}
+            draft={task.draft}
             onChange={updateStatus}
             onComplete={requestComplete}
+            onToggleBlocked={() => updateField("blocked", !task.blocked)}
+            onToggleDraft={() => updateField("draft", !task.draft)}
           />
         </div>
 
@@ -1281,28 +1392,39 @@ function PriorityMenu({
 
 function StatusMenu({
   status,
+  blocked,
+  draft,
   onChange,
   onComplete,
+  onToggleBlocked,
+  onToggleDraft,
 }: {
   status: TaskStatus;
+  blocked: boolean;
+  draft: boolean;
   onChange: (s: Exclude<TaskStatus, "已完成">) => void;
   onComplete: () => void;
+  onToggleBlocked: () => void;
+  onToggleDraft: () => void;
 }) {
-  // (2026-07-21 重构): 跟 PriorityMenu 同步改纯色点 button 形态 —
-  //   默认 10x10 圆点 (未开始=灰/进行中=accent/已完成=success 绿)
-  //   hover 时显示 ring + bg 高亮,提示"可点"
-  //   click 弹 popover: "○ 未开始 / ◐ 进行中 / ─── / ✅ 完成 ✨"
-  //   完成是 action 不是 status, 仍保留在 popover 末尾
-  // 理由: 旧版 task 第一行 "○ 未开始 ▾" 跟第二行 "● 高 ▾" 上下叠两个 ▾,
-  //   加上 due 编辑器自己的 popover, 一个 task 行 3-4 个下拉箭头, 极乱。
-  //   改成色点后视觉锚点只剩"2 个色点 + 标题 + due", 干净。
+  // (2026-07-21 重构 → 2026-07-21 v2 推翻): 用户反馈 StatusMenu 纯色点
+  //   跟 PriorityMenu 色点形状都是圆形, 视觉太像不好区分。
+  //   改"短进度条"形态 — 横向矩形 + 长度反映状态 (空 / 半满 / 满):
+  //     未开始 = 0% (只有 track, 灰底)
+  //     进行中 = 50% (accent 半填充)
+  //     已完成 = 100% (success 全填充)
+  //   优先级保留圆形, 形状对比立刻区分出"状态(横条) vs 优先级(圆点)"。
+  //   popover 内容 "○ 未开始 / ◐ 进行中 / ─── / ✅ 完成 ✨" 不变 —
+  //     颜色梯度 (灰 → accent → 绿) 也保持一致, 唯一改的是 icon 形态。
+  // click 行为不变: hover 显示 bg 高亮, click 弹同一个 popover。
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
-  // 色点 (代替原来的 "○" "◐" "●" 单字符, 视觉更稳)
-  // 状态色梯度: 灰 → accent → 绿, 三档清晰
-  const dotColor =
+  // 进度填充: 宽度按状态分档 + 颜色三档
+  const fillWidth =
+    status === "已完成" ? "w-full" : status === "进行中" ? "w-1/2" : "w-0";
+  const fillColor =
     status === "已完成"
       ? "bg-success"
       : status === "进行中"
@@ -1336,10 +1458,24 @@ function StatusMenu({
 
   // 列表项: 未开始 / 进行中 (已完成 不可达 — 看板里 task 永远不显示, 因为完成即删除)
   // 加一个独立的'完成 ✨' 项作为主动完成入口, 弹 4 字段 modal
-  const items: { key: Exclude<TaskStatus, "已完成">; dotCls: string; label: string }[] = [
-    { key: "未开始", dotCls: "bg-fg-secondary", label: "未开始" },
-    { key: "进行中", dotCls: "bg-accent", label: "进行中" },
+  //
+  // icon 形态 (2026-07-21 跟外显同步): popover 里也用"短进度条"代替圆点/勾
+  //   0% 空 (灰 track)  = 未开始
+  //   50% 半 (accent)   = 进行中
+  //   100% 满 (success) = 完成
+  // 三项都用横条, 视觉上 100% 一致, 用户从外显到 popover 不会切换"心智模型"
+  const items: { key: Exclude<TaskStatus, "已完成">; barWidth: string; barColor: string; label: string }[] = [
+    { key: "未开始", barWidth: "w-0", barColor: "bg-fg-secondary", label: "未开始" },
+    { key: "进行中", barWidth: "w-1/2", barColor: "bg-accent", label: "进行中" },
   ];
+  const completeItem = { key: "完成", barWidth: "w-full", barColor: "bg-success", label: "完成" };
+
+  // popover 里用的迷你横条: 14x4 跟外显同比例, 略小
+  const Bar = ({ width, color }: { width: string; color: string }) => (
+    <div className="w-3.5 h-1 rounded-full bg-fg-muted/50 overflow-hidden flex-shrink-0">
+      <div className={`h-full rounded-full ${width} ${color}`} />
+    </div>
+  );
 
   return (
     <div ref={ref} className="relative flex-shrink-0">
@@ -1363,7 +1499,15 @@ function StatusMenu({
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={`block w-2.5 h-2.5 rounded-full ${dotColor}`} />
+        {/* 短进度条: 16x4 横向矩形 + 长度按状态 (空/半/满)
+            跟 PriorityMenu 的 8x8 圆点形状对比, 一眼区分状态 vs 优先级
+            track 用 bg-fg-muted/50 让"未开始"空 track 也能看清 (lessons 经验:
+            太暗的色点用户会以为控件没加载) */}
+        <div className="w-4 h-1 rounded-full bg-fg-muted/50 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-300 ${fillWidth} ${fillColor}`}
+          />
+        </div>
       </button>
       {open && (
         <div
@@ -1387,7 +1531,7 @@ function StatusMenu({
                   isCurrent ? "text-accent" : "text-fg"
                 }`}
               >
-                <span className={`block w-2.5 h-2.5 rounded-full ${it.dotCls}`} />
+                <Bar width={it.barWidth} color={it.barColor} />
                 <span>{it.label}</span>
                 {isCurrent && (
                   <span className="ml-auto text-[10px] text-fg-muted">当前</span>
@@ -1395,7 +1539,8 @@ function StatusMenu({
               </button>
             );
           })}
-          {/* 分隔 + 完成项 (主动完成入口 — 弹 4 字段 modal) */}
+          {/* 分隔 + 完成项 (主动完成入口 — 弹 4 字段 modal)
+              100% 满 success 绿条 + ✨ 提示"会弹窗" — icon 形态跟状态项一致 */}
           <div className="border-t border-border/60 my-0.5" />
           <button
             onClick={(e) => {
@@ -1406,9 +1551,42 @@ function StatusMenu({
             className="w-full text-left px-2 py-1.5 hover:bg-bg-tertiary text-[12px] flex items-center gap-2 text-success"
             title="点击弹窗填结果 / CV / 复盘"
           >
-            <Check size={11} strokeWidth={2.5} />
+            <Bar width={completeItem.barWidth} color={completeItem.barColor} />
             <span>完成</span>
             <span className="ml-auto text-[11px]">✨</span>
+          </button>
+
+          {/* (2026-07-22) 阻塞/草稿 toggle — 跟 Agent 工具对齐,人手也能改这两个字段
+              分隔线 + emoji + 文字 + 当前状态对勾,跟状态项/完成项同位同节奏
+              点 toggle 立刻 PATCH,不需要弹窗 (跟优先级/状态 inline edit 同款) */}
+          <div className="border-t border-border/60 my-0.5" />
+          <button
+            data-testid="statusmenu-toggle-blocked"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onToggleBlocked();
+            }}
+            className="w-full text-left px-2 py-1.5 hover:bg-bg-tertiary text-[12px] flex items-center gap-2 text-warning"
+            title={blocked ? "点击解除阻塞" : "点击标记为阻塞 (被外部依赖/卡住)"}
+          >
+            <span className="w-3.5 text-center">🚧</span>
+            <span>{blocked ? "解除阻塞" : "标记阻塞"}</span>
+            {blocked && <span className="ml-auto text-[11px] text-fg-muted">✓</span>}
+          </button>
+          <button
+            data-testid="statusmenu-toggle-draft"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onToggleDraft();
+            }}
+            className="w-full text-left px-2 py-1.5 hover:bg-bg-tertiary text-[12px] flex items-center gap-2 text-accent"
+            title={draft ? "点击确认这条任务" : "点击标记为草稿 (待确认)"}
+          >
+            <span className="w-3.5 text-center">📝</span>
+            <span>{draft ? "确认草稿" : "标记草稿"}</span>
+            {draft && <span className="ml-auto text-[11px] text-fg-muted">✓</span>}
           </button>
         </div>
       )}

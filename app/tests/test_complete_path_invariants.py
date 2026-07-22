@@ -484,7 +484,7 @@ def test_prioritymenu_is_in_first_row_not_meta_row():
     )
 
 
-# ===== 不变量 8: StatusMenu 触发按钮是纯色点 (无文字 / 无 ▾ 箭头) =====
+# ===== 不变量 8: StatusMenu 触发按钮是纯色编码 (无文字 / 无 ▾ 箭头) =====
 
 
 def test_statusmenu_trigger_is_pure_dot_no_text_no_chevron():
@@ -495,11 +495,16 @@ def test_statusmenu_trigger_is_pure_dot_no_text_no_chevron():
       旧版"○ 未开始 ▾" 三个元素挤在第一行, 跟 PriorityMenu "● 高 ▾" 上下叠,
       一个 task 行 4 个 ▾ 箭头, 视觉噪音爆炸。
 
+    2026-07-22 重构 v2: 用户反馈 StatusMenu 圆点跟 PriorityMenu 圆点形状太像
+      难区分, 改成"短进度条"形态 — 16x4 横向矩形 + 长度按状态 (空/半/满)。
+      优先级保留圆形, 形状对比立刻能区分"状态(横条) vs 优先级(圆点)"。
+      popover 里的 3 个选项 (未开始 / 进行中 / 完成) 全部同步用横条, 外内一致。
+
     不变量锁住:
     - 触发 button 内不能有 status 文字 (中文"未开始"/"进行中" 是 enum 字符串,
       出现在 button JSX 里就是 bug)
     - 触发 button 内不能有 ChevronDown icon (旧版下拉箭头)
-    - 触发 button 内必须有 2x2 / 2.5x2.5 圆点 (色点编码)
+    - 触发 button 内必须有"色编码形态" — v1 是 w-2/2.5 圆点, v2 是 w-4 横条
     """
     src = read_mainboard()
     body = _find_function_body_with_ts_types(src, "StatusMenu")
@@ -516,18 +521,24 @@ def test_statusmenu_trigger_is_pure_dot_no_text_no_chevron():
     for word in ("未开始", "进行中"):
         assert word not in trigger_btn, (
             f"StatusMenu 触发 button 里出现了状态文字 {word!r}, "
-            "2026-07-21 重构要求纯色点形态, 不显示文字。"
+            "2026-07-21 重构要求纯色编码形态, 不显示文字。"
             "如需看状态, hover 显示 title 属性即可"
         )
-    # 不能有 ChevronDown — 触发 button 不应该有下拉箭头 (色点本身就是 button)
+    # 不能有 ChevronDown — 触发 button 不应该有下拉箭头 (色编码本身就是 button)
     assert "ChevronDown" not in trigger_btn, (
         "StatusMenu 触发 button 渲染了 ChevronDown 箭头, "
-        "2026-07-21 重构要求去掉下拉箭头, 纯色点 button 形态"
+        "2026-07-21 重构要求去掉下拉箭头, 纯色编码 button 形态"
     )
-    # 必须有色点 (w-2 / w-2.5 rounded-full)
-    assert re.search(r"w-2(?:\.5)?\s+h-2(?:\.5)?\s+rounded-full", trigger_btn), (
-        "StatusMenu 触发 button 找不到色点 div (期望 w-2/2.5 h-2/2.5 rounded-full), "
-        "2026-07-21 重构要求色点编码状态, 不再是单字符 ○◐●"
+    # 必须有"色编码形态" — v2 改横条, 锁住关键 class 防止意外回退到圆点
+    #   外层 track: w-4 h-1 rounded-full (横条骨架)
+    #   内层 fill: rounded-full transition-all (状态色填充)
+    has_bar_track = re.search(r"w-4\s+h-1\s+rounded-full", trigger_btn)
+    has_bar_fill = re.search(r"rounded-full\s+transition-all", trigger_btn)
+    assert has_bar_track and has_bar_fill, (
+        "StatusMenu 触发 button 找不到横条形态 "
+        "(期望外层 w-4 h-1 rounded-full track + 内层 rounded-full transition-all fill), "
+        "2026-07-22 v2 重构要求用短进度条代替圆点 (跟 PriorityMenu 圆点形状区分)。"
+        "如果改回圆点会跟 PriorityMenu 撞形状, 触发用户的'区分不开'反馈。"
     )
 
 
@@ -605,4 +616,193 @@ def test_taskrow_first_row_controls_are_hover_only():
     assert "opacity-0" in first_row, (
         "TaskRow 第一行 controls 缺少 opacity-0 默认隐藏标记, "
         "默认全部显示会让色点编码方案失效"
+    )
+
+
+# ===== 不变量 12: ProjectCard 内"近期已沉淀"子区 (2026-07-22 方案A) =====
+
+
+def test_project_card_has_recent_achievements_subsection():
+    """ProjectCard 展开后必须有"已沉淀 N · 7 天内"子区 (2026-07-22 立, 方案A)。
+
+    背景: complete_task 在 storage 层先写 achievement 再删 task, 看板任务列表
+    看不到"刚干完的", 用户切到 /achievements 跨页查又重。方案A 在每个项目卡
+    展开态内嵌一个"近期已沉淀"子区, 复用 storage.list_achievements(project, since)。
+
+    不变量锁住:
+    - ProjectCard 必须用 useSWR 拉成就 (按 project.name 过滤, since=N 天前)
+    - 渲染时必须显示 "已沉淀" 文字标签 + N 天内标签
+    - 数据源是 api.listAchievements (前端封装), 不直接 fetch
+    - 撤销走 api.undoAchievement (跟 DoneTodaySection 同款)
+    """
+    src = read_mainboard()
+    body = _find_function_body_with_ts_types(src, "ProjectCard")
+
+    # 1. useSWR 必须拉 /api/achievements 且 since=N 天前
+    assert "/api/achievements" in body, (
+        "ProjectCard 没有拉 /api/achievements, "
+        "2026-07-22 立: 项目卡展开后必须内嵌'近期已沉淀'子区, "
+        "缺这个拉取说明回退到'只显示 active tasks' 的旧行为"
+    )
+    # 2. 必须按 project.name 过滤 (不是 project.id, Achievement.project 存的是 name)
+    assert re.search(r"project:\s*project\.name", body), (
+        "ProjectCard 拉成就时必须按 project.name 过滤 (不是 project.id), "
+        "Achievement ORM 存的是 project.name 字符串, 用 id 过滤会拿不到任何数据"
+    )
+    # 3. since 必须用动态 N 天前, 不是硬编码 (锁住用 daysAgoISO 工具函数)
+    assert "daysAgoISO" in body, (
+        "ProjectCard 拉成就时没用 daysAgoISO 工具函数, "
+        "since 应该是动态 N 天前, 硬编码日期会随时间过期"
+    )
+    # 4. 必须显示 "已沉淀" 标签
+    assert "已沉淀" in body, (
+        "ProjectCard 没有渲染'已沉淀' 标签, "
+        "用户没法识别这个子区是干嘛的"
+    )
+    # 5. 撤销走 api.undoAchievement (跟 DoneTodaySection 一致, 撤销 = 任务回退到任务列表)
+    assert re.search(r"api\.undoAchievement", body), (
+        "ProjectCard 没接 api.undoAchievement, "
+        "误沉淀的成就要能从项目视角一键撤销回到任务列表"
+    )
+    # 6. Undo2 icon 必须用 (视觉跟 DoneTodaySection 一致)
+    assert "Undo2" in body, (
+        "ProjectCard '已沉淀' 子区没用 Undo2 按钮, "
+        "撤销入口不可见"
+    )
+
+
+# ===== 不变量 13: StatusMenu 末尾有 blocked / draft toggle 入口 (2026-07-22 立) =====
+
+
+def test_statusmenu_has_blocked_draft_toggle():
+    """StatusMenu popover 末尾必须有"阻塞/草稿" toggle 项。
+
+    背景 (2026-07-22): 用户原则 — "凡是 Agent 可以操作的字段, 人也可以操作"。
+    Agent 通过 update_task(id, blocked=true|false) 和 update_task(id, draft=true|false)
+    能改这两个字段 (见 app/llm/tools.py:168-171), 但前端没手动入口。
+    2026-07-22 在 StatusMenu 末尾加分隔 + 两个 toggle 项, 跟"完成 ✨" 同位。
+
+    不变量锁住:
+    - StatusMenu 渲染里必须有 data-testid="statusmenu-toggle-blocked" 按钮
+    - StatusMenu 渲染里必须有 data-testid="statusmenu-toggle-draft" 按钮
+    - 按钮 text 必须是 "标记阻塞"/"解除阻塞" / "标记草稿"/"确认草稿" 四选一动态文案
+    - 不能删 data-testid — 后续 E2E 唯一能 stable 锚的就是这个
+    """
+    src = read_mainboard()
+    body = _find_function_body_with_ts_types(src, "StatusMenu")
+
+    # 1. blocked toggle 按钮
+    assert 'data-testid="statusmenu-toggle-blocked"' in body, (
+        "StatusMenu 找不到 data-testid=\"statusmenu-toggle-blocked\" 按钮, "
+        "2026-07-22 立: blocked 字段必须人手可改, "
+        "StatusMenu 末尾的 toggle 是唯一入口 (不放 meta 徽章上避免双入口混乱)"
+    )
+    # 2. draft toggle 按钮
+    assert 'data-testid="statusmenu-toggle-draft"' in body, (
+        "StatusMenu 找不到 data-testid=\"statusmenu-toggle-draft\" 按钮, "
+        "2026-07-22 立: draft 字段必须人手可改, "
+        "StatusMenu 末尾的 toggle 是唯一入口"
+    )
+    # 3. blocked 动态文案
+    assert "标记阻塞" in body and "解除阻塞" in body, (
+        "StatusMenu blocked toggle 缺动态文案, "
+        "应该是 blocked ? '解除阻塞' : '标记阻塞' (跟 emoji 🚧 配对)"
+    )
+    # 4. draft 动态文案
+    assert "标记草稿" in body and "确认草稿" in body, (
+        "StatusMenu draft toggle 缺动态文案, "
+        "应该是 draft ? '确认草稿' : '标记草稿' (跟 emoji 📝 配对)"
+    )
+    # 5. emoji 视觉一致性 — 跟 meta 徽章 (MainBoard.tsx:320 `item.blocked ? "🚧" : "○"`) 用同一套
+    assert "🚧" in body, (
+        "StatusMenu blocked toggle 没用 🚧 emoji, "
+        "跟 meta 区阻塞徽章 (MainBoard.tsx:320) 视觉不一致会让用户联想断掉"
+    )
+    assert "📝" in body, (
+        "StatusMenu draft toggle 没用 📝 emoji, "
+        "跟'草稿' 概念在 meta 区用 accent 色, 但 emoji 没显式标记"
+    )
+
+
+def test_statusmenu_signature_accepts_blocked_draft_toggle_props():
+    """StatusMenu 函数签名必须接 blocked / draft / onToggleBlocked / onToggleDraft 四个 prop。
+
+    2026-07-22 立: 这四个 prop 是 blocked / draft 字段人手可改的接口, 删了任何
+    一个, TaskRow 都传不进去, toggle 就会变成"点了不响应"。
+    """
+    src = read_mainboard()
+    m = re.search(r"function\s+StatusMenu\s*\(([^)]*)\)", src)
+    assert m, "StatusMenu 函数定义未找到"
+    sig = m.group(1)
+    for prop in ("blocked", "draft", "onToggleBlocked", "onToggleDraft"):
+        assert prop in sig, (
+            f"StatusMenu 函数签名 {sig!r} 缺 {prop!r} prop, "
+            f"2026-07-22 立: blocked / draft 字段人手可改, "
+            f"StatusMenu 末尾 toggle 必须能触发"
+        )
+
+
+# ===== 不变量 14: TaskRow 透传 blocked / draft 到 StatusMenu (2026-07-22 立) =====
+
+
+def test_taskrow_passes_blocked_draft_to_statusmenu():
+    """TaskRow 渲染 StatusMenu 时必须透传 task.blocked / task.draft + toggle handler。
+
+    2026-07-22 立: TaskRow 调用 StatusMenu 处必须传 4 个 prop:
+      blocked={task.blocked}
+      draft={task.draft}
+      onToggleBlocked={() => updateField("blocked", !task.blocked)}
+      onToggleDraft={() => updateField("draft", !task.draft)}
+
+    漏任何一个, 用户点 StatusMenu 末尾 toggle 都不会真改后端, 看起来"点了没反应"。
+    """
+    src = read_mainboard()
+    body = find_taskrow_body(src)
+    # TaskRow 渲染 <StatusMenu ... /> 处
+    statusmenu_match = re.search(r"<StatusMenu\b[\s\S]*?/>", body)
+    assert statusmenu_match, "TaskRow 里 <StatusMenu /> 渲染处找不到"
+    call = statusmenu_match.group(0)
+
+    # 1. 透传 blocked={task.blocked}
+    assert re.search(r"blocked=\{task\.blocked\}", call), (
+        "TaskRow 渲染 <StatusMenu /> 没传 blocked={task.blocked}, "
+        "StatusMenu 拿不到当前 blocked 状态, toggle 文案会一直是 '标记阻塞'"
+    )
+    # 2. 透传 draft={task.draft}
+    assert re.search(r"draft=\{task\.draft\}", call), (
+        "TaskRow 渲染 <StatusMenu /> 没传 draft={task.draft}, "
+        "StatusMenu 拿不到当前 draft 状态, toggle 文案会一直是 '标记草稿'"
+    )
+    # 3. 透传 onToggleBlocked (用 updateField 通用函数)
+    assert re.search(r"onToggleBlocked=\{[^}]*updateField", call), (
+        "TaskRow 渲染 <StatusMenu /> 没传 onToggleBlocked handler, "
+        "StatusMenu toggle 点了不会真改 blocked 字段"
+    )
+    # 4. 透传 onToggleDraft
+    assert re.search(r"onToggleDraft=\{[^}]*updateField", call), (
+        "TaskRow 渲染 <StatusMenu /> 没传 onToggleDraft handler, "
+        "StatusMenu toggle 点了不会真改 draft 字段"
+    )
+
+
+def test_taskrow_has_updatefield_helper():
+    """TaskRow 内部必须有 updateField 通用函数 (跟 updatePriority / updateDue 同款 PATCH + onChange)。
+
+    updateField 是 blocked / draft 字段的 inline-edit 助手, 跟其他 inline edit
+    (updatePriority / updateDue) 走相同的 api.updateTask + onChange() 流程,
+    不做乐观更新 (跟 StatusMenu / PriorityMenu / DueEditor 行为一致)。
+    """
+    src = read_mainboard()
+    body = find_taskrow_body(src)
+    # updateField 应该是箭头函数: const updateField = async (field, value) => {...}
+    assert re.search(
+        r"const\s+updateField\s*=\s*async\s*\(\s*field\s*:\s*[\"']blocked[\"']\s*\|\s*[\"']draft[\"']",
+        body,
+    ), (
+        "TaskRow 缺 updateField 通用函数, blocked / draft 字段没法走 PATCH + SWR revalidate 流程"
+    )
+    # updateField 必须调 api.updateTask (PATCH 语义)
+    assert re.search(r"updateField[\s\S]{0,200}api\.updateTask", body), (
+        "TaskRow updateField 没调 api.updateTask, "
+        "blocked / draft 字段不会真到后端"
     )
