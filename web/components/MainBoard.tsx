@@ -6,6 +6,7 @@ import { api, type Snapshot, type Project, type Task, type Achievement, type Tas
 import { Check, Trash2, ChevronRight, ChevronDown, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2, Archive, ArchiveRestore, Sparkles } from "lucide-react";
 import { ChatWindow } from "./ChatWindow";
 import { CompleteTaskModal } from "./CompleteTaskModal";
+import { usePopover } from "./Popover";
 import Link from "next/link";
 
 const CHAT_COLLAPSED_KEY = "cockpit_chat_collapsed";
@@ -686,7 +687,11 @@ function ProjectCard({
 
   return (
     <div
-      className="rounded-xl bg-bg-tertiary/30 overflow-hidden"
+      className={`rounded-xl overflow-hidden transition-all ${
+        expanded
+          ? "bg-bg-tertiary/40 ring-1 ring-accent/50 border border-accent/30"
+          : "bg-bg-tertiary/30 border border-transparent"
+      }`}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
     >
@@ -1304,8 +1309,11 @@ function PriorityMenu({
   //   改后色点本身是 button,完成即状态切换,无文字无箭头。
   // 色点颜色 (lesson #1 教训: 低优先级色点必须可见):
   //   高 = bg-danger, 中 = bg-warning, 低 = bg-fg-secondary (#a0a0a0) 不再走 #666
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  // (2026-07-22 抽 usePopover): 原本内联的 useState+useRef+click-outside+Esc ~30 行
+  //   跟 StatusMenu 完全重复, 抽到 web/components/Popover.tsx 复用。
+  //   副作用: PriorityMenu 原本 Esc 不 focus 回去 trigger, 跟 StatusMenu 不一致;
+  //   抽 hook 后统一为"Esc 关闭 + focus trigger" (StatusMenu 原有行为, 可达性更好)。
+  const pop = usePopover();
   const dotColor =
     priority === "高"
       ? "bg-danger"
@@ -1313,51 +1321,31 @@ function PriorityMenu({
       ? "bg-warning"
       : "bg-fg-secondary";
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  // Esc 关闭
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [open]);
-
   return (
-    <div ref={ref} className="relative flex-shrink-0">
+    <div ref={pop.containerRef} className="relative flex-shrink-0">
       <button
+        ref={pop.triggerRef}
         onClick={(e) => {
           e.stopPropagation();
-          setOpen((o) => !o);
+          pop.toggle();
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            setOpen((o) => !o);
+            pop.toggle();
           }
         }}
         className={`w-5 h-5 flex items-center justify-center rounded transition ${
-          open ? "bg-bg-tertiary ring-1 ring-accent" : "hover:bg-bg-tertiary"
+          pop.open ? "bg-bg-tertiary ring-1 ring-accent" : "hover:bg-bg-tertiary"
         }`}
         title={`优先级: ${priority}(点击切换)`}
         aria-label={`优先级 ${priority}`}
         aria-haspopup="listbox"
-        aria-expanded={open}
+        aria-expanded={pop.open}
       >
         <span className={`block w-2 h-2 rounded-full ${dotColor}`} />
       </button>
-      {open && (
+      {pop.open && (
         <div className="absolute left-0 top-6 z-20 bg-bg-secondary border border-border rounded-md shadow-lg py-0.5 min-w-[80px]">
           {(["高", "中", "低"] as const).map((p) => (
             <button
@@ -1365,7 +1353,7 @@ function PriorityMenu({
               onClick={(e) => {
                 e.stopPropagation();
                 onChange(p);
-                setOpen(false);
+                pop.close();
               }}
               className={`w-full text-left px-2 py-1 hover:bg-bg-tertiary text-xs flex items-center gap-1.5 ${
                 p === priority ? "text-accent" : "text-fg"
@@ -1417,9 +1405,9 @@ function StatusMenu({
   //   popover 内容 "○ 未开始 / ◐ 进行中 / ─── / ✅ 完成 ✨" 不变 —
   //     颜色梯度 (灰 → accent → 绿) 也保持一致, 唯一改的是 icon 形态。
   // click 行为不变: hover 显示 bg 高亮, click 弹同一个 popover。
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
+  // (2026-07-22 抽 usePopover): 跟 PriorityMenu 共用 web/components/Popover.tsx 的 hook,
+  //   原内联 useState+useRef+click-outside+Esc ~30 行抽走, 行为 1:1 等价。
+  const pop = usePopover();
 
   // 进度填充: 宽度按状态分档 + 颜色三档
   const fillWidth =
@@ -1430,31 +1418,6 @@ function StatusMenu({
       : status === "进行中"
       ? "bg-accent"
       : "bg-fg-secondary";
-
-  // 点外面关闭
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  // Esc 关闭 (基础可达性)
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-        buttonRef.current?.focus();
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [open]);
 
   // 列表项: 未开始 / 进行中 (已完成 不可达 — 看板里 task 永远不显示, 因为完成即删除)
   // 加一个独立的'完成 ✨' 项作为主动完成入口, 弹 4 字段 modal
@@ -1478,26 +1441,26 @@ function StatusMenu({
   );
 
   return (
-    <div ref={ref} className="relative flex-shrink-0">
+    <div ref={pop.containerRef} className="relative flex-shrink-0">
       <button
-        ref={buttonRef}
+        ref={pop.triggerRef}
         onClick={(e) => {
           e.stopPropagation();
-          setOpen((o) => !o);
+          pop.toggle();
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            setOpen((o) => !o);
+            pop.toggle();
           }
         }}
         className={`w-5 h-5 flex items-center justify-center rounded transition ${
-          open ? "bg-bg-tertiary ring-1 ring-accent" : "hover:bg-bg-tertiary"
+          pop.open ? "bg-bg-tertiary ring-1 ring-accent" : "hover:bg-bg-tertiary"
         }`}
         title={`状态: ${status} (点击切换)`}
         aria-label={`状态 ${status}`}
         aria-haspopup="listbox"
-        aria-expanded={open}
+        aria-expanded={pop.open}
       >
         {/* 短进度条: 16x4 横向矩形 + 长度按状态 (空/半/满)
             跟 PriorityMenu 的 8x8 圆点形状对比, 一眼区分状态 vs 优先级
@@ -1509,7 +1472,7 @@ function StatusMenu({
           />
         </div>
       </button>
-      {open && (
+      {pop.open && (
         <div
           className="absolute left-0 top-6 z-20 bg-bg-secondary border border-border rounded-md shadow-lg py-0.5 min-w-[140px]"
           role="listbox"
@@ -1524,8 +1487,7 @@ function StatusMenu({
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isCurrent) onChange(it.key);
-                  setOpen(false);
-                  buttonRef.current?.focus();
+                  pop.close();
                 }}
                 className={`w-full text-left px-2 py-1.5 hover:bg-bg-tertiary text-[12px] flex items-center gap-2 ${
                   isCurrent ? "text-accent" : "text-fg"
@@ -1545,7 +1507,7 @@ function StatusMenu({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              setOpen(false);
+              pop.close();
               onComplete();
             }}
             className="w-full text-left px-2 py-1.5 hover:bg-bg-tertiary text-[12px] flex items-center gap-2 text-success"
@@ -1564,7 +1526,7 @@ function StatusMenu({
             data-testid="statusmenu-toggle-blocked"
             onClick={(e) => {
               e.stopPropagation();
-              setOpen(false);
+              pop.close();
               onToggleBlocked();
             }}
             className="w-full text-left px-2 py-1.5 hover:bg-bg-tertiary text-[12px] flex items-center gap-2 text-warning"
@@ -1578,7 +1540,7 @@ function StatusMenu({
             data-testid="statusmenu-toggle-draft"
             onClick={(e) => {
               e.stopPropagation();
-              setOpen(false);
+              pop.close();
               onToggleDraft();
             }}
             className="w-full text-left px-2 py-1.5 hover:bg-bg-tertiary text-[12px] flex items-center gap-2 text-accent"
@@ -1722,7 +1684,7 @@ function DescriptionEditor({
   return (
     <div
       onClick={() => setEditing(true)}
-      className="text-fg-secondary whitespace-pre-wrap border-l-2 border-border pl-2 cursor-text hover:border-accent min-h-[1.5em]"
+      className="text-[13px] leading-relaxed text-fg-secondary whitespace-pre-wrap border-l-2 border-border pl-2 cursor-text hover:border-accent min-h-[1.5em]"
       title="点击编辑详情"
     >
       {description || (

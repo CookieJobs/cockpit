@@ -49,20 +49,80 @@ class Base(DeclarativeBase):
     pass
 
 
-class ProjectORM(Base):
+# ===== Reusable ORM mixins (2026-07-22 抽) =====
+#
+# 背景：6 个 ORM 类原本每张表都重写 `id: Mapped[str] = mapped_column(String(64), primary_key=True)`
+# 和时间戳 boilerplate (created_at/last_active_at/updated_at)。抽出 4 个 mixin:
+#   - StringPKMixin: 字符串主键 (String(64), 应用层生成 UUID/ulid)
+#   - CreatedDateMixin: created_at: date, default=date.today
+#   - CreatedDateTimeMixin: created_at: datetime, default=datetime.now
+#   - LastActiveDateTimeMixin: last_active_at: datetime, default + onupdate
+#   - UpdatedDateTimeMixin: updated_at: datetime, server_default=func.now() + onupdate
+#
+# 收益：
+#   - 未来加新表零 boilerplate
+#   - 字段类型统一 (String(64) 不再各处手抄, default 类型不再有人忘加)
+#   - 防止 lesson #10 (build_snapshot 漏传 description) 类型的 silent failure
+#
+# 不参与 mixin 的 ORM (保留手写字段)：
+#   - SettingsORM: 主键是 `key` 不是 `id`, 语义是 key-value 不是 entity
+#   - AchievementORM: 字段名是 `date` 不是 `created_at`, 语义是"完成日" 不是"创建日"
+#     (Achievement 一旦写入就不变, date 是业务日期不是系统时间戳)
+# 它们的 boilerplate 跟其他 ORM 不同源, 抽 mixin 反而损失语义清晰度。
+
+
+class StringPKMixin:
+    """字符串主键 (应用层生成 UUID/ulid)。"""
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+
+
+class CreatedDateMixin:
+    """创建时间 (按日历日, 用于 Project/Task 这种"哪天立项"语义)。"""
+    created_at: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
+
+
+class CreatedDateTimeMixin:
+    """创建时间 (按时间戳, 用于 ChatSession/ChatMessage 这种"何时发生"语义)。
+
+    用 Python 端 datetime.now() 默认, 不用 server_default=func.now()。
+    原因: server default 在 flush 后要 refresh 才能读到新值, 但 async SQLAlchemy
+    在 await 链外 lazy load 会触发 MissingGreenlet (lesson #8 教训)。
+    客户端 default 由 SQLAlchemy 直接写到对象上, 无需 refresh。
+    """
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now
+    )
+
+
+class LastActiveDateTimeMixin:
+    """最后活跃时间 (Python 端 default + onupdate, 客户端维护, 同上避免 MissingGreenlet)。"""
+    last_active_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now, onupdate=datetime.now
+    )
+
+
+class UpdatedDateTimeMixin:
+    """更新时间 (服务端 default + onupdate, 用于 Settings 这种少写多读的配置表)。
+
+    用 server_default=func.now() + onupdate=func.now(), 由 SQLite 维护,
+    应用层不读写。适合几乎只通过 ORM 写一次的配置表, 避免 async refresh。
+    """
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ProjectORM(StringPKMixin, CreatedDateMixin, Base):
     __tablename__ = "projects"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    created_at: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
-class TaskORM(Base):
+class TaskORM(StringPKMixin, CreatedDateMixin, Base):
     __tablename__ = "tasks"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
     project_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
@@ -73,12 +133,17 @@ class TaskORM(Base):
     due: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     draft: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    created_at: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     completed_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     checklist_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
 
 
 class AchievementORM(Base):
+    """成就表 (append-only, 完成一条 task 就写一行, task 删 task 改 achievement 留底)。
+
+    字段 `date` 保留手写, 不进 CreatedDateMixin:
+      语义是"哪天完成的" 业务日期, 不是"行何时创建" 系统时间戳
+      (批量补录/数据迁移时 date 可能跟 created_at 差几天)
+    """
     __tablename__ = "achievements"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -94,47 +159,31 @@ class AchievementORM(Base):
     tags_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
 
 
-class SettingsORM(Base):
+class SettingsORM(UpdatedDateTimeMixin, Base):
     """全局设置表（key-value 形式）。
 
     用于存储运行时配置（LLM API key、用户偏好等）。
-    key: 配置项名
+    key: 配置项名 (主键, 不用 StringPKMixin 因为字段名是 key 不是 id, 语义不同)
     value: JSON 序列化值
     """
     __tablename__ = "settings"
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
-    updated_at: Mapped[DateTime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
-    )
 
 
-class ChatSessionORM(Base):
+class ChatSessionORM(StringPKMixin, CreatedDateTimeMixin, LastActiveDateTimeMixin, Base):
     """对话 session 表。
 
     id 由前端生成（UUID），跨刷新保留；切换浏览器/隐身模式自动建新 session。
-
-    注意：created_at/last_active_at 用 Python 端 datetime.now() 默认，
-    不用 server_default=func.now()。原因：server default 在 flush 后
-    要 refresh 才能读到新值，但 async SQLAlchemy 在 await 链外 lazy load
-    会触发 MissingGreenlet。客户端 default 由 SQLAlchemy 直接写到对象上，
-    无需 refresh。
     """
     __tablename__ = "chat_sessions"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
     label: Mapped[str] = mapped_column(String(100), default="新对话", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.now
-    )
-    last_active_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.now, onupdate=datetime.now
-    )
     archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
-class ChatMessageORM(Base):
+class ChatMessageORM(StringPKMixin, CreatedDateTimeMixin, Base):
     """对话消息表。
 
     一条消息对应一轮 user/assistant 交互。content 存 Anthropic 格式的
@@ -143,7 +192,6 @@ class ChatMessageORM(Base):
     """
     __tablename__ = "chat_messages"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
     session_id: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("chat_sessions.id", ondelete="CASCADE"),
@@ -153,9 +201,6 @@ class ChatMessageORM(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, default="", nullable=False)
     tool_calls_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.now, index=True
-    )
 
 
 # ===== Engine & Session =====

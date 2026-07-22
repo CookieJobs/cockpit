@@ -509,12 +509,13 @@ def test_statusmenu_trigger_is_pure_dot_no_text_no_chevron():
     src = read_mainboard()
     body = _find_function_body_with_ts_types(src, "StatusMenu")
 
-    # 找 StatusMenu 触发 button (第一个 <button ... onClick=... setOpen ... 的 button)
+    # 找 StatusMenu 触发 button (第一个 <button ... onClick=... pop.toggle ... 的 button)
+    # 2026-07-22 抽 usePopover 后, onClick 里调 pop.toggle() 而不是内联 setOpen((o) => !o)
     btn_match = re.search(
-        r'<button[\s\S]*?onClick=[\s\S]*?setOpen[\s\S]*?>[\s\S]*?</button>',
+        r'<button[\s\S]*?onClick=[\s\S]*?pop\.toggle[\s\S]*?>[\s\S]*?</button>',
         body,
     )
-    assert btn_match, "StatusMenu 触发 button 找不到 (期望含 onClick={... setOpen ...})"
+    assert btn_match, "StatusMenu 触发 button 找不到 (期望含 onClick={... pop.toggle ...})"
     trigger_btn = btn_match.group(0)
 
     # 不能含 status 文字 — 文字版本会让 task 第一行回到"○ 未开始 ▾" 三件套
@@ -554,10 +555,10 @@ def test_prioritymenu_trigger_is_pure_dot_no_text_no_chevron():
     body = _find_function_body_with_ts_types(src, "PriorityMenu")
 
     btn_match = re.search(
-        r'<button[\s\S]*?onClick=[\s\S]*?setOpen[\s\S]*?>[\s\S]*?</button>',
+        r'<button[\s\S]*?onClick=[\s\S]*?pop\.toggle[\s\S]*?>[\s\S]*?</button>',
         body,
     )
-    assert btn_match, "PriorityMenu 触发 button 找不到"
+    assert btn_match, "PriorityMenu 触发 button 找不到 (期望含 onClick={... pop.toggle ...})"
     trigger_btn = btn_match.group(0)
 
     # 不能含 priority 文字 — 文字版本会让 task 第一行回到"● 高 ▾" 三件套
@@ -806,3 +807,60 @@ def test_taskrow_has_updatefield_helper():
         "TaskRow updateField 没调 api.updateTask, "
         "blocked / draft 字段不会真到后端"
     )
+
+
+# ===== 不变量 16: Popover 抽到共用 hook (2026-07-22 重构) =====
+
+
+def test_popover_hook_exists_in_separate_file():
+    """web/components/Popover.tsx 必须存在并 export usePopover。
+
+    2026-07-22 重构: StatusMenu / PriorityMenu 两个组件原本内联 ~30 行
+    useState+useRef+click-outside+Esc 完全重复的样板代码, 抽到
+    web/components/Popover.tsx 的 usePopover hook 复用。
+
+    修法 (回退时): 复制下面 popover.tsx 模板回来, import 进 MainBoard.tsx。
+    """
+    popover_path = MAINBOARD_TSX.parent / "Popover.tsx"
+    assert popover_path.exists(), (
+        f"web/components/Popover.tsx 找不到 ({popover_path}), "
+        "2026-07-22 重构要求把 usePopover hook 抽到独立文件复用, "
+        "StatusMenu/PriorityMenu 不应再内联 click-outside 样板代码"
+    )
+    content = popover_path.read_text(encoding="utf-8")
+    assert "usePopover" in content, "web/components/Popover.tsx 必须 export usePopover"
+    # 必须实现 click outside (mousedown) + Esc 关闭 + focus trigger
+    for needle in ("mousedown", "Escape", "focus()"):
+        assert needle in content, (
+            f"usePopover 缺 {needle!r} 关键行为, 不再等价于原内联实现"
+        )
+
+
+def test_statusmenu_and_prioritymenu_use_shared_popover_hook():
+    """StatusMenu 和 PriorityMenu 必须共用 usePopover (不能各自内联 useState + useEffect)。
+
+    2026-07-22 重构: 抽 usePopover 后两个 menu 都 import + 用 pop.toggle / pop.close。
+    防回退到内联 useState(open) + 各自挂 mousedown 监听。
+
+    检测方法: StatusMenu / PriorityMenu 函数体内不应再出现独立的
+    `useState(false)` open 状态变量, 也不应再 `document.addEventListener("mousedown", ...)`。
+    """
+    src = read_mainboard()
+
+    for fn_name in ("StatusMenu", "PriorityMenu"):
+        body = _find_function_body_with_ts_types(src, fn_name)
+        # 必须有 pop.toggle / pop.close / pop.open 等 hook 用法
+        assert re.search(r"\bpop\.", body), (
+            f"{fn_name} 函数体里没看到 pop.toggle/pop.close/pop.open 等 hook 用法, "
+            "可能没接 usePopover (回退到内联 useState?)"
+        )
+        # 不应再有内联的 useState(open) 状态变量
+        assert not re.search(r"const\s+\[\s*open\s*,\s*setOpen\s*\]\s*=\s*useState", body), (
+            f"{fn_name} 体内还有 `const [open, setOpen] = useState(...)` 状态变量, "
+            "2026-07-22 重构要求改用 usePopover hook 的 pop.open, 不要再内联 open 状态"
+        )
+        # 不应再自己 addEventListener("mousedown", ...)
+        assert not re.search(r'addEventListener\(\s*[\'"]mousedown[\'"]', body), (
+            f"{fn_name} 体内还有 mousedown 监听, "
+            "click-outside 应走 usePopover hook 共用, 不要重复实现"
+        )
