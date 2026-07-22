@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import useSWR from "swr";
 import { api, type Snapshot, type Project, type Task, type Achievement, type TaskStatus, statusIcon, dueColor, dueLabel, taskAgeDays, projectEmoji, relativeDate, daysAgoISO, type Priority } from "@/lib/api";
 import { Check, Trash2, ChevronRight, ChevronDown, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2, Archive, ArchiveRestore, Sparkles } from "lucide-react";
 import { ChatWindow } from "./ChatWindow";
 import { CompleteTaskModal } from "./CompleteTaskModal";
-import { usePopover } from "./Popover";
+import { usePopover, usePopoverPosition } from "./Popover";
 import Link from "next/link";
 
 const CHAT_COLLAPSED_KEY = "cockpit_chat_collapsed";
@@ -1314,6 +1315,11 @@ function PriorityMenu({
   //   副作用: PriorityMenu 原本 Esc 不 focus 回去 trigger, 跟 StatusMenu 不一致;
   //   抽 hook 后统一为"Esc 关闭 + focus trigger" (StatusMenu 原有行为, 可达性更好)。
   const pop = usePopover();
+  // (2026-07-22) Portal + fixed 定位, 跟 StatusMenu 同根问题 — ProjectCard overflow-hidden
+  //   裁切 absolute 定位的 popover。详见 StatusMenu 注释 + Popover.tsx usePopoverPosition。
+  const pos = usePopoverPosition(pop.triggerRef, pop.open, { offsetY: 24 });
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const dotColor =
     priority === "高"
       ? "bg-danger"
@@ -1345,8 +1351,12 @@ function PriorityMenu({
       >
         <span className={`block w-2 h-2 rounded-full ${dotColor}`} />
       </button>
-      {pop.open && (
-        <div className="absolute left-0 top-6 z-20 bg-bg-secondary border border-border rounded-md shadow-lg py-0.5 min-w-[80px]">
+      {pop.open && mounted && createPortal(
+        <div
+          ref={pop.popoverRef}
+          style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: pos.zIndex }}
+          className="bg-bg-secondary border border-border rounded-md shadow-lg py-0.5 min-w-[80px]"
+        >
           {(["高", "中", "低"] as const).map((p) => (
             <button
               key={p}
@@ -1371,7 +1381,8 @@ function PriorityMenu({
               {p}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -1408,6 +1419,13 @@ function StatusMenu({
   // (2026-07-22 抽 usePopover): 跟 PriorityMenu 共用 web/components/Popover.tsx 的 hook,
   //   原内联 useState+useRef+click-outside+Esc ~30 行抽走, 行为 1:1 等价。
   const pop = usePopover();
+  // (2026-07-22) Portal + fixed 定位: ProjectCard 的 overflow-hidden 会裁掉 absolute 定位的 popover
+  //   (CSS 基础: overflow-hidden 无视 z-index 直接切超界内容)。Portal 渲染到 body 跳出去,
+  //   position: fixed 相对视口定位, 配合 usePopoverPosition 跟随滚动/resize。
+  // offsetY = 24 保持原 absolute top-6 (= 24px) 的视觉间距不变。
+  const pos = usePopoverPosition(pop.triggerRef, pop.open, { offsetY: 24 });
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // 进度填充: 宽度按状态分档 + 颜色三档
   const fillWidth =
@@ -1472,9 +1490,11 @@ function StatusMenu({
           />
         </div>
       </button>
-      {pop.open && (
+      {pop.open && mounted && createPortal(
         <div
-          className="absolute left-0 top-6 z-20 bg-bg-secondary border border-border rounded-md shadow-lg py-0.5 min-w-[140px]"
+          ref={pop.popoverRef}
+          style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: pos.zIndex }}
+          className="bg-bg-secondary border border-border rounded-md shadow-lg py-0.5 min-w-[140px]"
           role="listbox"
         >
           {items.map((it) => {
@@ -1550,7 +1570,8 @@ function StatusMenu({
             <span>{draft ? "确认草稿" : "标记草稿"}</span>
             {draft && <span className="ml-auto text-[11px] text-fg-muted">✓</span>}
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

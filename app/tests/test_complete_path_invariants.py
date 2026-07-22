@@ -864,3 +864,129 @@ def test_statusmenu_and_prioritymenu_use_shared_popover_hook():
             f"{fn_name} 体内还有 mousedown 监听, "
             "click-outside 应走 usePopover hook 共用, 不要重复实现"
         )
+
+
+# ===== 不变量 17: Popover 用 Portal 渲染 + fixed 定位 (2026-07-22 立) =====
+#
+# 背景: 任务在 ProjectCard 展开区底部时, 点 StatusMenu / PriorityMenu 的色点
+#   弹出的 popover 会被 ProjectCard 的 `rounded-xl overflow-hidden` **直接裁掉**
+#   (CSS 基础: overflow-hidden 无视 z-index, 直接切超界内容)。
+#
+#   之前用 `absolute left-0 top-6 z-20` 定位 popover, 相对 trigger 容器。
+#   在 ProjectCard 内的 trigger, popover 向下展开会超出 ProjectCard 边界,
+#   被 overflow-hidden 切掉, 视觉上 = "被项目卡挡住"。
+#
+# 修法: popover 改用 React Portal (createPortal) 渲染到 document.body,
+#   配合 position: fixed 相对视口定位, 跳出任何 overflow / stacking context 限制。
+#   位置由 usePopoverPosition hook 算 (getBoundingClientRect + 跟随滚动/resize)。
+#
+# 锁住的不变量:
+# - Popover.tsx 必须 export usePopoverPosition hook (定位计算)
+# - StatusMenu / PriorityMenu 体内必须 createPortal 渲染 popover
+# - popover 必须用 position: fixed (不能 absolute — 那是回退标志)
+# - popover 必须显式设 z-index (默认 50, 必须 > 0)
+# - popover 必须挂 popoverRef (让 usePopover click-outside 检测 popover 自身)
+
+
+def test_popover_hook_exports_usePopoverPosition():
+    """web/components/Popover.tsx 必须 export usePopoverPosition。
+
+    2026-07-22 立: 配合 StatusMenu / PriorityMenu 改用 Portal + fixed 定位。
+    没有这个 hook, popover 就没法算位置 — 会回退到 absolute top-6 旧方案
+    (被 ProjectCard overflow-hidden 裁掉)。
+    """
+    popover_path = MAINBOARD_TSX.parent / "Popover.tsx"
+    content = popover_path.read_text(encoding="utf-8")
+    assert "export function usePopoverPosition" in content, (
+        "web/components/Popover.tsx 必须 export usePopoverPosition hook, "
+        "StatusMenu / PriorityMenu 改 Portal+fixed 定位需要它算 fixed top/left + "
+        "跟随滚动/resize"
+    )
+    # 必须有位置计算 (getBoundingClientRect) + 滚动/resize 监听
+    for needle in ("getBoundingClientRect", "scroll", "resize"):
+        assert needle in content, (
+            f"usePopoverPosition 缺 {needle!r} — 没算位置 / 没跟随滚动"
+        )
+
+
+def test_statusmenu_and_prioritymenu_render_popover_via_portal():
+    """StatusMenu / PriorityMenu 的 popover 必须用 createPortal 渲染。
+
+    2026-07-22 立: 不让它们回退到 absolute 定位 (会被 ProjectCard overflow-hidden
+    裁掉, 用户报"项目底部的任务点状态弹窗被项目卡挡住")。
+
+    检测方法: StatusMenu / PriorityMenu 函数体内必须 import createPortal + 调用
+    createPortal(<popover>, document.body) 把 popover 渲染到 body 下, 跳出
+    ProjectCard 的 overflow-hidden 限制。
+    """
+    src = read_mainboard()
+
+    # 顶部 import 必须有 createPortal
+    assert "import { createPortal } from \"react-dom\"" in src, (
+        "MainBoard.tsx 顶部必须 `import { createPortal } from \"react-dom\"`, "
+        "2026-07-22 重构要求 StatusMenu / PriorityMenu popover 走 Portal 渲染"
+    )
+
+    for fn_name in ("StatusMenu", "PriorityMenu"):
+        body = _find_function_body_with_ts_types(src, fn_name)
+        # 必须有 createPortal 调用
+        assert "createPortal" in body, (
+            f"{fn_name} 函数体里没看到 createPortal(...) 调用, "
+            "popover 必须用 Portal 渲染到 document.body 才能跳出 ProjectCard "
+            "overflow-hidden 裁切 (回归 = '项目底部任务点状态弹窗被项目卡挡住')"
+        )
+        # 必须 render 到 document.body
+        assert "document.body" in body, (
+            f"{fn_name} 体内没看到 createPortal(..., document.body), "
+            "popover Portal 目标必须是 document.body 才能脱离 React 树"
+        )
+
+
+def test_statusmenu_and_prioritymenu_popover_use_fixed_position():
+    """StatusMenu / PriorityMenu popover 必须用 position: fixed。
+
+    2026-07-22 立: 防止回退到 absolute (被 ProjectCard overflow-hidden 裁切)。
+    Portal + fixed 配合 usePopoverPosition 算的位置 (getBoundingClientRect)
+    才能稳定跳出任何 overflow 边界。
+    """
+    src = read_mainboard()
+
+    for fn_name in ("StatusMenu", "PriorityMenu"):
+        body = _find_function_body_with_ts_types(src, fn_name)
+        # 必须有 position: "fixed" (style 字符串里)
+        assert re.search(r'position:\s*[\'"]fixed[\'"]', body), (
+            f"{fn_name} popover 必须用 position: fixed (style inline), "
+            "不能用 absolute — absolute 会被 ProjectCard overflow-hidden 裁切"
+        )
+        # 必须有 zIndex 设置 (默认 50, 至少要 > 0)
+        assert re.search(r'zIndex:\s*pos\.zIndex', body), (
+            f"{fn_name} popover 必须从 usePopoverPosition 拿 zIndex, "
+            "Portal 模式下要靠 inline z-index 跳出 stacking"
+        )
+        # 不能再用 absolute left-0 top-6 (旧版定位, 旧 bug 标志)
+        assert not re.search(r'absolute\s+left-0\s+top-6', body), (
+            f"{fn_name} 还残留 `absolute left-0 top-6` 旧版 popover 定位, "
+            "必须改成 createPortal + position: fixed (2026-07-22 重构)"
+        )
+
+
+def test_statusmenu_and_prioritymenu_popover_attaches_popoverref():
+    """StatusMenu / PriorityMenu popover 根元素必须挂 pop.popoverRef。
+
+    2026-07-22 立: Portal 模式下 popover 渲染到 body 下, 不在 StatusMenu 组件
+    树 (containerRef) 子树内。如果 usePopover 的 click-outside 只检测
+    containerRef, 点 popover 内部会被误判为"外部点击" → popover 一开就
+    被自己关闭。挂 popoverRef 让 click-outside 把 popover 自身也算"内部"。
+
+    修法 (回退时): popover 根 div 必须 `ref={pop.popoverRef}`。
+    """
+    src = read_mainboard()
+
+    for fn_name in ("StatusMenu", "PriorityMenu"):
+        body = _find_function_body_with_ts_types(src, fn_name)
+        assert "ref={pop.popoverRef}" in body, (
+            f"{fn_name} popover 根 div 缺 `ref={{pop.popoverRef}}`, "
+            "Portal 模式下 usePopover click-outside 不知道 popover 边界, "
+            "会导致点 popover 内任何按钮都误触关闭"
+        )
+
