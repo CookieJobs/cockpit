@@ -8,7 +8,7 @@ from app.core.models import Priority, Task, TaskStatus
 def _make_task(id: str, **kwargs) -> Task:
     defaults = dict(
         id=id, project="proj_1", title=f"task-{id}",
-        status=TaskStatus.NOT_STARTED, priority=Priority.MEDIUM,
+        status=TaskStatus.NOT_STARTED, priority=Priority.P2,
         due=None, blocked=False, draft=False, created_at=date.today(),
         completed_at=None, checklist=[],
     )
@@ -17,14 +17,16 @@ def _make_task(id: str, **kwargs) -> Task:
 
 
 def test_sort_focus_priority():
-    """优先级排序：高 > 中 > 低。"""
+    """优先级排序：P0 > P1 > P2 > P3。"""
     tasks = [
-        _make_task("low", priority=Priority.LOW),
-        _make_task("high", priority=Priority.HIGH),
-        _make_task("medium", priority=Priority.MEDIUM),
+        _make_task("low", priority=Priority.P3),
+        _make_task("high", priority=Priority.P0),
+        _make_task("p1", priority=Priority.P1),
+        _make_task("medium", priority=Priority.P2),
     ]
     sorted_tasks = sort_focus(tasks)
-    assert [t.id for t in sorted_tasks] == ["high", "medium", "low"]
+    # P0 (high) > P1 (p1) > P2 (medium) > P3 (low) — rank 升序
+    assert [t.id for t in sorted_tasks] == ["high", "p1", "medium", "low"]
 
 
 def test_sort_focus_excludes_drafts():
@@ -40,8 +42,8 @@ def test_sort_focus_excludes_drafts():
 def test_sort_focus_blocked_last():
     """blocked 排在非 blocked 后面（即使 priority 更高）。"""
     tasks = [
-        _make_task("blocked-high", priority=Priority.HIGH, blocked=True),
-        _make_task("normal-medium", priority=Priority.MEDIUM, blocked=False),
+        _make_task("blocked-high", priority=Priority.P0, blocked=True),
+        _make_task("normal-medium", priority=Priority.P2, blocked=False),
     ]
     sorted_tasks = sort_focus(tasks)
     assert sorted_tasks[0].id == "normal-medium"
@@ -61,7 +63,7 @@ def test_sort_focus_due_order():
 
 def test_take_focus_limit():
     """take_focus 取 Top N。"""
-    tasks = [_make_task(f"t{i}", priority=Priority.MEDIUM) for i in range(10)]
+    tasks = [_make_task(f"t{i}", priority=Priority.P2) for i in range(10)]
     focus = take_focus(tasks, limit=3)
     assert len(focus) == 3
 

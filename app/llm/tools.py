@@ -10,6 +10,13 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from app.core import storage
+
+# tool_update_task 的 due 参数用 sentinel 区分"未传" vs "传了 None"。
+# 普通位置参数默认值是 None, Python 函数签名层面没法靠 `is None` 区分
+# "调用者没传" vs "调用者传了 None", 所以用 module-level 单例对象
+# 当默认值 (Python 惯用法, PEP 661 sentinel 模式)。
+# 用 object() 而不是 str 是为了避免跟任何合法 LLM 输入冲突。
+_DUE_UNSET: object = object()
 from app.core.models import (
     CVStatus,
     ProjectCreate,
@@ -100,7 +107,7 @@ async def tool_add_task(
     project: str,
     title: str,
     description: str = "",
-    priority: str = "中",
+    priority: str = "P2",
     due: str | None = None,
     blocked: bool = False,
 ) -> dict:
@@ -115,7 +122,7 @@ async def tool_add_task(
     try:
         prio = Priority(priority)
     except ValueError:
-        return {"error": f"Invalid priority: {priority}. Must be 高/中/低."}
+        return {"error": f"Invalid priority: {priority}. Must be P0/P1/P2/P3."}
     title_clean = title.strip()
     if title_clean:
         existing_tasks = await storage.list_tasks(project_id=project)
@@ -141,13 +148,27 @@ async def tool_update_task(
     title: str | None = None,
     description: str | None = None,
     priority: str | None = None,
-    due: str | None = None,
+    due: str | None | object = _DUE_UNSET,
     blocked: bool | None = None,
     status: str | None = None,
     draft: bool | None = None,
 ) -> dict:
-    """更新任务字段。"""
+    """更新任务字段。
+
+    due 字段特殊处理: 它是 Optional[str], LLM 显式传 `due=null` 表示"清空截止日期"。
+    普通位置参数默认值是 None, 没法靠 `is None` 区分"调用者没传" vs "调用者传了 None",
+    所以用 module-level sentinel 对象 `_DUE_UNSET` 当默认值 (Python 惯用法):
+    - LLM 没传 due 字段 → 走默认值 `_DUE_UNSET` → kwargs 不含 due → storage 不动 due
+    - LLM 传 due="2026-08-01" → kwargs["due"] = "2026-08-01" → storage PATCH 设值
+    - LLM 传 due=null (显式 None) → kwargs["due"] = None → storage PATCH 清空
+
+    旧版 (修前) `if due is not None: kwargs["due"] = due` 把 None 漏掉, 即便 LLM
+    schema 写了 "due: {description: 'YYYY-MM-DD 或 null 清除'}" 也清不掉。
+    端到端锁在 app/tests/test_api_patch_due_null.py + tool 层不在测试范围
+    (LLM 链路通过对话跑 E2E, 没单测)。
+    """
     from app.core.models import Priority, TaskStatus
+
     kwargs: dict[str, Any] = {}
     if title is not None:
         kwargs["title"] = title
@@ -163,12 +184,17 @@ async def tool_update_task(
             kwargs["status"] = TaskStatus(status)
         except ValueError:
             return {"error": f"Invalid status: {status}"}
-    if due is not None:
-        kwargs["due"] = due
     if blocked is not None:
         kwargs["blocked"] = blocked
     if draft is not None:
         kwargs["draft"] = draft
+    # due 单独处理: 用 sentinel `_DUE_UNSET` 区分"未传" vs "传了 None"
+    # 默认值是 _DUE_UNSET, LLM 没传 due 就走默认值 → 跳过这个 if, kwargs 不含 due
+    # LLM 显式传 None → due is not _DUE_UNSET → kwargs["due"] = None → storage 清空
+    # LLM 传字符串 → kwargs["due"] = "2026-08-01" → storage PATCH 设值
+    if due is not _DUE_UNSET:
+        kwargs["due"] = due
+
     t = await storage.update_task(id, TaskUpdate(**kwargs))
     if not t:
         return {"error": f"Task {id} not found"}
@@ -382,7 +408,7 @@ TOOLS: list[dict[str, Any]] = [
                 "project": {"type": "string", "description": "项目 ID（必填）"},
                 "title": {"type": "string", "description": "任务标题（必填）"},
                 "description": {"type": "string", "description": "任务详情 / 上下文（可选）"},
-                "priority": {"type": "string", "enum": ["高", "中", "低"], "description": "优先级（默认中）"},
+                "priority": {"type": "string", "enum": ["P0", "P1", "P2", "P3"], "description": "优先级（默认 P2）"},
                 "due": {"type": "string", "description": "截止日期 YYYY-MM-DD"},
                 "blocked": {"type": "boolean", "description": "是否被外部阻塞"},
             },
@@ -395,7 +421,7 @@ TOOLS: list[dict[str, Any]] = [
             "更新已有任务的字段（**不要用此工具新建**）。\n\n"
             "**主动调用场景**（听到这些意图时立即用）：\n"
             "- 「DDL/截止日期设为 7月12号」 / 「明天截止」 / 「延期到下周」 → `update_task(id, due=\"2026-07-12\")`\n"
-            "- 「优先级改成高/中/低」 / 「重要程度调一下」 → `update_task(id, priority=\"高\")`\n"
+            "- 「优先级改成 P0/P1/P2/P3」 / 「重要程度调一下」 → `update_task(id, priority=\"P0\")`\n"
             "- 「标记为阻塞」 / 「解除阻塞」 → `update_task(id, blocked=true|false)`\n"
             "- 「状态改成进行中/已完成」 → `update_task(id, status=\"IN_PROGRESS\"|\"DONE\")`\n"
             "- 「任务描述补充：...」 / 「任务详情写一下：...」 → `update_task(id, description=\"...\")`\n"
@@ -408,7 +434,7 @@ TOOLS: list[dict[str, Any]] = [
                 "id": {"type": "string", "description": "任务 ID（必填）"},
                 "title": {"type": "string"},
                 "description": {"type": "string", "description": "更新任务详情描述"},
-                "priority": {"type": "string", "enum": ["高", "中", "低"]},
+                "priority": {"type": "string", "enum": ["P0", "P1", "P2", "P3"]},
                 "status": {"type": "string", "enum": ["未开始", "进行中", "已完成"]},
                 "due": {"type": "string", "description": "YYYY-MM-DD 或 null 清除"},
                 "blocked": {"type": "boolean"},

@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import useSWR from "swr";
-import { api, type Snapshot, type Project, type Task, type Achievement, type TaskStatus, statusIcon, dueColor, dueLabel, taskAgeDays, projectEmoji, relativeDate, daysAgoISO, type Priority } from "@/lib/api";
+import { api, type Snapshot, type Project, type Task, type Achievement, type TaskStatus, statusIcon, dueColor, dueLabel, taskAgeDays, projectEmoji, relativeDate, daysAgoISO, type Priority, PRIORITY_BADGE_STYLES, PRIORITY_BAR_STYLES } from "@/lib/api";
 import { Check, Trash2, ChevronRight, ChevronDown, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2, Archive, ArchiveRestore, Sparkles } from "lucide-react";
 import { ChatWindow } from "./ChatWindow";
 import { CompleteTaskModal } from "./CompleteTaskModal";
@@ -277,15 +277,12 @@ function FocusItem({
   const [hover, setHover] = useState(false);
 
   // 左侧色条 - 颜色+形状双编码
-  // 高:实心红 / 中:实心黄 / 低:实心灰 / 阻塞:斜纹感(用更深的灰)
-  const priorityBar =
-    item.blocked
-      ? "bg-fg-muted/60"
-      : item.priority === "高"
-      ? "bg-danger"
-      : item.priority === "中"
-      ? "bg-warning"
-      : "bg-fg-muted/30";
+  // 2026-07-22: priority 改 4 档 P0/P1/P2/P3, 色条饱和度跟着调整
+  // 2026-07-23: 共享 lib/api.ts 的 PRIORITY_BAR_STYLES, 跟 /today FocusRow 同步。
+  //   阻塞 = fg-muted/60 表达"被卡住" (比 P3 灰再深, 区分"不急" vs "被阻")
+  const priorityBar = item.blocked
+    ? "bg-fg-muted/60"
+    : PRIORITY_BAR_STYLES[item.priority];
 
   const dueCls = dueColor(item.due);
   const dueTextColor =
@@ -987,10 +984,12 @@ function TaskRow({
   };
 
   const priorityDot =
-    task.priority === "高"
+    task.priority === "P0"
       ? "bg-danger"
-      : task.priority === "中"
+      : task.priority === "P1"
       ? "bg-warning"
+      : task.priority === "P2"
+      ? "bg-info"
       : "bg-fg-muted";
 
   const dueCls = dueColor(task.due);
@@ -1087,20 +1086,9 @@ function TaskRow({
           toggleExpand(e);
         }}
       >
-        {/* 状态色点 button (纯色点, click 弹下拉切换) */}
-        <div onClick={(e) => e.stopPropagation()}>
-          <StatusMenu
-            status={task.status}
-            blocked={task.blocked}
-            draft={task.draft}
-            onChange={updateStatus}
-            onComplete={requestComplete}
-            onToggleBlocked={() => updateField("blocked", !task.blocked)}
-            onToggleDraft={() => updateField("draft", !task.draft)}
-          />
-        </div>
-
-        {/* 优先级色点 button (纯色点, click 弹下拉切换) */}
+        {/* 优先级色点 button (纯色点, click 弹下拉切换) — 2026-07-22 移到最左,
+            之前状态/优先级两个色点都堆在标题左边, 跟标题间隔明显不够。
+            现在优先级独占最左位置, 标题左对齐, 视觉上更"工整"。 */}
         <div onClick={(e) => e.stopPropagation()}>
           <PriorityMenu priority={task.priority} onChange={updatePriority} />
         </div>
@@ -1145,6 +1133,21 @@ function TaskRow({
               {task.title}
             </span>
           )}
+        </div>
+
+        {/* 状态融合指示器 (2026-07-22 挪到右侧, 标题之后 / due 之前)
+            同一个 trigger button 多形态: 阻塞 → 🚧, 草稿 → 📝, 否则 → 短进度条
+            跟 due 形成"右栏" — 视觉上从右到左扫: 状态+阻塞/草稿 / due / 展开 / hover 按钮 */}
+        <div onClick={(e) => e.stopPropagation()}>
+          <StatusMenu
+            status={task.status}
+            blocked={task.blocked}
+            draft={task.draft}
+            onChange={updateStatus}
+            onComplete={requestComplete}
+            onToggleBlocked={() => updateField("blocked", !task.blocked)}
+            onToggleDraft={() => updateField("draft", !task.draft)}
+          />
         </div>
 
         {/* due 编辑器 - 永远右对齐 */}
@@ -1194,21 +1197,12 @@ function TaskRow({
 
       {/* 第二行:meta — 只显示离散事件标签, 不再放 PriorityMenu 文字版
           2026-07-21 重构: priority 已经在第一行色点表示, 不需要第二行再写"高/中/低"
-          草稿/阻塞/checklist/age 仍保留, 它们是事件性 meta 不是常驻控件 */}
-      {(task.draft || task.blocked || totalCount > 0 || taskAgeDays(task.created_at) >= 2) && (
+          2026-07-22 v3: 删掉「草稿/阻塞」徽章 — 它们已经从第二行上移到第一行右侧
+          的状态融合指示器表达 (StatusMenu trigger 根据 blocked/draft 切换 🚧/📝/横条),
+          跟第一行右侧的 due 一起形成「状态 + 截止 + 展开 + 按钮」紧凑右栏。
+          第二行只剩 checklist 进度 + "挂了N天" 提示, 纯事件性 meta。 */}
+      {(totalCount > 0 || taskAgeDays(task.created_at) >= 2) && (
         <div className="flex items-center gap-3 pl-3 pr-3 pb-1.5 text-[12px] text-fg-muted">
-          {/* 草稿/阻塞标签 */}
-          {task.draft && (
-            <span className="px-1.5 py-0 rounded bg-accent/20 text-accent">
-              草稿
-            </span>
-          )}
-          {task.blocked && (
-            <span className="px-1.5 py-0 rounded bg-warning/20 text-warning">
-              阻塞
-            </span>
-          )}
-
           {/* checklist 进度 */}
           {totalCount > 0 && (
             <span className="tabular-nums">
@@ -1301,31 +1295,26 @@ function PriorityMenu({
   priority: Priority;
   onChange: (p: Priority) => void;
 }) {
-  // (2026-07-21 重构): 任务行视觉去重,改纯色点 button 形态 —
-  //   默认 8x8 色点(不显示 "高/中/低" 文字,不带 ▾ 箭头)
-  //   hover 时显示 ring + bg 高亮,提示"可点"
-  //   click 弹 popover,里面仍是 "● 高 / ● 中 / ● 低" 三行可选
-  // 理由: 旧版 task 行有 4 个 ▾ 箭头(状态/priority/展开/due)上下叠,
-  //   PriorityMenu 自身又占第二行 meta 区带 "● 高 ▾",视觉噪音爆炸。
-  //   改后色点本身是 button,完成即状态切换,无文字无箭头。
-  // 色点颜色 (lesson #1 教训: 低优先级色点必须可见):
-  //   高 = bg-danger, 中 = bg-warning, 低 = bg-fg-secondary (#a0a0a0) 不再走 #666
-  // (2026-07-22 抽 usePopover): 原本内联的 useState+useRef+click-outside+Esc ~30 行
-  //   跟 StatusMenu 完全重复, 抽到 web/components/Popover.tsx 复用。
-  //   副作用: PriorityMenu 原本 Esc 不 focus 回去 trigger, 跟 StatusMenu 不一致;
-  //   抽 hook 后统一为"Esc 关闭 + focus trigger" (StatusMenu 原有行为, 可达性更好)。
+  // (2026-07-22 v2 重构): 优先级从 3 档 (高/中/低) 升级到 4 档 (P0/P1/P2/P3),
+  //   触发 button 也从"8x8 纯色点" 重做成"软底色 + 文字 P0/P1/P2/P3" 的 badge 形态。
+  // 理由:
+  //   1. 用户报"现在 8x8 色点看不出是优先级, 跟 StatusMenu 短横条区分度低"。
+  //   2. 旧版"高/中/低" 文字粒度太粗 — 3 档分不开"紧急/高/普通/不急" 的实际体感。
+  //   3. 升 4 档 (P0/P1/P2/P3) 顺便跟业界 incident / 故障分级对齐, 沟通更精准。
+  // 视觉设计:
+  //   软底色 (color/15) + 同色描边 (color/30) + 同色文字 (color) + 圆角 4px
+  //   P0 红 (最急) → P1 橙 → P2 琥珀 → P3 灰 (不急) — 颜色饱和度跟紧急度匹配
+  //   hover brightness 提亮, open 状态 ring-accent — 跟 StatusMenu 视觉语言一致
+  // (2026-07-22) 抽 usePopover: 跟 StatusMenu 共用 web/components/Popover.tsx 的 hook
+  //   (click-outside / Esc / focus trigger / Portal+fixed 全部复用)
+  //   旧版 trigger 是 8x8 纯色点无文字, 现在改 badge 有文字 — 不变量 #9 要重写
+  //   (旧"无文字无 ChevronDown" 约束不再适用, 改为"必须有 P0/P1/P2/P3 文字 + 软底色")
   const pop = usePopover();
   // (2026-07-22) Portal + fixed 定位, 跟 StatusMenu 同根问题 — ProjectCard overflow-hidden
   //   裁切 absolute 定位的 popover。详见 StatusMenu 注释 + Popover.tsx usePopoverPosition。
   const pos = usePopoverPosition(pop.triggerRef, pop.open, { offsetY: 24 });
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-  const dotColor =
-    priority === "高"
-      ? "bg-danger"
-      : priority === "中"
-      ? "bg-warning"
-      : "bg-fg-secondary";
 
   return (
     <div ref={pop.containerRef} className="relative flex-shrink-0">
@@ -1341,23 +1330,25 @@ function PriorityMenu({
             pop.toggle();
           }
         }}
-        className={`w-5 h-5 flex items-center justify-center rounded transition ${
-          pop.open ? "bg-bg-tertiary ring-1 ring-accent" : "hover:bg-bg-tertiary"
-        }`}
-        title={`优先级: ${priority}(点击切换)`}
+        className={`inline-flex items-center justify-center h-5 px-1.5 rounded
+          border text-[10px] font-mono font-semibold leading-none tracking-tight
+          transition select-none
+          ${PRIORITY_BADGE_STYLES[priority]}
+          ${pop.open ? "ring-1 ring-accent" : "hover:brightness-125"}`}
+        title={`优先级: ${priority} (点击切换)`}
         aria-label={`优先级 ${priority}`}
         aria-haspopup="listbox"
         aria-expanded={pop.open}
       >
-        <span className={`block w-2 h-2 rounded-full ${dotColor}`} />
+        {priority}
       </button>
       {pop.open && mounted && createPortal(
         <div
           ref={pop.popoverRef}
           style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: pos.zIndex }}
-          className="bg-bg-secondary border border-border rounded-md shadow-lg py-0.5 min-w-[80px]"
+          className="bg-bg-secondary border border-border rounded-md shadow-lg py-0.5 min-w-[140px]"
         >
-          {(["高", "中", "低"] as const).map((p) => (
+          {(["P0", "P1", "P2", "P3"] as const).map((p) => (
             <button
               key={p}
               onClick={(e) => {
@@ -1365,20 +1356,20 @@ function PriorityMenu({
                 onChange(p);
                 pop.close();
               }}
-              className={`w-full text-left px-2 py-1 hover:bg-bg-tertiary text-xs flex items-center gap-1.5 ${
-                p === priority ? "text-accent" : "text-fg"
+              className={`w-full text-left px-2 py-1.5 hover:bg-bg-tertiary text-xs flex items-center gap-2 ${
+                p === priority ? "bg-bg-tertiary/50" : ""
               }`}
             >
               <span
-                className={`w-2 h-2 rounded-full ${
-                  p === "高"
-                    ? "bg-danger"
-                    : p === "中"
-                    ? "bg-warning"
-                    : "bg-fg-secondary"
-                }`}
-              />
-              {p}
+                className={`inline-flex items-center justify-center h-5 px-1.5 rounded
+                  border text-[10px] font-mono font-semibold leading-none tracking-tight
+                  ${PRIORITY_BADGE_STYLES[p]}`}
+              >
+                {p}
+              </span>
+              <span className="text-fg-secondary text-[11px]">
+                {PRIORITY_LABEL[p]}
+              </span>
             </button>
           ))}
         </div>,
@@ -1387,6 +1378,19 @@ function PriorityMenu({
     </div>
   );
 }
+
+
+// 优先级 badge 样式: 见 lib/api.ts 的 PRIORITY_BADGE_STYLES (共享给 MainBoard TaskRow
+//   和 /today FocusRow, 两边永远同步)。P2 蓝 220° 跟 P1 橙 30° 拉开 200° 区分。
+
+// 优先级语义 helper (popover 列表里跟在 P0/P1/P2/P3 badge 后面, 帮助快速理解)
+//   顺序 = 紧急度从高到低
+const PRIORITY_LABEL: Record<Priority, string> = {
+  P0: "紧急 / 最高",
+  P1: "高 / 重要",
+  P2: "普通 (默认)",
+  P3: "不急",
+};
 
 
 function StatusMenu({
@@ -1475,20 +1479,31 @@ function StatusMenu({
         className={`w-5 h-5 flex items-center justify-center rounded transition ${
           pop.open ? "bg-bg-tertiary ring-1 ring-accent" : "hover:bg-bg-tertiary"
         }`}
-        title={`状态: ${status} (点击切换)`}
-        aria-label={`状态 ${status}`}
+        title={`状态: ${status}${blocked ? " · 阻塞" : ""}${draft ? " · 草稿" : ""} (点击切换)`}
+        aria-label={`状态 ${status}${blocked ? " · 阻塞" : ""}${draft ? " · 草稿" : ""}`}
         aria-haspopup="listbox"
         aria-expanded={pop.open}
       >
-        {/* 短进度条: 16x4 横向矩形 + 长度按状态 (空/半/满)
-            跟 PriorityMenu 的 8x8 圆点形状对比, 一眼区分状态 vs 优先级
-            track 用 bg-fg-muted/50 让"未开始"空 track 也能看清 (lessons 经验:
-            太暗的色点用户会以为控件没加载) */}
-        <div className="w-4 h-1 rounded-full bg-fg-muted/50 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-300 ${fillWidth} ${fillColor}`}
-          />
-        </div>
+        {/* (2026-07-22 v3 重构): 状态融合 — 同一个 trigger button 表达
+              「状态 + 阻塞/草稿」, 阻塞/草稿 覆盖 状态 (优先级: 阻塞 > 草稿 > 状态)
+              进行中/未开始 (无修饰) → 短进度条 (16x4 + 长度按 status)
+              进行中/未开始 + 阻塞   → 🚧 warning 色
+              进行中/未开始 + 草稿   → 📝 accent 色
+              阻塞 + 草稿          → 🚧 (阻塞优先)
+            之前的 v2 设计里, 阻塞/草稿是第二行 meta 的独立徽章 — 跟第一行横条
+              是「同一维度信息」, 但分散在两行 + 用两种视觉语言表达, 反直觉。
+              融合后单组件多形态, 视觉更紧凑, 状态判断只扫一处。 */}
+        {blocked ? (
+          <span className="text-[13px] leading-none" aria-hidden>🚧</span>
+        ) : draft ? (
+          <span className="text-[13px] leading-none" aria-hidden>📝</span>
+        ) : (
+          <div className="w-4 h-1 rounded-full bg-fg-muted/50 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${fillWidth} ${fillColor}`}
+            />
+          </div>
+        )}
       </button>
       {pop.open && mounted && createPortal(
         <div
@@ -1587,53 +1602,139 @@ function DueEditor({
   dueCls: "danger" | "warning" | "accent" | "muted";
   onChange: (date: string | null) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  // v2 改造 (2026-07-22): 跟 StatusMenu / PriorityMenu 同根, 改 popover 模式。
+  //
+  // v1 (2026-07-17) 旧 DueEditor 有 2 个用户报告的 bug:
+  //   bug 1: 无 due 的任务看不到任何设置入口
+  //     - 旧触发 button 在无 due 时渲染 `📅` 但 class `opacity-0 group-hover:opacity-100`
+  //     - 依赖整行 `group` class。v3 (2026-07-21) 把 group 重命名 `group/row`
+  //       时漏改, 整行根本没有裸 `group` 父级, 📅 永远不显示。
+  //   bug 2: 有 due 时只能改不能清
+  //     - 旧是 `<input type="date">` 内联编辑, type=date 的 input 不能手动清空成空串,
+  //       又没"清除" 按钮, 用户只能 PATCH {due: null}, 但后端 `if data.due is not None`
+  //       把 None 静默吞掉 — 双层堵死。
+  //
+  // v2 设计:
+  //   1. 触发 button **永远可见** (不再 opacity-0 + group-hover), 无 due 时显示
+  //      `Calendar` icon + "截止" 文字 (text-fg-muted), hover 时 text-fg + bg 高亮
+  //   2. 改 popover 模式: popover 内一个 date input (改值) + "清除截止日期" 红色按钮
+  //   3. 走 usePopover + usePopoverPosition + createPortal (跟 StatusMenu 同款),
+  //      跳出 ProjectCard overflow-hidden 裁切
+  //   4. date input 选完日期立刻 PATCH + close (跟 StatusMenu 切状态同节奏)
+  //   5. 清除按钮 → onChange(null) + close, 后端 storage 用 model_fields_set
+  //      区分"未传" vs "传了 None" 真正清空 due (端点级测试在
+  //      app/tests/test_api_patch_due_null.py)
+  const pop = usePopover();
+  const pos = usePopoverPosition(pop.triggerRef, pop.open, { offsetY: 24 });
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-  useEffect(() => {
-    if (editing && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [editing]);
-
-  const commit = (val: string) => {
-    setEditing(false);
-    if (val === "") {
-      if (due !== null) onChange(null);
-      return;
-    }
-    if (val !== due) onChange(val);
-  };
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        type="date"
-        defaultValue={due || ""}
-        onBlur={(e) => commit(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commit((e.target as HTMLInputElement).value);
-          if (e.key === "Escape") setEditing(false);
-        }}
-        onClick={(e) => e.stopPropagation()}
-        className="text-[10px] bg-bg border border-border rounded px-1 py-0.5 text-fg"
-        style={{ width: "110px" }}
-      />
-    );
-  }
+  // 触发 button class: 有 due 时跟 dueCls 颜色, 无 due 时 fg-muted 永远可见
+  const triggerClass = due
+    ? `text-${dueCls}`
+    : "text-fg-muted hover:text-fg";
 
   return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        setEditing(true);
-      }}
-      className={`text-[10px] flex-shrink-0 text-${dueCls} hover:underline px-1`}
-      title={due ? `截止:${due}(点击修改)` : "点击设置截止日期"}
-    >
-      {due ? dueLabel(due) : <span className="text-fg-muted opacity-0 group-hover:opacity-100">📅</span>}
-    </button>
+    <div ref={pop.containerRef} className="relative flex-shrink-0">
+      <button
+        ref={pop.triggerRef}
+        onClick={(e) => {
+          e.stopPropagation();
+          pop.toggle();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            pop.toggle();
+          }
+        }}
+        className={`text-[11px] flex items-center gap-1 rounded transition px-1.5 py-0.5 ${
+          pop.open ? "bg-bg-tertiary ring-1 ring-accent" : "hover:bg-bg-tertiary"
+        } ${triggerClass}`}
+        title={due ? `截止 ${dueLabel(due)} (点击修改或清除)` : "点击设置截止日期"}
+        aria-label={due ? `截止日期 ${due}` : "设置截止日期"}
+        aria-haspopup="dialog"
+        aria-expanded={pop.open}
+      >
+        {due ? (
+          <>
+            <Calendar size={11} className="flex-shrink-0" />
+            <span className="tabular-nums">{dueLabel(due)}</span>
+          </>
+        ) : (
+          <>
+            <Calendar size={11} className="flex-shrink-0" />
+            <span>截止</span>
+          </>
+        )}
+      </button>
+      {pop.open && mounted && createPortal(
+        <div
+          ref={pop.popoverRef}
+          style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: pos.zIndex }}
+          className="bg-bg-secondary border border-border rounded-md shadow-lg py-1.5 min-w-[220px]"
+          role="dialog"
+          aria-label="截止日期"
+        >
+          {/* 标题 (小字提示, 跟 StatusMenu 风格一致) */}
+          <div className="px-2.5 pb-1 text-[11px] text-fg-muted">
+            {due ? "修改截止日期" : "设置截止日期"}
+          </div>
+
+          {/* date input — 选完立刻 PATCH + close (跟 StatusMenu 切状态同节奏)
+              defaultValue 而不是 value: 让用户可以"取消" 改回去, 不每次都强制提交
+              onChange 触发时机: 用户点日历选了具体某天 */}
+          <div className="px-2.5 pb-1.5">
+            <input
+              type="date"
+              defaultValue={due || ""}
+              autoFocus
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val && val !== due) {
+                  onChange(val);
+                  pop.close();
+                }
+              }}
+              onKeyDown={(e) => {
+                // Esc 走 usePopover 统一处理 (关闭 + focus 回到 trigger)
+                // Enter 提交当前值
+                if (e.key === "Enter") {
+                  const val = (e.target as HTMLInputElement).value;
+                  if (val && val !== due) onChange(val);
+                  pop.close();
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full bg-bg border border-border rounded px-2 py-1 text-[12px] text-fg focus:outline-none focus:border-accent"
+            />
+          </div>
+
+          {/* 清除按钮 — 仅在已有 due 时显示, 红色 text-danger
+              用户报告: "有截止时间时, 我便没有办法再将这个截止时间给去掉"
+              修法: 显式"清除截止日期" 按钮, onClick → onChange(null) + close
+              后端 storage 用 model_fields_set 区分"未传" vs "传了 None", 真清空 */}
+          {due !== null && (
+            <>
+              <div className="border-t border-border/60 my-0.5" />
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange(null);
+                  pop.close();
+                }}
+                className="w-full text-left px-2.5 py-1.5 hover:bg-bg-tertiary text-[12px] flex items-center gap-2 text-danger"
+                title="清除截止日期 (PATCH due=null)"
+              >
+                <X size={12} />
+                <span>清除截止日期</span>
+              </button>
+            </>
+          )}
+        </div>,
+        document.body
+      )}
+    </div>
   );
 }
 

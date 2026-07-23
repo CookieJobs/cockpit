@@ -69,13 +69,13 @@ def test_multiline_json_arg():
     text = """functions.add_task({
         "project": "proj_1",
         "title": "复杂任务",
-        "priority": "高"
+        "priority": "P0"
     })"""
     calls = _parse_markdown_tool_calls(text)
     assert len(calls) == 1
     assert calls[0].name == "add_task"
     assert calls[0].args["title"] == "复杂任务"
-    assert calls[0].args["priority"] == "高"
+    assert calls[0].args["priority"] == "P0"
 
 
 def test_unrelated_text_ignored():

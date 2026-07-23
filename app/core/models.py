@@ -41,10 +41,22 @@ DateField = Annotated[date, Field(default_factory=_today)]
 
 
 class Priority(str, Enum):
-    """任务优先级。"""
-    HIGH = "高"
-    MEDIUM = "中"
-    LOW = "低"
+    """任务优先级。
+
+    2026-07-22 立: 从「高/中/低」(3 档) 改为 P0/P1/P2/P3 (4 档)。
+    语义:
+    - P0: 紧急/最高优先级, 必须立刻处理
+    - P1: 高优先级, 重要但非紧急
+    - P2: 普通优先级, 默认档
+    - P3: 低优先级, 不急
+
+    旧数据迁移: storage.init_db() 启动时一次性 UPDATE 把「高/中/低」
+    映射成 P0/P2/P3 (P1 是新档, 旧数据没有), idempotent。
+    """
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
 
 
 class TaskStatus(str, Enum):
@@ -211,7 +223,7 @@ class Project(ProjectBase):
 class TaskBase(CockpitModel):
     title: str = Field(..., min_length=1, max_length=500)
     description: str = Field(default="", max_length=5000, description="任务详情 / 上下文")
-    priority: Priority = Field(default=Priority.MEDIUM)
+    priority: Priority = Field(default=Priority.P2)
     due: Optional[date] = None
     blocked: bool = False
     checklist: List[ChecklistItem] = Field(default_factory=list)

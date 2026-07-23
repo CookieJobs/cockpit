@@ -3,7 +3,7 @@
 继承自 task-cockpit skill 的排序规则：
 1. draft 任务不进入 focus
 2. blocked 任务排在非 blocked 后面
-3. priority rank 升序（高=0, 中=1, 低=2）
+3. priority rank 升序（P0=0, P1=1, P2=2, P3=3）
 4. due 升序，无 due 用 "9999-99-99" 占位
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from app.core.models import Task
 
 
-_PRIORITY_RANK = {"高": 0, "中": 1, "低": 2}
+_PRIORITY_RANK = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 
 
 def _focus_key(task: "Task") -> tuple[int, int, str]:

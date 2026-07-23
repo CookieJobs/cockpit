@@ -31,6 +31,15 @@ MAINBOARD_TSX = (
     / "components"
     / "MainBoard.tsx"
 )
+# PRIORITY_BADGE_STYLES 实际定义在 lib/api.ts (2026-07-23 修):
+# 原测试假设它在 MainBoard.tsx 顶层常量, 但实现里搬到 lib/api.ts 模块
+# 共享给 MainBoard + /today FocusItem。测试改成扫 lib/api.ts。
+WEB_API_TS = (
+    Path(__file__).parent.parent.parent
+    / "web"
+    / "lib"
+    / "api.ts"
+)
 
 
 def read_mainboard() -> str:
@@ -48,9 +57,9 @@ def read_mainboard() -> str:
 def _strip_comments_and_strings(src: str) -> str:
     """把 JS 源码的注释 (// ... 和 /* ... */) 替换成空白, 但**保留字符串字面量完整**。
 
-    为什么不 strip 字符串: 中文项目里字符串字面量包含"高"/"中"/"低" 等
-    enum 值, 跟 dotColor 比较字符串一模一样, strip 会破坏中文字符位置
-    (Cockpit priority 三元结构是 'priority === "高" ? ...' 字符串里就是 "高")。
+    为什么不 strip 字符串: 中文项目里字符串字面量包含 priority enum 值
+    (历史版本 "高"/"中"/"低", 现在 "P0"/"P1"/"P2"/"P3"), 跟比较字符串一模一样,
+    strip 会破坏字符位置。
     """
     out = []
     i = 0
@@ -407,29 +416,167 @@ def test_taskrow_must_have_hover_complete_button():
     )
 
 
-# ===== 不变量 6: PriorityMenu "低" 颜色 =====
+# ===== 不变量 6: PriorityMenu 4 档 badge 样式 (2026-07-22 重构) =====
 
 
-def test_priority_low_uses_visible_color():
-    """PriorityMenu 触发按钮的"低" 色点必须用 bg-fg-secondary (亮灰, 可见)。
+def test_priority_badge_styles_4_levels():
+    """PriorityMenu 必须有 4 档 badge 样式 (P0/P1/P2/P3), 颜色饱和度跟紧急度匹配。
 
-    历史 bug (2026-07-17): 用户报"任务优先级只有高、中, 没有低"。
-    根因: "低" 用 bg-fg-muted (#666), 1.5px 圆点在 dark theme 几乎不可见。
-    修法: 改 bg-fg-secondary (#a0a0a0) — 亮灰, 跟"红黄" 形成"红黄灰" 三档梯度。
+    2026-07-22 立: priority 从 3 档 (高/中/低) 升到 4 档 (P0/P1/P2/P3),
+    触发 button 从"8x8 纯色点" 重做成"软底色 + 文字 P0/P1/P2/P3" 的 badge 形态。
+    锁住 2 件事:
+    1. PRIORITY_BADGE_STYLES 必须定义且覆盖全部 4 档
+    2. 颜色梯度: P0 红 (最急) / P1 橙 / P2 琥珀 / P3 亮灰 (visible, 跟 lesson #1 对齐)
+
+    历史 bug (2026-07-17): "低" 优先级用 bg-fg-muted (#666) 在 dark theme 几乎
+    不可见, 用户报"只有高、中, 没有低"。修法: 改 bg-fg-secondary (#a0a0a0)。
+    本不变量继续守: P3 必须保持 bg-fg-secondary 可见, 不回退到 bg-fg-muted。
     """
-    src = read_mainboard()
-    # 找 PriorityMenu 函数内的 dotColor 三元
-    m = re.search(
-        r'dotColor\s*=\s*priority\s*===\s*"高"\s*\?\s*"([^"]+)"\s*:\s*'
-        r'priority\s*===\s*"中"\s*\?\s*"([^"]+)"\s*:\s*"([^"]+)"',
+    src = WEB_API_TS.read_text(encoding="utf-8")
+    src = _strip_comments_and_strings(src)
+
+    # 1. PRIORITY_BADGE_STYLES 必须存在并覆盖全部 4 档
+    style_match = re.search(
+        r'const\s+PRIORITY_BADGE_STYLES\s*:\s*Record<Priority,\s*string>\s*=\s*\{([\s\S]*?)\};',
         src,
     )
-    assert m, "PriorityMenu dotColor 三元结构变了, 需要手动检查"
-    low_color = m.group(3)
-    assert low_color == "bg-fg-secondary", (
-        f'PriorityMenu "低" 颜色 = {low_color!r}, 应是 bg-fg-secondary (亮灰可见, '
-        '不是 bg-fg-muted 太暗)。修这个 bug 改 commit 历史 2026-07-17'
+    assert style_match, (
+        "PRIORITY_BADGE_STYLES 常量找不到 (期望 `const PRIORITY_BADGE_STYLES: "
+        "Record<Priority, string> = { ... };`), 2026-07-22 重构要求把 4 档 badge "
+        "样式集中到模块级常量, 不要散在 JSX 里。"
     )
+    style_body = style_match.group(1)
+
+    # 2. 每档必须存在 + 颜色类正确
+    # 2026-07-23 改: P2 从琥珀 (accent) 换冷色蓝 (info), 跟 P1 暖色撞色修掉
+    #   红 0° → 橙 30° → 蓝 220°: 跨越色环 ~200°, 一眼区分
+    expected = {
+        "P0": "bg-danger/15 text-danger border-danger/30",      # 最急 - 红
+        "P1": "bg-warning/15 text-warning border-warning/30",  # 高 - 橙
+        "P2": "bg-info/15 text-info border-info/30",            # 普通 - 蓝 (冷色, 2026-07-23 换)
+        "P3": "bg-fg-secondary/15 text-fg-secondary border-fg-secondary/30",  # 不急 - 亮灰
+    }
+    for level, expected_classes in expected.items():
+        # 简化匹配: 检查每档都存在 + 含其核心颜色
+        level_match = re.search(rf'{level}\s*:\s*"([^"]+)"', style_body)
+        assert level_match, (
+            f"PRIORITY_BADGE_STYLES 缺 {level!r} 档, 4 档必须齐全 "
+            "(P0 紧急 / P1 高 / P2 普通 / P3 不急)"
+        )
+        actual = level_match.group(1)
+        # 提取每个档的核心颜色 (bg-* text-* border-* 各一个)
+        bg = re.search(r"bg-(\S+?)/15", actual)
+        text = re.search(r"text-(\S+?)(?:\s|$)", actual)
+        border = re.search(r"border-(\S+?)/30", actual)
+        expected_bg, expected_text, expected_border = (
+            expected_classes.split()[0].replace("bg-", "").replace("/15", ""),
+            expected_classes.split()[1].replace("text-", ""),
+            expected_classes.split()[2].replace("border-", "").replace("/30", ""),
+        )
+        assert bg and bg.group(1) == expected_bg, (
+            f"PRIORITY_BADGE_STYLES.{level} bg 应是 bg-{expected_bg}/15, 实际是 "
+            f"bg-{bg.group(1) if bg else '?'}/15"
+        )
+        assert text and text.group(1) == expected_text, (
+            f"PRIORITY_BADGE_STYLES.{level} text 应是 text-{expected_text}, 实际是 "
+            f"text-{text.group(1) if text else '?'}"
+        )
+        assert border and border.group(1) == expected_border, (
+            f"PRIORITY_BADGE_STYLES.{level} border 应是 border-{expected_border}/30, "
+            f"实际是 border-{border.group(1) if border else '?'}/30"
+        )
+
+    # 3. P3 必须用 bg-fg-secondary (lesson #1 教训: 不回退到 bg-fg-muted)
+    assert "bg-fg-muted" not in style_body, (
+        "PRIORITY_BADGE_STYLES 里出现了 bg-fg-muted — 2026-07-17 lesson #1 教训: "
+        "低优先级色点用 bg-fg-muted (#666) 在 dark theme 几乎不可见, "
+        "必须保持 bg-fg-secondary (#a0a0a0) 亮灰可见。"
+    )
+
+
+def test_priority_badge_uses_p_level_labels():
+    """PriorityMenu 触发 button 必须渲染 P0/P1/P2/P3 文字 (badge 形态, 不是纯色点)。
+
+    2026-07-22 v2 重构: 用户反馈 8x8 纯色点看不出是优先级, 跟 StatusMenu 短横条
+    区分度低。改成软底色 + 文字 P0/P1/P2/P3 的 badge 形态, 视觉直接读出优先级。
+
+    检测: PriorityMenu 触发 button 必须:
+    1. 渲染 P0/P1/P2/P3 文字 (不能只渲染色点, 那是旧 v1 形态)
+    2. 不能再渲染 ● 圆点 (w-2 h-2 rounded-full) — 那是旧 v1 形态
+    3. 不能有 ChevronDown 箭头 (跟 StatusMenu 一致: 触发 button 永远不带 ▾)
+    4. 渲染 PRIORITY_BADGE_STYLES[priority] 样式
+    """
+    src = read_mainboard()
+    body = _find_function_body_with_ts_types(src, "PriorityMenu")
+
+    btn_match = re.search(
+        r'<button[\s\S]*?onClick=[\s\S]*?pop\.toggle[\s\S]*?>[\s\S]*?</button>',
+        body,
+    )
+    assert btn_match, "PriorityMenu 触发 button 找不到 (期望含 onClick={... pop.toggle ...})"
+    trigger_btn = btn_match.group(0)
+
+    # 1. 必须渲染 P0/P1/P2/P3 文字 (badge 形态) — 不能渲染 "高/中/低" 旧标签
+    assert re.search(r"\{priority\}", trigger_btn), (
+        "PriorityMenu 触发 button 没渲染 priority 文字, "
+        "2026-07-22 v2 重构要求 badge 必须显示 P0/P1/P2/P3 文字"
+    )
+    for word in ("高", "中", "低"):
+        assert word not in trigger_btn, (
+            f"PriorityMenu 触发 button 出现了旧 priority 文字 {word!r}, "
+            "2026-07-22 重构已升级为 P0/P1/P2/P3 4 档"
+        )
+
+    # 2. 不能有 w-2 h-2 rounded-full 纯色点 (旧 v1 形态)
+    assert not re.search(r"w-2\s+h-2\s+rounded-full", trigger_btn), (
+        "PriorityMenu 触发 button 还渲染 w-2 h-2 rounded-full 纯色点, "
+        "2026-07-22 v2 重构要求 badge 形态 (软底色 + 文字), 不再走纯色点"
+    )
+
+    # 3. 不能有 ChevronDown 箭头
+    assert "ChevronDown" not in trigger_btn, (
+        "PriorityMenu 触发 button 渲染了 ChevronDown 箭头, "
+        "2026-07-22 重构要求去掉下拉箭头 (跟 StatusMenu 一致)"
+    )
+
+    # 4. 必须用 PRIORITY_BADGE_STYLES[priority] 注入样式
+    assert re.search(r"PRIORITY_BADGE_STYLES\[priority\]", trigger_btn), (
+        "PriorityMenu 触发 button 没引用 PRIORITY_BADGE_STYLES[priority], "
+        "2026-07-22 v2 重构要求从模块级常量取样式, 不在 JSX 内联三元"
+    )
+
+
+def test_priority_popover_renders_p_levels():
+    """PriorityMenu popover 必须渲染 P0/P1/P2/P3 4 个选项 (不是旧 3 档 高/中/低)。
+
+    2026-07-22 重构: popover 列表也跟着升 4 档, 每行有 badge + 中文 helper label。
+    锁住 popover 数量 = 4 + 渲染的 priority 标签是 P0/P1/P2/P3。
+    """
+    src = read_mainboard()
+    body = _find_function_body_with_ts_types(src, "PriorityMenu")
+
+    # 1. popover 列表必须是 4 个 P 档 (不是 3 档)
+    popover_map = re.search(
+        r'\(\["高",\s*"中",\s*"低"\]\s*as\s*const\)\.map', body
+    )
+    assert not popover_map, (
+        "PriorityMenu popover 还在用 `['高', '中', '低']` 旧 3 档列表, "
+        "2026-07-22 重构必须升 4 档 P0/P1/P2/P3"
+    )
+    new_map = re.search(
+        r'\(\["P0",\s*"P1",\s*"P2",\s*"P3"\]\s*as\s*const\)\.map', body
+    )
+    assert new_map, (
+        "PriorityMenu popover 找不到 `['P0','P1','P2','P3']` 4 档列表, "
+        "2026-07-22 重构要求 popover 渲染 4 档选项"
+    )
+
+    # 2. 4 档 priority 文字都要在 popover 里出现
+    popover_section = body[body.find("createPortal"):] if "createPortal" in body else body
+    for level in ("P0", "P1", "P2", "P3"):
+        assert level in popover_section, (
+            f"PriorityMenu popover 缺 {level!r} 选项, 4 档必须齐全"
+        )
 
 
 # ===== 不变量 7: PriorityMenu 必须在第一行主行内 (不依赖 meta 行存在) =====
@@ -484,33 +631,32 @@ def test_prioritymenu_is_in_first_row_not_meta_row():
     )
 
 
-# ===== 不变量 8: StatusMenu 触发按钮是纯色编码 (无文字 / 无 ▾ 箭头) =====
+# ===== 不变量 8: StatusMenu 触发按钮是「融合形态」 — 短进度条 + 阻塞/草稿覆盖 =====
 
 
-def test_statusmenu_trigger_is_pure_dot_no_text_no_chevron():
-    """StatusMenu 触发 button 不能渲染状态文字 (未开始/进行中) 也不能渲染 ▾ 箭头。
+def test_statusmenu_trigger_is_fused_form():
+    """StatusMenu 触发 button 必须是「融合形态」, 同一组件多形态表达状态+阻塞/草稿。
 
-    2026-07-21 重构: StatusMenu 从 '○ 未开始 ▾' 文字版改成纯色点 button —
-      默认 10x10 圆点 (灰/ accent/ 绿), hover ring 高亮, click 弹下拉。
-      旧版"○ 未开始 ▾" 三个元素挤在第一行, 跟 PriorityMenu "● 高 ▾" 上下叠,
-      一个 task 行 4 个 ▾ 箭头, 视觉噪音爆炸。
+    历史:
+    - 2026-07-21: StatusMenu 从 '○ 未开始 ▾' 文字版改成纯色点 button。
+    - 2026-07-22 v2: 改成"短进度条"形态 (16x4 横向矩形 + 长度按状态), 跟 PriorityMenu
+      圆点形状区分。
+    - 2026-07-22 v3 (本次): 状态「进行中」用短横条, 状态「阻塞/草稿」用 emoji —
+      同一个 button 多形态 (融合), 不再用"第二行独立徽章"表达阻塞/草稿。
+      优先级: 阻塞 > 草稿 > 状态。
+      阻塞 → 🚧 warning 色, 草稿 → 📝 accent 色, 否则 → 短横条。
 
-    2026-07-22 重构 v2: 用户反馈 StatusMenu 圆点跟 PriorityMenu 圆点形状太像
-      难区分, 改成"短进度条"形态 — 16x4 横向矩形 + 长度按状态 (空/半/满)。
-      优先级保留圆形, 形状对比立刻能区分"状态(横条) vs 优先级(圆点)"。
-      popover 里的 3 个选项 (未开始 / 进行中 / 完成) 全部同步用横条, 外内一致。
-
-    不变量锁住:
-    - 触发 button 内不能有 status 文字 (中文"未开始"/"进行中" 是 enum 字符串,
-      出现在 button JSX 里就是 bug)
-    - 触发 button 内不能有 ChevronDown icon (旧版下拉箭头)
-    - 触发 button 内必须有"色编码形态" — v1 是 w-2/2.5 圆点, v2 是 w-4 横条
+    锁住 4 件事:
+    1. trigger button JSX 不能含 status 文字 / ChevronDown (跟旧约束一致)
+    2. trigger button JSX 必须有 blocked 分支渲染 🚧 emoji
+    3. trigger button JSX 必须有 draft 分支渲染 📝 emoji
+    4. trigger button JSX 必须有"无修饰"分支渲染 w-4 h-1 rounded-full 横条 track
+       + transition-all fill (回退保护 — 没阻塞/草稿时还应该看到原状态进度条)
     """
     src = read_mainboard()
     body = _find_function_body_with_ts_types(src, "StatusMenu")
 
     # 找 StatusMenu 触发 button (第一个 <button ... onClick=... pop.toggle ... 的 button)
-    # 2026-07-22 抽 usePopover 后, onClick 里调 pop.toggle() 而不是内联 setOpen((o) => !o)
     btn_match = re.search(
         r'<button[\s\S]*?onClick=[\s\S]*?pop\.toggle[\s\S]*?>[\s\S]*?</button>',
         body,
@@ -518,63 +664,123 @@ def test_statusmenu_trigger_is_pure_dot_no_text_no_chevron():
     assert btn_match, "StatusMenu 触发 button 找不到 (期望含 onClick={... pop.toggle ...})"
     trigger_btn = btn_match.group(0)
 
-    # 不能含 status 文字 — 文字版本会让 task 第一行回到"○ 未开始 ▾" 三件套
+    # 1. 不能含 status 文字 / ChevronDown (跟旧约束一致 — 触发 button 永远保持纯色编码)
     for word in ("未开始", "进行中"):
         assert word not in trigger_btn, (
             f"StatusMenu 触发 button 里出现了状态文字 {word!r}, "
             "2026-07-21 重构要求纯色编码形态, 不显示文字。"
             "如需看状态, hover 显示 title 属性即可"
         )
-    # 不能有 ChevronDown — 触发 button 不应该有下拉箭头 (色编码本身就是 button)
     assert "ChevronDown" not in trigger_btn, (
         "StatusMenu 触发 button 渲染了 ChevronDown 箭头, "
         "2026-07-21 重构要求去掉下拉箭头, 纯色编码 button 形态"
     )
-    # 必须有"色编码形态" — v2 改横条, 锁住关键 class 防止意外回退到圆点
-    #   外层 track: w-4 h-1 rounded-full (横条骨架)
-    #   内层 fill: rounded-full transition-all (状态色填充)
+
+    # 2. blocked 分支必须渲染 🚧 emoji (覆盖状态)
+    assert re.search(r"blocked\s*\?\s*\([\s\S]{0,200}🚧[\s\S]{0,200}\)", trigger_btn), (
+        "StatusMenu 触发 button 缺 blocked 分支 (期望 blocked ? ( ... 🚧 ... ) : ...), "
+        "2026-07-22 v3 重构要求「阻塞」覆盖状态, 同一个 trigger button 多形态表达。"
+        "修法: 在 trigger button 内加条件渲染 `blocked ? <span>🚧</span> : ...`"
+    )
+
+    # 3. draft 分支必须渲染 📝 emoji (阻塞未命中时的 fallback)
+    assert re.search(r"draft\s*\?\s*\([\s\S]{0,200}📝[\s\S]{0,200}\)", trigger_btn), (
+        "StatusMenu 触发 button 缺 draft 分支 (期望 draft ? ( ... 📝 ... ) : ...), "
+        "2026-07-22 v3 重构要求「草稿」覆盖状态 (阻塞优先), 同一个 trigger button 多形态。"
+        "修法: `blocked ? 🚧 : draft ? 📝 : <横条>`"
+    )
+
+    # 4. 无修饰 fallback 必须有短进度条形态 (track + fill)
     has_bar_track = re.search(r"w-4\s+h-1\s+rounded-full", trigger_btn)
     has_bar_fill = re.search(r"rounded-full\s+transition-all", trigger_btn)
     assert has_bar_track and has_bar_fill, (
-        "StatusMenu 触发 button 找不到横条形态 "
-        "(期望外层 w-4 h-1 rounded-full track + 内层 rounded-full transition-all fill), "
-        "2026-07-22 v2 重构要求用短进度条代替圆点 (跟 PriorityMenu 圆点形状区分)。"
-        "如果改回圆点会跟 PriorityMenu 撞形状, 触发用户的'区分不开'反馈。"
+        "StatusMenu 触发 button 找不到「无修饰」状态的短进度条形态 "
+        "(期望 w-4 h-1 rounded-full track + transition-all fill), "
+        "2026-07-22 v2 横条 + 2026-07-22 v3 融合形态都要求保留这个 fallback。"
+        "如果删了横条分支, 没阻塞/草稿时 trigger button 啥都不显示 — bug。"
     )
 
 
-# ===== 不变量 9: PriorityMenu 触发按钮是纯色点 (无文字 / 无 ▾ 箭头) =====
+# ===== 不变量 8b: StatusMenu 必须在 TaskRow 右侧(标题之后, DueEditor 之前) =====
 
 
-def test_prioritymenu_trigger_is_pure_dot_no_text_no_chevron():
-    """PriorityMenu 触发 button 不能渲染 priority 文字也不能渲染 ▾ 箭头。
+def test_statusmenu_is_in_right_side_of_taskrow():
+    """StatusMenu 必须在 TaskRow 第一行**右侧**(DueEditor 之前), 不在左侧。
 
-    同 StatusMenu 不变量 8 — 同步改成纯色点 button。
+    历史 (2026-07-22 v3 重构): 之前 StatusMenu(横条) 和 PriorityMenu(圆点) 都堆在
+      标题左边, 跟用户说「跟优先级有点重复的感觉」 — 两个色编码控件挤在标题左侧,
+      视觉权重不平衡。优先级独占最左位置, 状态指示器挪到右侧跟 due 一起形成
+      「右栏」, 用户从右到左扫: 状态+阻塞/草稿 → due → 展开 → hover 按钮。
+
+    检测方法: 在 TaskRow body 里, 找 `<StatusMenu` 和 `<DueEditor` 的字符位置,
+      前者必须 < 后者(StatusMenu 在 DueEditor 之前 = 视觉上在 DueEditor 左边 = 右侧)。
+      同时 PriorityMenu 必须仍然在 StatusMenu 之前(优先级独占最左, 状态移到右边)。
     """
     src = read_mainboard()
-    body = _find_function_body_with_ts_types(src, "PriorityMenu")
+    body = find_taskrow_body(src)
 
-    btn_match = re.search(
-        r'<button[\s\S]*?onClick=[\s\S]*?pop\.toggle[\s\S]*?>[\s\S]*?</button>',
-        body,
+    statusmenu_idx = body.find("<StatusMenu")
+    dueditor_idx = body.find("<DueEditor")
+    prioritymenu_idx = body.find("<PriorityMenu")
+
+    assert statusmenu_idx > 0, "TaskRow 找不到 <StatusMenu> 渲染"
+    assert dueditor_idx > 0, "TaskRow 找不到 <DueEditor> 渲染"
+    assert prioritymenu_idx > 0, "TaskRow 找不到 <PriorityMenu> 渲染"
+
+    # 视觉顺序: PriorityMenu (左) → ... → StatusMenu (右) → DueEditor (更右)
+    assert prioritymenu_idx < statusmenu_idx, (
+        f"PriorityMenu (idx={prioritymenu_idx}) 没在 StatusMenu (idx={statusmenu_idx}) 之前, "
+        "2026-07-22 v3 重构要求: 优先级独占最左位置, 状态指示器挪到右侧。\n"
+        "修法: TaskRow 第一行 JSX 顺序: <PriorityMenu> ... <StatusMenu> <DueEditor> ..."
     )
-    assert btn_match, "PriorityMenu 触发 button 找不到 (期望含 onClick={... pop.toggle ...})"
-    trigger_btn = btn_match.group(0)
+    assert statusmenu_idx < dueditor_idx, (
+        f"StatusMenu (idx={statusmenu_idx}) 没在 DueEditor (idx={dueditor_idx}) 之前, "
+        "2026-07-22 v3 重构要求: 状态指示器在 DueEditor 左边 (右栏内靠左)。\n"
+        "修法: TaskRow 第一行 JSX 顺序: <PriorityMenu> ... <StatusMenu> <DueEditor> ..."
+    )
 
-    # 不能含 priority 文字 — 文字版本会让 task 第一行回到"● 高 ▾" 三件套
-    for word in ("高", "中", "低"):
-        assert word not in trigger_btn, (
-            f"PriorityMenu 触发 button 里出现了 priority 文字 {word!r}, "
-            "2026-07-21 重构要求纯色点形态"
+
+# ===== 不变量 8c: TaskRow 第二行 meta 不再有「草稿/阻塞」徽章 =====
+
+
+def test_taskrow_meta_row_no_draft_blocked_badges():
+    """TaskRow 第二行 meta 区不能再渲染「草稿/阻塞」徽章 — 它们已上移到第一行右侧
+    的状态融合指示器 (StatusMenu trigger 根据 blocked/draft 切换 🚧/📝/横条)。
+
+    历史 (2026-07-22 v3): 之前 task 阻塞时第二行 meta 区出现一个 `🚧 阻塞` 徽章,
+      task 草稿时出现 `📝 草稿` 徽章, 跟第一行左侧的横条状态是「同一维度信息」,
+      但分散在两行 + 用两种视觉语言 (横条 vs 徽章) 表达, 反直觉。
+      v3 融合后, 阻塞/草稿用同一个 trigger button 的不同形态表达, 不再需要第二行徽章。
+      第二行 meta 只剩: checklist 进度 + 「挂了 N 天」提示 (纯事件性 meta)。
+
+    检测方法: TaskRow body 里:
+    - 不能有 `{task.draft && (` 这种条件渲染(原来的草稿徽章)
+    - 不能有 `{task.blocked && (` 这种条件渲染(原来的阻塞徽章)
+    - 不能有 `bg-accent/20 text-accent` 这种徽章 class(原草稿徽章背景色)
+    - 不能有 `bg-warning/20 text-warning` 这种徽章 class(原阻塞徽章背景色)
+    """
+    src = read_mainboard()
+    body = find_taskrow_body(src)
+
+    for word, cls in [
+        ("草稿徽章", "{task.draft && ("),
+        ("阻塞徽章", "{task.blocked && ("),
+        ("草稿背景", "bg-accent/20 text-accent"),
+        ("阻塞背景", "bg-warning/20 text-warning"),
+    ]:
+        assert cls not in body, (
+            f"TaskRow 找到了 {word} 模式 ({cls!r}), "
+            "2026-07-22 v3 融合形态重构要求: 阻塞/草稿已上移到第一行右侧状态指示器, "
+            "第二行 meta 不再渲染独立徽章 (避免「同一维度信息分散在两行 + 两种视觉语言」)。\n"
+            "修法: 删掉第二行 meta 区的 {task.draft && (...)} 和 {task.blocked && (...)} "
+            "两个条件渲染块, meta 条件从 (task.draft || task.blocked || ...) 改成 "
+            "(totalCount > 0 || taskAgeDays >= 2) — 只留 checklist 进度和年龄提示。"
         )
-    assert "ChevronDown" not in trigger_btn, (
-        "PriorityMenu 触发 button 渲染了 ChevronDown 箭头, "
-        "2026-07-21 重构要求去掉下拉箭头"
-    )
-    assert re.search(r"w-2\s+h-2\s+rounded-full", trigger_btn), (
-        "PriorityMenu 触发 button 找不到色点 div (期望 w-2 h-2 rounded-full), "
-        "2026-07-21 重构要求色点编码 priority"
-    )
+
+
+# ===== 不变量 9: PriorityMenu 触发按钮是 badge (有 P 档文字 + 软底色) =====
+# (2026-07-22 v2 改写: 旧版"纯色点无文字"约束被推翻, 改要求 badge 文字 + 软底色)
+# 见 test_priority_badge_uses_p_level_labels  (新不变量 9)
 
 
 # ===== 不变量 10: TaskRow 第一行 controls (展开/删除) 必须 hover 才显示 =====
@@ -990,3 +1196,256 @@ def test_statusmenu_and_prioritymenu_popover_attaches_popoverref():
             "会导致点 popover 内任何按钮都误触关闭"
         )
 
+
+# ===== 不变量 16: DueEditor 触发 button 永远可见 (2026-07-22 v2 修复) =====
+
+
+def test_dueditor_trigger_always_visible_no_group_hover():
+    """DueEditor 触发 button 必须**永远可见**, 不能依赖 group-hover 隐藏。
+
+    历史背景 (2026-07-22 用户报):
+    - "如果这个任务没有时间的话, 我看不到任何能够给这个任务设置截止时间的入口"
+    - 旧 DueEditor (v1, 2026-07-17): 无 due 时渲染 📅 emoji 但 class 是
+      `opacity-0 group-hover:opacity-100` — 必须 hover 整行才显示
+    - 整行 group class 在 v3 (2026-07-21) 从裸 `group` 改成了命名分组 `group/row`,
+      同步改所有 hover 控件为 `group-hover/row:opacity-100`, 但 DueEditor **漏改**
+    - 结果: 整行根本没有裸 `group` 父级, `group-hover:opacity-100` 找不到对应 group,
+      📅 emoji 永远不显示, 用户报告"看不到任何能够给这个任务设置截止时间的入口"
+    - v2 修复: DueEditor 改 popover 模式, 触发 button 永远可见 (无 due 时也展示),
+      不再依赖任何 group-hover
+
+    锁住 2 件事:
+    1. DueEditor 体内不能出现 `group-hover:opacity-100` (v3 漏改 bug 标志)
+    2. DueEditor 体内必须包含"无 due"可视元素 (📅 emoji 或"截止"文字), 不能空
+    """
+    src = read_mainboard()
+    body = _find_function_body_with_ts_types(src, "DueEditor")
+
+    # 1. 不能用旧 group-hover 语法 (v3 漏改 bug 标志)
+    assert "group-hover:opacity-100" not in body, (
+        "DueEditor 又用回 `group-hover:opacity-100` 旧语法了! "
+        "v3 (2026-07-21) 把整行 group class 从 `group` 改成了 `group/row`, "
+        "DueEditor 漏改是 2026-07-22 用户报'看不到任何能够给这个任务设置截止时间的入口' "
+        "的真实根因。\n"
+        "如果用 `group-hover:opacity-100` 又不挂 `group` 父级, "
+        "📅 永远不显示, 用户根本点不到设置 due 的入口。\n"
+        "修法: DueEditor 触发 button 永远可见, 无 due 时也展示 📅/文字"
+    )
+
+    # 2. 无 due 触发元素必须可见 (有 emoji 或文字, 不能空)
+    has_visible_no_due = "📅" in body or "截止" in body
+    assert has_visible_no_due, (
+        "DueEditor 体内没看到 📅 emoji 也没'截止' 文字 — 无 due 触发元素不可见。\n"
+        "v2 设计要求触发 button 永远可见, 即便 due=null 也要让用户能点开设置 due"
+    )
+
+
+# ===== 不变量 17: DueEditor popover 必须有 "清除截止日期" 入口 =====
+
+
+def test_dueditor_popover_has_clear_due_action():
+    """DueEditor popover 必须有"清除截止日期" 项 (v2 修复, 2026-07-22)。
+
+    历史背景 (2026-07-22 用户报):
+    - "当这个任务一旦有一个截止时间的时候, 我便没有办法再将这个截止时间给去掉"
+    - 旧 DueEditor 是 `<input type="date">` 内联编辑 — type=date 的 input 不能
+      手动清空成空串, 又没"清除" 按钮, 用户只能 PATCH {due: null}, 但后端
+      `if data.due is not None` 把 None 当"未传" 静默吞掉, 双层堵死
+    - v2 修复:
+      - 前端 DueEditor 改 popover 模式, popover 内加"清除截止日期" 红色按钮
+      - 后端 storage.update_task 改用 `data.model_fields_set` 区分未传 vs 传 None
+        (端点级测试锁在 test_api_patch_due_null.py)
+      - LLM 工具 tool_update_task 改 **kwargs 收集显式传的 null
+    """
+    src = read_mainboard()
+    body = _find_function_body_with_ts_types(src, "DueEditor")
+
+    # 1. popover 必须有 "清除" 相关的文字 (不强制"截止", 留一定灵活性)
+    #   可能形态: "清除截止" / "移除截止" / "清除日期"
+    has_clear_label = (
+        "清除截止" in body
+        or "清除日期" in body
+        or "移除截止" in body
+        or "取消截止" in body
+    )
+    assert has_clear_label, (
+        "DueEditor popover 缺「清除截止」入口! "
+        "用户报: '有截止时间时, 我便没有办法再将这个截止时间给去掉'。\n"
+        "v2 修复: popover 内必须有一个红色按钮点一下就 PATCH {due: null}, "
+        "显式清除 due 字段。\n"
+        "修法: popover 里加个按钮, 文字 '清除截止日期' 之类, onClick 调 onChange(null) + close"
+    )
+
+    # 2. 清除按钮必须能调 onChange(null) 真正清空 due
+    #   检测: 体内必须出现 onChange(null) 或 onChange?.(null) 的调用
+    has_clear_call = re.search(r"onChange\s*\(\s*null\s*\)", body) is not None
+    assert has_clear_call, (
+        "DueEditor 体内没看到 `onChange(null)` 调用 — 清除按钮即使存在也可能没真清空 due。\n"
+        "修法: 清除按钮 onClick 里写 `onChange(null); pop.close();`"
+    )
+
+    # 3. 清除按钮走 PATCH {due: null} — onChange 实际被 TaskRow.updateDue 包成
+    #    `await api.updateTask(task.id, { due: date })`, 传 null 会被 PATCH 端点接收。
+    #    (端点级 PATCH null 行为由 test_api_patch_due_null.py 锁住, 这里只锁前端)
+
+
+# ===== 不变量 18: DueEditor 必须用 popover 模式 (Portal + usePopover) =====
+
+
+def test_dueditor_uses_popover_hook():
+    """DueEditor 必须用 usePopover + usePopoverPosition (跟 StatusMenu / PriorityMenu 同根)。
+
+    2026-07-22 v2 设计: DueEditor 跟 StatusMenu / PriorityMenu 一样走 popover 模式,
+    不用内联 `<input type="date">` 替换。理由:
+    - date input 内联替换 → 切完即失焦触发 commit, 流程反人类
+      (改完想"清除" 没地方去, 想关又得 Esc)
+    - popover 模式 = 一个固定的"操作面板": 改日期 / 清除 / 关, 全在面板内完成
+    - 跟 StatusMenu (色点 + 下拉) / PriorityMenu (色点 + 下拉) 视觉风格一致
+
+    锁住 2 件事:
+    1. DueEditor 体内必须调 usePopover() (共享 popover 状态机)
+    2. DueEditor 体内必须用 createPortal + position: fixed (跟 StatusMenu 同根,
+       跳出 ProjectCard overflow-hidden 裁切)
+    """
+    src = read_mainboard()
+    body = _find_function_body_with_ts_types(src, "DueEditor")
+
+    # 1. 必须用 usePopover 共享 hook
+    assert "usePopover()" in body, (
+        "DueEditor 没调 `usePopover()` — popover 状态机没复用 Popover.tsx 的 hook, "
+        "click-outside / Esc / focus 回到 trigger 全部要自己写一遍, 容易漏。\n"
+        "v2 设计: DueEditor 跟 StatusMenu / PriorityMenu 同根, 统一用 usePopover"
+    )
+
+    # 2. 必须用 usePopoverPosition (Portal + fixed 定位)
+    assert "usePopoverPosition" in body, (
+        "DueEditor 没调 `usePopoverPosition` — popover 没用 Portal+fixed 定位, "
+        "会被 ProjectCard overflow-hidden 裁掉 (跟 StatusMenu 旧 bug 同根)。\n"
+        "修法: `const pos = usePopoverPosition(pop.triggerRef, pop.open, { offsetY: 24 });`"
+    )
+
+    # 3. popover 必须用 createPortal 渲染到 document.body
+    assert "createPortal" in body, (
+        "DueEditor popover 没用 createPortal — 渲染位置可能在 ProjectCard 内部, "
+        "被 overflow-hidden 裁切"
+    )
+    assert "document.body" in body, (
+        "DueEditor popover Portal 目标不是 document.body, "
+        "可能挂在 ProjectCard 内部, 被 overflow-hidden 裁掉"
+    )
+
+
+# ===== 不变量 19: /today FocusRow 必须用 P0/P1/P2/P3 badge + 左侧竖色条 =====
+
+TODAY_PAGE_TSX = (
+    Path(__file__).parent.parent.parent
+    / "web"
+    / "app"
+    / "today"
+    / "page.tsx"
+)
+
+
+def read_today_page() -> str:
+    """读 /today page.tsx 全文 (含 FocusRow 函数体)。"""
+    if not TODAY_PAGE_TSX.exists():
+        raise FileNotFoundError(f"today/page.tsx not found at {TODAY_PAGE_TSX}")
+    return _strip_comments_and_strings(TODAY_PAGE_TSX.read_text(encoding="utf-8"))
+
+
+def test_today_focusrow_uses_priority_badge():
+    """FocusRow 必须用 PRIORITY_BADGE_STYLES 渲染 P0/P1/P2/P3 软底色 badge (2026-07-23)。
+
+    同步项目列表 (TaskRow) 的优先级表达, 不再用旧 1.5x1.5 小色点 (w-1.5 h-1.5)。
+    锁 3 件事:
+    1. FocusRow 函数必须存在
+    2. body 内必须用 PRIORITY_BADGE_STYLES[focus.priority] 取样式 (跟 TaskRow 共用)
+    3. badge 文字必须渲染 {focus.priority} (P0/P1/P2/P3 显式文字, 不是色点)
+    4. 不再用旧 w-1.5 h-1.5 小色点形态
+    """
+    src = read_today_page()
+    body = _find_function_body_with_ts_types(src, "FocusRow")
+
+    # 1. 必须用 PRIORITY_BADGE_STYLES (跟 TaskRow 同源)
+    assert "PRIORITY_BADGE_STYLES" in body, (
+        "FocusRow 没引 PRIORITY_BADGE_STYLES — 没跟项目列表 TaskRow 同步, "
+        "可能回退到旧 1.5x1.5 小色点或内联三元判断。\n"
+        "修法: `import { PRIORITY_BADGE_STYLES } from \"@/lib/api\"`, "
+        "badge 样式用 `${PRIORITY_BADGE_STYLES[focus.priority]}`"
+    )
+
+    # 2. badge 必须用 focus.priority 索引 (不是三元)
+    assert "PRIORITY_BADGE_STYLES[focus.priority]" in body, (
+        "FocusRow 没看到 PRIORITY_BADGE_STYLES[focus.priority] — "
+        "可能写错了索引表达式 (例如 focus.priority 写成了 task.priority 或 item.priority)。\n"
+        "修法: 跟 TaskRow 一致, 用 PRIORITY_BADGE_STYLES[focus.priority]"
+    )
+
+    # 3. badge 文字必须渲染 {focus.priority} (P0/P1/P2/P3 显式文字)
+    assert "{focus.priority}" in body, (
+        "FocusRow badge 没渲染 P0/P1/P2/P3 文字 — 可能只渲染了色块没文字, "
+        "回退到跟项目列表 P0/P1/P2/P3 badge 不一致。\n"
+        "修法: badge `<span>{focus.priority}</span>` 显式渲染 P0/P1/P2/P3"
+    )
+
+    # 4. 不再用旧 1.5x1.5 小色点
+    assert "w-1.5 h-1.5" not in body, (
+        "FocusRow 还在用 w-1.5 h-1.5 小色点 — 旧形态, 没跟项目列表 P0/P1/P2/P3 badge 同步。\n"
+        "修法: 把色点整段删掉, 替换成 PRIORITY_BADGE_STYLES[focus.priority] 的 badge"
+    )
+
+
+def test_today_focusrow_has_left_priority_bar():
+    """FocusRow 必须有左侧竖色条 (3px rounded-full, 颜色按 P0/P1/P2/P3)。
+
+    用户反馈: '最左侧会有一个表示任务优先级的这么一个竖线, 这个竖线会根据优先级的不同
+    展示不同的颜色'。竖色条跟 MainBoard FocusItem 同形态, 共享 PRIORITY_BAR_STYLES。
+
+    锁 3 件事:
+    1. 容器必须有 relative (给 absolute 色条定位)
+    2. 色条 div 必须 absolute + w-[3px] + rounded-full
+    3. 色条颜色必须用 PRIORITY_BAR_STYLES[focus.priority] (阻塞 fallback 到 bg-fg-muted/60)
+    """
+    src = read_today_page()
+    body = _find_function_body_with_ts_types(src, "FocusRow")
+
+    # 1. 容器必须是 relative, 给色条 absolute 定位
+    #    检查最外层 div 的 className 包含 "relative"
+    has_relative_container = re.search(
+        r'className\s*=\s*[`"\'].*?relative.*?[`"\']',
+        body,
+        re.DOTALL,
+    ) is not None
+    assert has_relative_container, (
+        "FocusRow 容器没 `relative` — 左侧色条 absolute 定位没 anchor, "
+        "会贴到 body 左边缘而不是卡片左边缘。\n"
+        "修法: 外层 div 加 `relative`"
+    )
+
+    # 2. 必须有 absolute + w-[3px] + rounded-full 形态的色条
+    has_priority_bar_shape = (
+        "absolute" in body
+        and "w-[3px]" in body
+        and "rounded-full" in body
+    )
+    assert has_priority_bar_shape, (
+        "FocusRow 缺左侧竖色条 (absolute + w-[3px] + rounded-full 三件套) — "
+        "用户期望'最左侧有表示优先级的竖线', 没这个视觉信号。\n"
+        "修法: 加一个色条 div: "
+        '`<div className={`absolute left-1.5 top-2.5 bottom-2.5 w-[3px] '
+        'rounded-full ${priorityBar}`} aria-hidden />`'
+    )
+
+    # 3. 色条必须用 PRIORITY_BAR_STYLES[focus.priority], 阻塞走 bg-fg-muted/60
+    assert "PRIORITY_BAR_STYLES" in body, (
+        "FocusRow 没用 PRIORITY_BAR_STYLES — 色条颜色可能硬编码或跟 badge 样式混用。\n"
+        "修法: `import { PRIORITY_BAR_STYLES } from \"@/lib/api\"`, "
+        "色条样式用 PRIORITY_BAR_STYLES[focus.priority]"
+    )
+    # 阻塞 fallback 必须保留
+    assert "bg-fg-muted/60" in body, (
+        "FocusRow 缺阻塞 fallback (bg-fg-muted/60) — 阻塞任务的色条颜色没了, "
+        "跟 MainBoard FocusItem 阻塞表达不一致。\n"
+        "修法: priorityBar = focus.blocked ? 'bg-fg-muted/60' : "
+        "PRIORITY_BAR_STYLES[focus.priority]"
+    )

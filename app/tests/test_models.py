@@ -36,10 +36,13 @@ def test_project_name_required():
 
 
 def test_priority_enum_values():
-    """优先级合法值。"""
-    assert Priority.HIGH.value == "高"
-    assert Priority.MEDIUM.value == "中"
-    assert Priority.LOW.value == "低"
+    """优先级合法值（2026-07-22 立: 3 档 高/中/低 → 4 档 P0/P1/P2/P3）。"""
+    assert Priority.P0.value == "P0"
+    assert Priority.P1.value == "P1"
+    assert Priority.P2.value == "P2"
+    assert Priority.P3.value == "P3"
+    # 默认值仍是中间档 (P2 = 普通)
+    assert Priority.P2.value == "P2"
 
 
 def test_task_create_requires_project():
@@ -53,7 +56,7 @@ def test_task_default_draft_false():
     t = Task(project="proj_xxx", title="x")
     assert t.draft is False
     assert t.status == TaskStatus.NOT_STARTED
-    assert t.priority == Priority.MEDIUM
+    assert t.priority == Priority.P2
     assert t.blocked is False
     assert t.checklist == []
     assert t.description == ""

@@ -25,7 +25,7 @@ import {
   Flag,
   MessageSquare,
 } from "lucide-react";
-import { api, type Snapshot, dueColor, dueLabel, projectEmoji, type Task } from "@/lib/api";
+import { api, type Snapshot, dueColor, dueLabel, projectEmoji, type Task, PRIORITY_BADGE_STYLES, PRIORITY_BAR_STYLES } from "@/lib/api";
 import { CompleteTaskModal } from "@/components/CompleteTaskModal";
 
 const WEEKDAY_LABEL = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
@@ -239,25 +239,39 @@ function FocusRow({
   const dueCls = dueColor(focus.due);
   const dueText = dueLabel(focus.due);
 
+  // 左侧色条 — 跟 MainBoard FocusItem 共享 PRIORITY_BAR_STYLES (lib/api.ts)
+  // 阻塞 (blocked) 用 fg-muted/60 表达"被卡住" — 比 P3 灰再深, 区分"不急" vs "被阻"
+  const priorityBar = focus.blocked
+    ? "bg-fg-muted/60"
+    : PRIORITY_BAR_STYLES[focus.priority];
+
   return (
-    <div className="group flex items-center gap-3 rounded-lg border border-border bg-bg-secondary hover:border-border-hover hover:bg-bg-tertiary/40 transition px-4 py-3">
+    <div className="group relative flex items-center gap-3 rounded-lg border border-border bg-bg-secondary hover:border-border-hover hover:bg-bg-tertiary/40 transition pl-5 pr-4 py-3">
+      {/* 左侧色条 — 标识优先级, 跟 MainBoard FocusItem 同形态 (3px rounded-full) */}
+      <div
+        className={`absolute left-1.5 top-2.5 bottom-2.5 w-[3px] rounded-full ${priorityBar}`}
+        aria-hidden
+      />
+
+      {/* 序号 */}
       <div className="text-[14px] font-semibold text-fg-muted tabular-nums w-6 flex-shrink-0">
         #{rank}
       </div>
+
+      {/* P0/P1/P2/P3 badge — 跟项目列表 TaskRow 同步, 软底色 + 同色描边 + font-mono */}
+      <span
+        className={`inline-flex items-center justify-center h-5 px-1.5 rounded
+          border text-[10px] font-mono font-semibold leading-none tracking-tight
+          flex-shrink-0 select-none
+          ${PRIORITY_BADGE_STYLES[focus.priority]}`}
+        title={`优先级: ${focus.priority}${focus.blocked ? " · 阻塞" : ""}`}
+      >
+        {focus.priority}
+      </span>
+
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span
-            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-              focus.priority === "高"
-                ? "bg-danger"
-                : focus.priority === "中"
-                ? "bg-warning"
-                : "bg-fg-secondary"
-            }`}
-          />
-          <div className="text-[14px] text-fg truncate font-medium">
-            {focus.title}
-          </div>
+        <div className="text-[14px] text-fg truncate font-medium">
+          {focus.title}
         </div>
         <div className="text-[11px] text-fg-muted mt-0.5 flex items-center gap-2">
           {focus.due && (

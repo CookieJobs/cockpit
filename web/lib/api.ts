@@ -42,9 +42,46 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 // ===== 类型 =====
 
-export type Priority = "高" | "中" | "低";
+/** 任务优先级（4 档）。2026-07-22 从「高/中/低」3 档升级：
+ *  - P0 紧急/最高优先级, 必须立刻处理
+ *  - P1 高优先级, 重要但非紧急
+ *  - P2 默认档（普通）
+ *  - P3 不急
+ *  旧 DB 数据的「高/中/低」会在后端启动时一次性迁移到 P0/P2/P3。
+ */
+export type Priority = "P0" | "P1" | "P2" | "P3";
 export type TaskStatus = "未开始" | "进行中" | "已完成";
 export type CVStatus = "pending" | "needs_data" | "ready";
+
+// 优先级 badge 样式 (2026-07-22 立, 2026-07-23 抽到 lib/api.ts 共享):
+//   软底色 (color/15) + 同色描边 (color/30) + 同色文字
+//   P0 红 (0°)   = 最急
+//   P1 橙 (30°)  = 高
+//   P2 蓝 (220°) = 普通 (默认) ← 2026-07-23 从琥珀换蓝色, 跟 P1 拉开 200° 一眼区分
+//   P3 灰        = 不急
+// 共享给 MainBoard 的 TaskRow (PriorityMenu trigger + popover 列表项) 和
+// /today 的 FocusRow (P0/P1/P2/P3 badge), 两边永远同步, 改颜色梯度只改一处。
+// 跟 StatusMenu (短横条 + 灰/琥珀/绿) 颜色梯度协调, 但形状/语义完全区分
+// (StatusMenu 是进度编码, PriorityMenu 是紧急度编码 — 两个不同维度)。
+// 注: P2 用 info (蓝) 而非 accent (琥珀), 避免跟 P1 (橙) 暖色撞色, 也避免跟
+//     StatusMenu "进行中" (accent 琥珀) 视觉混淆 — 普通优先级是中性默认态, 蓝色最不抢眼。
+export const PRIORITY_BADGE_STYLES: Record<Priority, string> = {
+  P0: "bg-danger/15 text-danger border-danger/30",
+  P1: "bg-warning/15 text-warning border-warning/30",
+  P2: "bg-info/15 text-info border-info/30",
+  P3: "bg-fg-secondary/15 text-fg-secondary border-fg-secondary/30",
+};
+
+// 优先级竖色条样式 (2026-07-23 立):
+//   给左侧 3px 竖条用, 跟 badge 同颜色梯度但更饱和 (full opacity)
+//   阻塞 (blocked) 时用 fg-muted/60 表达"被卡住" — 比 P3 灰再深一点, 区分"不急" vs "被阻"
+//   共享给 MainBoard FocusItem 和 /today FocusRow。
+export const PRIORITY_BAR_STYLES: Record<Priority, string> = {
+  P0: "bg-danger",
+  P1: "bg-warning",
+  P2: "bg-info",
+  P3: "bg-fg-muted/30",
+};
 
 export interface ChecklistItem {
   text: string;

@@ -9,10 +9,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from typing import Optional
+
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -129,7 +133,7 @@ class TaskORM(StringPKMixin, CreatedDateMixin, Base):
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=TaskStatus.NOT_STARTED.value)
-    priority: Mapped[str] = mapped_column(String(10), nullable=False, default=Priority.MEDIUM.value)
+    priority: Mapped[str] = mapped_column(String(10), nullable=False, default=Priority.P2.value)
     due: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     draft: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -240,6 +244,44 @@ async def create_tables() -> None:
         await _migrate_add_column(conn, "tasks", "description", "TEXT NOT NULL DEFAULT ''")
         # 2026-07-17: 删 next_action 列（与 description 语义重复，UI 早已不用）
         await _migrate_drop_column(conn, "tasks", "next_action")
+        # 2026-07-22: priority 旧值 (高/中/低) → 新值 (P0/P2/P3) 一次性迁移
+        #   P1 是新档, 旧数据没有 — 老 P0 不存在
+        #   SQL UPDATE ... WHERE old IN (...) 幂等, 已经迁移过的行不会再次更新
+        await _migrate_priority_values(conn)
+
+
+async def _migrate_priority_values(conn) -> None:
+    """把旧 priority 值 (高/中/低) 一次性映射到新值 (P0/P2/P3)。
+
+    2026-07-22 立: Priority enum 从 3 档 (高/中/低) 升级到 4 档 (P0/P1/P2/P3)。
+    旧 DB 里的 "高/中/低" 不在新 enum 里, 加载会报 ValidationError。
+    启动时跑一次 UPDATE 兼容老数据。
+
+    映射规则 (4 档换 3 档, 选最接近的):
+    - 高 → P0 (紧急 / 最高优先级, P0 在 4 档里对应"最急"那档)
+    - 中 → P2 (普通, 4 档的默认档)
+    - 低 → P3 (不急)
+    - P1 (高但非紧急) 是新档, 旧数据无对应 — 用户后续手动调整
+
+    幂等: WHERE 限定只更新老值, 已经迁移过的 P0/P1/P2/P3 行不再 touch。
+    """
+    try:
+        result = await conn.exec_driver_sql(
+            "UPDATE tasks SET priority = CASE priority "
+            "WHEN '高' THEN 'P0' "
+            "WHEN '中' THEN 'P2' "
+            "WHEN '低' THEN 'P3' "
+            "ELSE priority END "
+            "WHERE priority IN ('高', '中', '低')"
+        )
+        # SQLite 3.x driver returns cursor with rowcount; log if anything was changed.
+        rowcount = result.rowcount if hasattr(result, "rowcount") else 0
+        if rowcount:
+            logger.info(f"Migrated priority values: {rowcount} task(s) updated (高→P0/中→P2/低→P3)")
+    except Exception as e:
+        # 任何错都吞掉 — 启动不该因 migration 失败而死, 留给 pydantic ValidationError
+        # 在 add_task/update_task 那一层报错更友好
+        logger.warning(f"Priority migration skipped: {e}")
 
 
 async def _migrate_add_column(conn, table: str, column: str, col_type: str) -> None:
@@ -485,7 +527,14 @@ async def update_task(tid: str, data: TaskUpdate) -> Optional[Task]:
             t.priority = data.priority.value
         if data.status is not None:
             t.status = data.status.value
-        if data.due is not None:
+        # due 是 Optional[date]: None 是合法值 (语义 = "清空截止日期")。
+        # 不能再用 `is not None` 判断 — 那样 PATCH {"due": null} 会被静默吞掉,
+        # 用户没法从 UI 清掉已设的 due (2026-07-22 用户报)。
+        # 改用 Pydantic v2 的 model_fields_set 区分"未传" vs "传了 None":
+        #   - LLM 工具 / 前端 PATCH 显式传 null → "due" 在 model_fields_set → 清空
+        #   - PATCH 不带 due 字段 → "due" 不在 model_fields_set → 不动
+        # 端点级行为锁在 app/tests/test_api_patch_due_null.py
+        if "due" in data.model_fields_set:
             t.due = data.due
         if data.blocked is not None:
             t.blocked = data.blocked
@@ -624,7 +673,7 @@ async def undo_completion(aid: str) -> Optional[Task]:
             project_id=achievement.project_id,
             title=achievement.title,
             status=TaskStatus.IN_PROGRESS.value,
-            priority=Priority.MEDIUM.value,
+            priority=Priority.P2.value,
             due=None,
             blocked=False,
             draft=False,

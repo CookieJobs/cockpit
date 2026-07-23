@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { api, type ChatResponse, type ChatHistoryMessage, type ChatSession } from "@/lib/api";
-import { renderMarkdown } from "./Markdown";
+import { MarkdownView } from "./Markdown";
 import { ToolCallCard, type ToolCallState } from "./ToolCallCard";
 import { useChatStream, type ChatMessage } from "@/lib/hooks/useChatStream";
 import {
@@ -195,6 +195,17 @@ export function ChatWindow({
   const [input, setInput] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // 输入框自动撑高: 1 行 ~ 6 行 (40px ~ 144px)
+  // 重置 height=auto 让 scrollHeight 重新计算, 然后 clamp 到 max-h
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const maxH = 144; // max-h-36
+    el.style.height = Math.min(el.scrollHeight, maxH) + "px";
+  }, [input]);
   const [showCot, setShowCotState] = useState<boolean>(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -510,20 +521,36 @@ export function ChatWindow({
             send(trimmed);
             setInput(""); // 发送后清空输入框（bug fix: 之前 send() 后没清, 体验是"重发"）
           }}
-          className="flex items-center gap-2"
+          className="flex items-end gap-2"
         >
-          <input
-            type="text"
+          <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="说点什么..."
-            className="flex-1 bg-bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-fg placeholder-fg-muted focus:outline-none focus:border-accent"
+            onKeyDown={(e) => {
+              // Enter 发送, Shift+Enter 换行; IME 合成中不提交
+              if (
+                e.key === "Enter" &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing
+              ) {
+                e.preventDefault();
+                if (loading) return;
+                const trimmed = input.trim();
+                if (!trimmed) return;
+                send(trimmed);
+                setInput("");
+              }
+            }}
+            placeholder="说点什么... (Enter 发送 / Shift+Enter 换行)"
+            rows={1}
+            className="flex-1 resize-none bg-bg-secondary border border-border rounded-lg px-3 py-2 text-sm leading-6 text-fg placeholder-fg-muted focus:outline-none focus:border-accent min-h-[2.5rem] max-h-36 overflow-y-auto"
             disabled={loading}
           />
           <button
             type="submit"
             disabled={loading || !input.trim()}
-            className="p-2 bg-accent text-black rounded-lg hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition"
+            className="p-2 bg-accent text-black rounded-lg hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition shrink-0"
           >
             <Send size={16} />
           </button>
@@ -684,7 +711,7 @@ function AgentMessageContent({
           ))}
         </div>
       )}
-      <div className="markdown text-sm">{renderMarkdown(text)}</div>
+      <MarkdownView content={text} />
       {showCot && message.cotBlocks && message.cotBlocks.length > 0 && (
         <CotBlock blocks={message.cotBlocks} />
       )}
@@ -729,18 +756,11 @@ function EventsView({
       {events.map((e, i) => {
         if (e.kind === "text") {
           const isLastText = i === lastTextIdx;
-          if (streaming && isLastText) {
-            return (
-              <div key={`text-${i}`} className="text-sm whitespace-pre-wrap">
-                {e.content}
-                <span className="cursor-blink">▍</span>
-              </div>
-            );
-          }
-          // 非流式 OR 非最后 text 段：跑 markdown
+          // 2026-07-22 升级：流式期也跑 markdown (用户拍板)，光标单独加在最后 text 段末尾
           return (
-            <div key={`text-${i}`} className="markdown text-sm">
-              {renderMarkdown(e.content)}
+            <div key={`text-${i}`}>
+              <MarkdownView content={e.content} />
+              {streaming && isLastText && <span className="cursor-blink">▍</span>}
             </div>
           );
         }

@@ -56,6 +56,13 @@ body {
 .markdown h1 { font-size: 1.5em; }
 .markdown h2 { font-size: 1.25em; }
 .markdown h3 { font-size: 1.1em; }
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-weight: 600;
+  margin-top: 0.8em;
+  margin-bottom: 0.4em;
+}
 .markdown p {
   margin: 0.5em 0;
 }
@@ -67,6 +74,9 @@ body {
 .markdown li {
   margin: 0.2em 0;
 }
+.markdown li > p {
+  margin: 0;
+}
 .markdown strong {
   font-weight: 600;
   color: #fbbf24;
@@ -76,6 +86,73 @@ body {
   padding: 0.1em 0.3em;
   border-radius: 3px;
   font-size: 0.9em;
+  font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+}
+/* 代码块 (GFM / rehype-highlight, 2026-07-22 立) */
+.markdown pre {
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 0.75em 0;
+  font-size: 0.875em;
+  line-height: 1.5;
+}
+.markdown pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+  border-radius: 0;
+}
+/* 引用块 */
+.markdown blockquote {
+  border-left: 3px solid #fbbf24;
+  padding: 0.25em 0 0.25em 1em;
+  color: #a0a0a0;
+  margin: 0.75em 0;
+  font-style: italic;
+}
+.markdown blockquote > :first-child { margin-top: 0; }
+.markdown blockquote > :last-child { margin-bottom: 0; }
+/* 表格 (GFM) */
+.markdown table {
+  border-collapse: collapse;
+  margin: 0.75em 0;
+  width: 100%;
+  font-size: 0.95em;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid #2a2a2a;
+  padding: 6px 10px;
+  text-align: left;
+}
+.markdown th {
+  background: #141414;
+  font-weight: 600;
+}
+/* 链接 */
+.markdown a {
+  color: #fbbf24;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.markdown a:hover {
+  color: #f59e0b;
+}
+/* 分割线 */
+.markdown hr {
+  border: none;
+  border-top: 1px solid #2a2a2a;
+  margin: 1em 0;
+}
+/* GFM 任务清单 */
+.markdown input[type="checkbox"] {
+  margin-right: 0.4em;
+  vertical-align: middle;
+  accent-color: #fbbf24;
 }
 
 @keyframes fade-in {
