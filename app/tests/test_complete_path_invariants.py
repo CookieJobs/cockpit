@@ -424,37 +424,41 @@ def test_priority_badge_styles_4_levels():
 
     2026-07-22 立: priority 从 3 档 (高/中/低) 升到 4 档 (P0/P1/P2/P3),
     触发 button 从"8x8 纯色点" 重做成"软底色 + 文字 P0/P1/P2/P3" 的 badge 形态。
-    锁住 2 件事:
+    锁住 4 件事:
     1. PRIORITY_BADGE_STYLES 必须定义且覆盖全部 4 档
-    2. 颜色梯度: P0 红 (最急) / P1 橙 / P2 琥珀 / P3 亮灰 (visible, 跟 lesson #1 对齐)
+    2. 颜色梯度: P0 红 (最急) / P1 橙 / P2 蓝 / P3 绿
+    3. 不再回退到 bg-fg-muted (lesson #1 教训)
+    4. P3 必须保持 success 绿 (2026-07-23 改, 不回退到亮灰)
 
     历史 bug (2026-07-17): "低" 优先级用 bg-fg-muted (#666) 在 dark theme 几乎
     不可见, 用户报"只有高、中, 没有低"。修法: 改 bg-fg-secondary (#a0a0a0)。
-    本不变量继续守: P3 必须保持 bg-fg-secondary 可见, 不回退到 bg-fg-muted。
+    2026-07-23 改: 用户反馈 P3 灰色跟红/橙/蓝/绿色环不搭, 改 success 绿。
+    绿色 (#22c55e) 跟 P0 红 (0°) → P1 橙 (30°) → P2 蓝 (220°) → P3 绿 (142°)
+    形成完整色环, 不急 = 放松, 符合直觉。
     """
     src = WEB_API_TS.read_text(encoding="utf-8")
     src = _strip_comments_and_strings(src)
 
     # 1. PRIORITY_BADGE_STYLES 必须存在并覆盖全部 4 档
     style_match = re.search(
-        r'const\s+PRIORITY_BADGE_STYLES\s*:\s*Record<Priority,\s*string>\s*=\s*\{([\s\S]*?)\};',
+        r'export\s+const\s+PRIORITY_BADGE_STYLES\s*:\s*Record<Priority,\s*string>\s*=\s*\{([\s\S]*?)\};',
         src,
     )
     assert style_match, (
-        "PRIORITY_BADGE_STYLES 常量找不到 (期望 `const PRIORITY_BADGE_STYLES: "
+        "PRIORITY_BADGE_STYLES 常量找不到 (期望 `export const PRIORITY_BADGE_STYLES: "
         "Record<Priority, string> = { ... };`), 2026-07-22 重构要求把 4 档 badge "
         "样式集中到模块级常量, 不要散在 JSX 里。"
     )
     style_body = style_match.group(1)
 
     # 2. 每档必须存在 + 颜色类正确
-    # 2026-07-23 改: P2 从琥珀 (accent) 换冷色蓝 (info), 跟 P1 暖色撞色修掉
-    #   红 0° → 橙 30° → 蓝 220°: 跨越色环 ~200°, 一眼区分
+    # 2026-07-23 v2 改: P2 从琥珀 (accent) 换冷色蓝 (info) 跨色环
+    #   P3 从亮灰 (fg-secondary) 换 success 绿, 跟 P0/P1/P2 形成完整色环
     expected = {
         "P0": "bg-danger/15 text-danger border-danger/30",      # 最急 - 红
         "P1": "bg-warning/15 text-warning border-warning/30",  # 高 - 橙
-        "P2": "bg-info/15 text-info border-info/30",            # 普通 - 蓝 (冷色, 2026-07-23 换)
-        "P3": "bg-fg-secondary/15 text-fg-secondary border-fg-secondary/30",  # 不急 - 亮灰
+        "P2": "bg-info/15 text-info border-info/30",            # 普通 - 蓝 (2026-07-23 换)
+        "P3": "bg-success/15 text-success border-success/30",  # 不急 - 绿 (2026-07-23 换)
     }
     for level, expected_classes in expected.items():
         # 简化匹配: 检查每档都存在 + 含其核心颜色
@@ -486,11 +490,17 @@ def test_priority_badge_styles_4_levels():
             f"实际是 border-{border.group(1) if border else '?'}/30"
         )
 
-    # 3. P3 必须用 bg-fg-secondary (lesson #1 教训: 不回退到 bg-fg-muted)
+    # 3. 不回退到 bg-fg-muted (lesson #1 教训: dark theme 几乎不可见)
     assert "bg-fg-muted" not in style_body, (
         "PRIORITY_BADGE_STYLES 里出现了 bg-fg-muted — 2026-07-17 lesson #1 教训: "
-        "低优先级色点用 bg-fg-muted (#666) 在 dark theme 几乎不可见, "
-        "必须保持 bg-fg-secondary (#a0a0a0) 亮灰可见。"
+        "低优先级色点用 bg-fg-muted (#666) 在 dark theme 几乎不可见。"
+    )
+
+    # 4. P3 必须用 success 绿 (2026-07-23 用户要求, 不回退到亮灰)
+    p3_match = re.search(r'P3\s*:\s*"([^"]+)"', style_body)
+    assert p3_match and "success" in p3_match.group(1), (
+        "PRIORITY_BADGE_STYLES.P3 必须用 success 绿色 (用户要求 P3=绿), "
+        f"实际是: {p3_match.group(1) if p3_match else '?'}"
     )
 
 
@@ -1395,57 +1405,161 @@ def test_today_focusrow_uses_priority_badge():
     )
 
 
-def test_today_focusrow_has_left_priority_bar():
-    """FocusRow 必须有左侧竖色条 (3px rounded-full, 颜色按 P0/P1/P2/P3)。
+# ===== 不变量 20: FocusRow 不能有左侧竖色条 (统一 badge only) =====
 
-    用户反馈: '最左侧会有一个表示任务优先级的这么一个竖线, 这个竖线会根据优先级的不同
-    展示不同的颜色'。竖色条跟 MainBoard FocusItem 同形态, 共享 PRIORITY_BAR_STYLES。
+
+def test_today_focusrow_has_NO_left_priority_bar():
+    """FocusRow 不能有左侧竖色条 — 2026-07-23 跟 TaskRow / FocusItem 三处统一 badge only。
+
+    上一轮按用户"竖线"加了色条 + badge 双编码, 用户反馈"割裂" (色条跟 TaskRow 的
+    badge 形态不统一)。v2 删色条, 只保留 P0/P1/P2/P3 badge, 跟 TaskRow 1:1 一致。
 
     锁 3 件事:
-    1. 容器必须有 relative (给 absolute 色条定位)
-    2. 色条 div 必须 absolute + w-[3px] + rounded-full
-    3. 色条颜色必须用 PRIORITY_BAR_STYLES[focus.priority] (阻塞 fallback 到 bg-fg-muted/60)
+    1. FocusRow 函数体内**不能**出现 `w-[3px]` 形态的色条 (那是旧 v1 形态)
+    2. FocusRow 函数体内**不能**再 import / 使用 PRIORITY_BAR_STYLES (色条样式已删)
+    3. 容器不应该有 relative + absolute 组合 (色条定位用的, 现在不需要)
     """
     src = read_today_page()
     body = _find_function_body_with_ts_types(src, "FocusRow")
 
-    # 1. 容器必须是 relative, 给色条 absolute 定位
-    #    检查最外层 div 的 className 包含 "relative"
-    has_relative_container = re.search(
-        r'className\s*=\s*[`"\'].*?relative.*?[`"\']',
-        body,
-        re.DOTALL,
-    ) is not None
-    assert has_relative_container, (
-        "FocusRow 容器没 `relative` — 左侧色条 absolute 定位没 anchor, "
-        "会贴到 body 左边缘而不是卡片左边缘。\n"
-        "修法: 外层 div 加 `relative`"
+    # 1. 不能有 w-[3px] 形态的色条
+    assert "w-[3px]" not in body, (
+        "FocusRow 还有左侧竖色条 (w-[3px]) — 2026-07-23 用户反馈'割裂', "
+        "已决定统一成 badge only 形态 (跟 TaskRow / FocusItem 一致)。\n"
+        "修法: 删 `<div className={`absolute left-1.5 top-2.5 bottom-2.5 w-[3px] "
+        "rounded-full ${priorityBar}`} aria-hidden />` 这行, 容器 padding 改 px-4"
     )
 
-    # 2. 必须有 absolute + w-[3px] + rounded-full 形态的色条
-    has_priority_bar_shape = (
-        "absolute" in body
-        and "w-[3px]" in body
-        and "rounded-full" in body
-    )
-    assert has_priority_bar_shape, (
-        "FocusRow 缺左侧竖色条 (absolute + w-[3px] + rounded-full 三件套) — "
-        "用户期望'最左侧有表示优先级的竖线', 没这个视觉信号。\n"
-        "修法: 加一个色条 div: "
-        '`<div className={`absolute left-1.5 top-2.5 bottom-2.5 w-[3px] '
-        'rounded-full ${priorityBar}`} aria-hidden />`'
+    # 2. 不能引用 PRIORITY_BAR_STYLES (色条样式已删除, 引用会 TS 报错)
+    assert "PRIORITY_BAR_STYLES" not in body, (
+        "FocusRow 还在引 PRIORITY_BAR_STYLES — 这个常量在 lib/api.ts 已被删除 "
+        "(改用单一 badge 形态后不需要色条样式), 引用会 TS 报错。\n"
+        "修法: import 里删 PRIORITY_BAR_STYLES, FocusRow body 里删 priorityBar 计算"
     )
 
-    # 3. 色条必须用 PRIORITY_BAR_STYLES[focus.priority], 阻塞走 bg-fg-muted/60
-    assert "PRIORITY_BAR_STYLES" in body, (
-        "FocusRow 没用 PRIORITY_BAR_STYLES — 色条颜色可能硬编码或跟 badge 样式混用。\n"
-        "修法: `import { PRIORITY_BAR_STYLES } from \"@/lib/api\"`, "
-        "色条样式用 PRIORITY_BAR_STYLES[focus.priority]"
+    # 3. 容器不应该有 relative + absolute 配合
+    assert "relative" not in body or "absolute" not in body, (
+        "FocusRow 容器还有 relative + absolute 组合 — 那是色条定位用的, "
+        "现在没色条应该删掉避免视觉噪音。\n"
+        "修法: 容器 className 改回 `flex items-center gap-3 ... px-4 py-3`"
     )
-    # 阻塞 fallback 必须保留
-    assert "bg-fg-muted/60" in body, (
-        "FocusRow 缺阻塞 fallback (bg-fg-muted/60) — 阻塞任务的色条颜色没了, "
-        "跟 MainBoard FocusItem 阻塞表达不一致。\n"
-        "修法: priorityBar = focus.blocked ? 'bg-fg-muted/60' : "
-        "PRIORITY_BAR_STYLES[focus.priority]"
+
+
+# ===== 不变量 21: MainBoard FocusItem 必须用 P0/P1/P2/P3 badge (跟 TaskRow / FocusRow 三处统一) =====
+
+
+def test_focusitem_uses_priority_badge():
+    """MainBoard FocusItem 必须用 P0/P1/P2/P3 badge 形态 (跟 TaskRow / FocusRow 三处统一)。
+
+    2026-07-23 v2: FocusItem 之前用左侧色条 (3px rounded-full), 跟 TaskRow 的 badge
+    形态不一致, MainBoard 页面内'今日聚焦' (FocusItem 色条) vs'项目' (TaskRow badge)
+    视觉割裂。改 badge only 后三处 1:1。
+
+    锁 4 件事:
+    1. FocusItem 函数体内必须有 PRIORITY_BADGE_STYLES[item.priority] (badge 渲染)
+    2. 不能再有 w-[3px] 色条 (旧 v1 形态)
+    3. badge 文字必须渲染 {item.priority} (P0/P1/P2/P3 显式文字)
+    4. MainBoard.tsx 不能再 import PRIORITY_BAR_STYLES (色条样式已删)
+    """
+    src = read_mainboard()
+    body = _find_function_body_with_ts_types(src, "FocusItem")
+
+    # 1. 必须用 PRIORITY_BADGE_STYLES 取 badge 样式
+    assert "PRIORITY_BADGE_STYLES" in body, (
+        "FocusItem 没用 PRIORITY_BADGE_STYLES — 跟 TaskRow / FocusRow 不统一, "
+        "可能回退到旧色条或内联三元判断。\n"
+        "修法: `import { PRIORITY_BADGE_STYLES } from \"@/lib/api\"`, "
+        "badge 样式用 `${PRIORITY_BADGE_STYLES[item.priority]}`"
+    )
+    assert "PRIORITY_BADGE_STYLES[item.priority]" in body, (
+        "FocusItem 没用 PRIORITY_BADGE_STYLES[item.priority] — 可能写错索引 "
+        "(item.priority 应是 FocusItem 函数参数, 跟 TaskRow 同名)。\n"
+        "修法: 跟 TaskRow 一致, 用 PRIORITY_BADGE_STYLES[item.priority]"
+    )
+
+    # 2. 不能再有 w-[3px] 色条
+    assert "w-[3px]" not in body, (
+        "FocusItem 还有左侧色条 (w-[3px]) — 旧 v1 形态, 跟 TaskRow badge 不一致, "
+        "MainBoard 页面内视觉割裂。\n"
+        "修法: 删 `absolute left-1 top-2.5 bottom-2.5 w-[3px] rounded-full` "
+        "那行, 替换成 PRIORITY_BADGE_STYLES[item.priority] 的 badge"
+    )
+
+    # 3. badge 必须渲染 {item.priority} 文字
+    assert "{item.priority}" in body, (
+        "FocusItem badge 没渲染 P0/P1/P2/P3 文字 — 只渲染了色块, 跟 TaskRow "
+        "badge 形态不一致。\n"
+        "修法: badge `<span>{item.priority}</span>` 显式渲染 P0/P1/P2/P3"
+    )
+
+    # 4. MainBoard.tsx 不能再 import PRIORITY_BAR_STYLES (色条样式已删)
+    src_full = read_mainboard()
+    assert "PRIORITY_BAR_STYLES" not in src_full, (
+        "MainBoard.tsx 还在引 PRIORITY_BAR_STYLES — 这个常量在 lib/api.ts 已被删除, "
+        "引用会 TS 报错。\n"
+        "修法: import 删 PRIORITY_BAR_STYLES"
+    )
+
+
+# ===== 不变量 22: P0/P1/P2/P3 badge 的 alpha 变体必须在 build 出来的 CSS 里 =====
+
+
+def test_priority_badge_alpha_variants_in_built_css():
+    """Tailwind 3.4 alpha 变体 (`bg-info/15` 等) 必须出现在 build CSS 里, 不然 P2/P3 badge 渲染成白底。
+
+    历史 bug (2026-07-23): Tailwind 3.4 字符串色 (`"#3b82f6"`) 的 alpha 变体是 JIT
+    按需生成 — 只扫到源码里**实际写过**的 class 才生成。PRIORITY_BADGE_STYLES 里的
+    `bg-info/15` 在 TypeScript 字符串字面量里, Tailwind 扫不到, 导致 CSS 没生成
+    `.bg-info\/15` `.bg-success\/15` `.bg-danger\/15`, P0/P2/P3 badge 渲染成
+    "白底白框" (实际是 class 缺失, fallback 到默认色)。
+
+    修法 (3 件事都做完才生效):
+    1. tailwind.config.ts 的 colors 改 rgb() 格式 (Tailwind 对 rgb 字符串色的 alpha
+       变体生成更稳定)
+    2. tailwind.config.ts 加 safelist 强制生成 4 个色 × 6 个 alpha 变体 × bg/border
+       (解决 "JIT 扫字符串字面量不可靠" 的根本问题)
+    3. 不变量测试锁住"alpha 变体必须在 build CSS 里" (本测试) — 以后改 tailwind
+       config 时这测试会立刻报错, 不会再踩坑
+
+    锁 8 个 class 都必须在 CSS 里:
+      bg-info/15  bg-success/15  bg-danger/15  bg-warning/15 (P2/P3/P0/P1 底色)
+      border-info/30  border-success/30  border-danger/30  border-warning/30 (P2/P3/P0/P1 边框)
+    """
+    import glob as _glob
+
+    css_files = _glob.glob("web/.next/static/css/*.css")
+    if not css_files:
+        # 跑测试时还没 build — 跳过本测试 (跟其他依赖 build 的检查一致)
+        import pytest
+        pytest.skip("no built CSS files in web/.next/static/css/, run `npm run build` first")
+
+    css = ""
+    for f in css_files:
+        css += Path(f).read_text(encoding="utf-8")
+
+    # 4 档 badge 用的 4 个底色 + 4 个边框, 必须都在 build CSS 里
+    # 注意: Tailwind 输出的 CSS class 选择器会把 `/` 转义成 `\/`, 所以匹配要用
+    #   `bg-info\/15` 而不是 `bg-info/15`。
+    required_classes = [
+        ".bg-info\\/15",         # P2 底色
+        ".bg-success\\/15",      # P3 底色
+        ".bg-danger\\/15",       # P0 底色
+        ".bg-warning\\/15",      # P1 底色
+        ".border-info\\/30",     # P2 边框
+        ".border-success\\/30",  # P3 边框
+        ".border-danger\\/30",   # P0 边框
+        ".border-warning\\/30",  # P1 边框
+    ]
+    missing = [c for c in required_classes if c not in css]
+    assert not missing, (
+        f"Tailwind 没生成这些 alpha 变体: {missing}\n"
+        "2026-07-23 bug: P0/P1/P2/P3 badge 渲染成 '白底白框' (实际是 class 缺失, "
+        "fallback 到默认色)。\n"
+        "修法 1/2 (tailwind.config.ts): colors 改 rgb() 格式 + 加 safelist 强制生成\n"
+        "  - safelist pattern: "
+        "/^(bg|border)-(danger|warning|info|success)\\/(10|15|20|30|40|50)$/\n"
+        "  - colors 改 rgb(34 197 94) / rgb(245 158 11) / rgb(239 68 68) / "
+        "rgb(59 130 246) (Tailwind 对 rgb() 字符串色的 alpha 生成更稳定)\n"
+        "修法 3 (本测试): 锁住 alpha 变体必须在 build CSS 里, 防止以后改 "
+        "tailwind config 又踩坑"
     )

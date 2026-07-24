@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import useSWR from "swr";
-import { api, type Snapshot, type Project, type Task, type Achievement, type TaskStatus, statusIcon, dueColor, dueLabel, taskAgeDays, projectEmoji, relativeDate, daysAgoISO, type Priority, PRIORITY_BADGE_STYLES, PRIORITY_BAR_STYLES } from "@/lib/api";
+import { api, type Snapshot, type Project, type Task, type Achievement, type TaskStatus, statusIcon, dueColor, dueLabel, taskAgeDays, projectEmoji, relativeDate, daysAgoISO, type Priority, PRIORITY_BADGE_STYLES } from "@/lib/api";
 import { Check, Trash2, ChevronRight, ChevronDown, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2, Archive, ArchiveRestore, Sparkles } from "lucide-react";
 import { ChatWindow } from "./ChatWindow";
 import { CompleteTaskModal } from "./CompleteTaskModal";
@@ -276,13 +276,12 @@ function FocusItem({
 }) {
   const [hover, setHover] = useState(false);
 
-  // 左侧色条 - 颜色+形状双编码
-  // 2026-07-22: priority 改 4 档 P0/P1/P2/P3, 色条饱和度跟着调整
-  // 2026-07-23: 共享 lib/api.ts 的 PRIORITY_BAR_STYLES, 跟 /today FocusRow 同步。
-  //   阻塞 = fg-muted/60 表达"被卡住" (比 P3 灰再深, 区分"不急" vs "被阻")
-  const priorityBar = item.blocked
-    ? "bg-fg-muted/60"
-    : PRIORITY_BAR_STYLES[item.priority];
+  // 2026-07-23 v2 改造: 删左侧色条, 改用 P0/P1/P2/P3 badge 跟 TaskRow / FocusRow 三处统一。
+  //   之前色条 + badge 双编码 = MainBoard 内部割裂 (顶部 FocusItem 色条 vs 下方 TaskRow badge),
+  //   改 badge only 跟 TaskRow 1:1 一致, 用户在 MainBoard 页面任何位置看到的优先级都一样。
+  //   FocusItem 是只读展示 (无 priority 编辑入口), 所以 badge 是 <span> 不是 <button>
+  //   (跟 FocusRow 行为一致; TaskRow 因为是 PriorityMenu trigger, 才是 button 可点)。
+  //   阻塞 = opacity-70 整行变暗, 不再单独给 badge 上 fg-muted/60 (跟 TaskRow 阻塞行为一致)。
 
   const dueCls = dueColor(item.due);
   const dueTextColor =
@@ -296,7 +295,7 @@ function FocusItem({
 
   return (
     <div
-      className={`group relative flex flex-col gap-0.5 rounded-lg pl-4 pr-3 py-2.5 cursor-pointer hover:bg-bg-tertiary/60 transition ${
+      className={`group flex flex-col gap-0.5 rounded-lg pl-3 pr-3 py-2.5 cursor-pointer hover:bg-bg-tertiary/60 transition ${
         item.blocked ? "opacity-70" : ""
       }`}
       onMouseEnter={() => setHover(true)}
@@ -304,8 +303,16 @@ function FocusItem({
       onClick={onRequestComplete}
     >
       <div className="flex items-center gap-3">
-        {/* 左侧色条 - 标识优先级 */}
-        <div className={`absolute left-1 top-2.5 bottom-2.5 w-[3px] rounded-full ${priorityBar}`} />
+        {/* P0/P1/P2/P3 badge - 跟 TaskRow / FocusRow 三处统一, 软底色 + 同色描边 + font-mono */}
+        <span
+          className={`inline-flex items-center justify-center h-5 px-1.5 rounded
+            border text-[10px] font-mono font-semibold leading-none tracking-tight
+            flex-shrink-0 select-none
+            ${PRIORITY_BADGE_STYLES[item.priority]}`}
+          title={`优先级: ${item.priority}${item.blocked ? " · 阻塞" : ""}`}
+        >
+          {item.priority}
+        </span>
 
         {/* 状态按钮:默认空心字符,hover 显示对勾 */}
         <button
