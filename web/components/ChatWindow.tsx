@@ -482,16 +482,6 @@ export function ChatWindow({
             </div>
           </div>
         ))}
-        {loading && (
-          <div className="flex justify-start fade-in">
-            <div className="bg-bg-secondary border border-border rounded-lg px-4 py-2.5">
-              <div className="flex items-center gap-1 text-fg-muted text-sm">
-                <Sparkles size={14} className="animate-pulse" />
-                <span>思考中...</span>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* 快捷建议 */}

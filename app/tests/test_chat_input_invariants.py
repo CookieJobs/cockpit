@@ -131,3 +131,67 @@ def test_events_view_uses_thinking_text_during_streaming():
         'EventsView 缺"（无响应）" fallback — 历史/错误消息没文字显示。 '
         "注意: 这条只是确认 fallback 文案存在, 不锁住顺序"
     )
+
+
+# ===== 不变量 3: 不能有顶层 loading 框 (跟 streaming 消息气泡重复) =====
+
+
+def test_no_top_level_loading_thinking_indicator():
+    """ChatWindow 不能在 messages.map 之后另起一个 `{loading && <思考中...>}` 块。
+
+    历史 bug (2026-07-23): 用户报"发完消息后红框区域有 2 个思考中" — 顶部一个
+    + 消息气泡内 EventsView 一个, 视觉堆叠。
+    根因: useChatStream 里 setMessages 之后立即 setLoading(true), 所以
+    `loading=true` 跟 "messages 里有 streaming agent message" 永远同时为真。
+    ChatWindow 又同时在两个地方渲染"思考中", 必然重复。
+    修法: 删掉顶层那个 `{loading && (...)}` 块, 只保留消息气泡内的 EventsView
+    "思考中..." (这条更精准, 因为它就是 stub message 的视觉表达)。
+    """
+    src = read_chatwindow()
+    # 找 messages.map 之后、 输入区之前那一片区域
+    # 简化: 找 "messages.map" 在源码里的最后出现 (新流式就是这里), 然后扫到下一个 "</form>" 或 "border-t border-border p-3" (输入区)
+    last_map_idx = src.rfind("messages.map")
+    assert last_map_idx > 0, "ChatWindow 找不到 messages.map, 组件结构大改需手动检查"
+    # 输入区标记: <form 或 border-t border-border p-3
+    input_marker = src.find("border-t border-border p-3", last_map_idx)
+    assert input_marker > 0, "ChatWindow 找不到输入区 marker, 组件结构大改需手动检查"
+    # 中间这片区就是 "messages 之后 到 输入区之前"
+    between = src[last_map_idx:input_marker]
+    # 不能有顶层 `{loading && (` 块
+    assert "{loading && (" not in between, (
+        "ChatWindow 在 messages.map 之后另起了一个 {loading && (...)} '思考中...' "
+        "块 — 这跟消息气泡内 EventsView 的 '思考中…' 必然重复 (历史 bug 2026-07-23), "
+        "用户视觉上看到 2 个堆叠的 loading 框。删掉顶层这个, 只保留消息气泡内的。"
+    )
+    # 也不能有 fade-in + 思考中 这种模式
+    assert "思考中" not in between, (
+        "ChatWindow 在 messages.map 之后到输入区之间出现了 '思考中' 文案 — "
+        "可能是顶层 loading 框, 跟消息气泡内的 streaming '思考中…' 重复 (历史 bug 2026-07-23)"
+    )
+
+
+def test_thinking_text_appears_only_inside_message_bubble():
+    """「思考中」只允许出现在 AgentMessageContent 退化路径 + EventsView 内部。
+
+    跟 test_no_top_level_loading_thinking_indicator 互补: 锁住「思考中」只
+    在两个允许的位置出现, 不在其他地方冒出来 (比如顶层、提示条、footer)。
+    """
+    src = read_chatwindow()
+    # 找出所有 "思考中" 出现的位置
+    import re
+    positions = [m.start() for m in re.finditer("思考中", src)]
+    assert len(positions) >= 1, "ChatWindow 完全找不到『思考中』, 流式期间没视觉信号"
+    # 每个位置都得在 AgentMessageContent 或 EventsView 函数体内
+    agent_content_idx = src.find("function AgentMessageContent")
+    events_view_idx = src.find("function EventsView")
+    assert agent_content_idx > 0 and events_view_idx > 0, (
+        "ChatWindow 找不到 AgentMessageContent / EventsView, 组件结构大改需手动检查"
+    )
+    for pos in positions:
+        in_agent = agent_content_idx <= pos < events_view_idx
+        in_events = events_view_idx <= pos
+        assert in_agent or in_events, (
+            f"ChatWindow 在位置 {pos} 出现『思考中』, 但不在 AgentMessageContent "
+            f"({agent_content_idx}) 或 EventsView ({events_view_idx}) 函数体内 — "
+            "可能导致视觉堆叠 (跟消息气泡内的『思考中…』重复, 历史 bug 2026-07-23)"
+        )

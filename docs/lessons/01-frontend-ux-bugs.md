@@ -113,7 +113,38 @@
   - **"完成" 是低频显式动作, 不是高频轻量操作** (跟 AGENTS.md 设计哲学的"对话驱动 vs 看板 inline edit 边界" 一致 — 完成是 LLM 上下文相关的, 应该弹 4 字段 modal 让用户走心, 不是点空白就走流程)
   - **设计 trade-off 要有可回退的窗口**: v2 决策锁了 5 天 (07-17 → 07-21), 没出现"误触" 报告是因为用户刚好点中标题/色点的频率高。这次 user feedback 才暴露"空白点中"问题。**v3 推翻 v2 不是"v2 错了", 是"v2 经验上够用但被新信息推翻"** — 接受推翻, 不维护面子
   - **不变量测试要随设计决策翻转**: #2 测试 v2 锁住"整行必须调 onRequestComplete", v3 改成"整行不能调 onRequestComplete"。**测试是设计决策的化石**, 翻设计要同步翻测试
-- **修法位置**:
+- **修法位置**：
   - `web/components/MainBoard.tsx` TaskRow 第一行 onClick (toggleExpand) + 展开 chevron 改指示器 + hover ✅ 按钮加回
   - `app/tests/test_complete_path_invariants.py` #2 改版 (反转) + #5 改版 (加回 hover ✅)
   - `AGENTS.md` Changelog 加 v3 段 (推翻 v2 部分)
+
+## #13. ChatWindow 顶层 loading 框跟消息气泡内"思考中…"重复，视觉堆叠 (修于 2026-07-23)
+
+- **症状**：用户报"发完消息之后，红框区域里总是有两个『思考中...』堆在一起"。截图：对话框最下方红框里上下叠着两个一模一样的"思考中..." indicator, 一个带 sparkle icon, 一个是纯文本。
+- **根因**（跟 #11 同源 — "视觉堆叠"）:
+  - **两处独立的"思考中"渲染**:
+    1. **顶层 `loading` 指示器**（`web/components/ChatWindow.tsx` 旧 line 485-494）：只要 `loading=true` 就渲染
+    2. **消息气泡内 EventsView**（`web/components/ChatWindow.tsx` line 739-744）：当 `streaming && events.length === 0` 时也渲染
+  - **时序必然撞**: `useChatStream` 里 `setMessages([..., userMsg, agentMsg])` (line 69) 之后立即 `setLoading(true)` (line 70), 同步执行
+    - 所以 `loading=true` ⟺ "messages 里有 streaming agent message" **永远**同时为真
+    - 顶层 loading 框 跟 消息气泡内的 "思考中…" 永远一起出现 = 视觉堆叠
+  - **历史原因**（不是设计错误，是 refactor 副作用）:
+    - 2026-07-09 最早版 ChatWindow：只有顶层 loading 框（line 485-494 那块）
+    - 2026-07-20 重构抽 useChatStream hook：新增 EventsView，EventsView 处理 stub message（`events=[] + streaming=true`）时也加"思考中…" fallback
+    - 两者并存 = 必然重复，但一直没人发现
+- **修法**（1 处删除 + 2 条新不变量）:
+  1. **删掉 ChatWindow 顶层 `{loading && <思考中...>}` 块**（旧 line 485-494）
+     - `loading` state 保留（仍用于：auto-scroll effect deps、input/button disabled）
+     - 删除**只是**那块 JSX，不删 useChatStream 解构出来的 `loading`
+  2. **不变量测试**（`app/tests/test_chat_input_invariants.py` 加 2 条新不变量）:
+     - `test_no_top_level_loading_thinking_indicator`: 锁住"messages.map 之后到输入区之前不能出现 `{loading && (` 块, 也不能出现"思考中" 文案"
+     - `test_thinking_text_appears_only_inside_message_bubble`: 锁住"思考中"只允许出现在 AgentMessageContent 退化路径 + EventsView 函数体内, 防止以后在顶层、提示条、footer 又冒出来
+- **教训**:
+  - **refactor 容易留下"双轨" UI**: 旧路径和新路径并存但触发条件相同, 必然视觉堆叠。重构后必须 review"旧路径还该不该在", 不要"先留着, 用户没报就先不改"
+  - **时序必然撞的判断**: `setMessages` + `setLoading(true)` 同步, 所以两个条件永远同时为真。**状态间存在 invariant 关系时, 不要让两个 UI 都表达同一个信号** — 选一个最精准的 (这里是消息气泡内 EventsView, 因为它就是 stub message 的视觉表达)
+  - **"防堵死" 跟 "保留冗余" 是两件事**: 我可能下意识觉得"删了顶层那个, 万一 hook 出 bug 看不到 loading 怎么办?" — 这是用"防御性冗余"对抗"显式信号"。正确做法是"信号只在最准确的位置显示一次", hook 出 bug 就修 hook, 不要靠双轨兜底
+  - **lesson #11 (TaskRow 4 个 ▾ 上下叠) 的同源教训**: 这个项目里"视觉堆叠" 已经出现过一次 (#11 修于 2026-07-21), 这次的 bug 跟 #11 是**同一类问题** — 同一个信号在两个地方渲染。看到"两个看起来一样的元素" 就该触发"为什么有两份?" 的反射
+  - **不变量测试要锁住"位置", 不只是"内容"**: 旧测试只验证"EventsView 有思考中文案" (字符串存在), 没验证"其他地方没有思考中文案" (字符串只在那里)。新加的两条不变量专门锁位置, 防退化
+- **修法位置**:
+  - `web/components/ChatWindow.tsx` 旧 line 485-494 删除（messages.map 之后那段 `{loading && (...)}` JSX）
+  - `app/tests/test_chat_input_invariants.py` 加 `test_no_top_level_loading_thinking_indicator` + `test_thinking_text_appears_only_inside_message_bubble`

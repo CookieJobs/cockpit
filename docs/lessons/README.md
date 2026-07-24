@@ -8,9 +8,9 @@
 
 | 文件 | 主题 | Lessons |
 |---|---|---|
-| [01-frontend-ux-bugs.md](./01-frontend-ux-bugs.md) | 前端 UX 状态机 / 视觉编码 | #1 TaskRow 二次确认 bug · #4 状态机堵死完成路径 · #5 "低"优先级色点不可见 |
+| [01-frontend-ux-bugs.md](./01-frontend-ux-bugs.md) | 前端 UX 状态机 / 视觉编码 | #1 TaskRow 二次确认 bug · #4 状态机堵死完成路径 · #5 "低"优先级色点不可见 · #11 TaskRow 4 个 ▾ 视觉堆叠 · #12 整行 click = 完成反直觉 · #13 ChatWindow 双"思考中"视觉堆叠 |
 | [02-llm-pitfalls.md](./02-llm-pitfalls.md) | LLM 集成坑 | #2 CoT 暴露 + markdown fallback 误执行 |
-| [03-fastapi-and-tooling.md](./03-fastapi-and-tooling.md) | 后端 / 工具链 | #3 FastAPI simple type 参数 body 丢失 · #7 `make setup` 引导歧义 · #8 Python 3.11 + greenlet 双重坑 · #9 NEXT_PUBLIC_API_BASE 静默错端口 |
+| [03-fastapi-and-tooling.md](./03-fastapi-and-tooling.md) | 后端 / 工具链 | #3 FastAPI simple type 参数 body 丢失 · #7 `make setup` 引导歧义 · #8 Python 3.11 + greenlet 双重坑 · #9 NEXT_PUBLIC_API_BASE 静默错端口 · #10 `build_snapshot` 漏传 description |
 | [04-testing-strategy.md](./04-testing-strategy.md) | 测试方法论 | #6 端到端 UX 路径静态分析测试 |
 
 ## 使用方式
