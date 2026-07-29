@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { ToastProvider } from "@/components/Toast";
 
 // icon 由 app/icon.tsx + app/apple-icon.tsx 动态生成 (Satori + Twemoji 渲染 🚀)
 // Next.js 15 会自动注入 <link rel="icon"> 和 <link rel="apple-touch-icon">
@@ -24,7 +25,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN" className="dark">
-      <body className="bg-bg text-fg">{children}</body>
+      <body className="bg-bg text-fg">
+        {/* ToastProvider (2026-07-28 立): 全局轻量 toast, 完成任务庆祝用 */}
+        <ToastProvider>{children}</ToastProvider>
+      </body>
     </html>
   );
 }

@@ -148,3 +148,38 @@
 - **修法位置**:
   - `web/components/ChatWindow.tsx` 旧 line 485-494 删除（messages.map 之后那段 `{loading && (...)}` JSX）
   - `app/tests/test_chat_input_invariants.py` 加 `test_no_top_level_loading_thinking_indicator` + `test_thinking_text_appears_only_inside_message_bubble`
+
+## #14. 完成弹窗 4 字段问卷 → 用户报"在写两遍" 完成成本 > 沉淀价值 (修于 2026-07-28)
+
+- **症状**：用户原话 (2026-07-28): "我在完成一个任务的时候, 我需要去填写 CV 这一部分以及完成了什么, 就我觉得有点麻烦"。
+- **根因** (跟 #4 "完成路径堵死" 同源 — 都是完成路径 UX 失败, 一个堵死一个摩擦大):
+  - **outcome 和 cv 90% 重复**: 旧 4 字段 placeholder 就是同一件事的两种写法
+    - outcome: "用户反馈登录 bug 已修复, 无复现, DAU 提升 5%"
+    - cv: "定位并修复高优先级登录鉴权 bug, 消除用户阻塞, 当日上线验证"
+  - **完成时刻是认知低谷, 不是高峰**: 旧版默认 outcome + cv 两个必填, 等于让用户跑过终点时停下来填 2 字段问卷
+  - **cv_status 三态让认知再加重一档**: ready / needs_data / pending, 大多数用户没空想直接选 ready, 但**形式上要选**
+  - **价值是"未来兑现"用户当下看不到**: 弹窗就是纯成本, 沉淀的复利感要等 3 个月后写述职才能感受
+- **错误的设计哲学**: "完成即沉淀" (task-cockpit 核心) 没错, **错在执行** — 把全部成本压在用户最容易疲劳的那一刻, 又不让用户当下感受到沉淀的价值
+- **修法** (A+D 组合, 见 AGENTS.md Changelog 2026-07-28 完整记录):
+  - **A: 砍到 1 必填 + 智能预填 + 润色按钮**
+    - outcome 唯一必填 (用户独有信息, LLM 推不出来)
+    - cv 智能预填 `完成「${title}」` + ✨ 润色按钮调 LLM
+    - reflection + cv_status 折叠在"高级" 区, 默认收起
+  - **D: 完成时弹 toast 庆祝 + 跳转链接**
+    - 文案 `🎉 已沉淀 · 成就库累计 N 个 ready`
+    - "查看成就库 →" 跳 `/achievements`, 让用户当下看见价值
+  - **后端独立 `POST /api/llm/polish_cv` 端点**: 失败静默 fallback, 不抛 500 (避免 LLM 抽风把完成流程堵死)
+- **教训**:
+  - **完成时刻的 UX 优先级最高**: 多巴胺峰值, 用户的"完成感"被任何摩擦打断都是损失。**摩擦 > 任务本身难度** = 用户挫败
+  - **AI 增强层永远不能在主流程制造新阻塞**: 润色按钮是 "增强", 不是 "必经"。LLM 不可用 → 静默 fallback, 用户原始输入始终可用
+  - **"完成即沉淀" 的复利要用户当下看见**: toast 庆祝不是装饰, 是"让用户感受到在攒家底" 的关键节点。否则沉淀哲学变成"完成时偷偷做, 用户不知情" = 长期信任崩塌
+  - **降级优于删除**: reflection/cv_status 折叠保留, 不删除, 旧 power user 不流失, 默认用户摩擦砍掉
+  - **专用 API 优于复用 chat 端点**: `polish_cv` 独立端点, 前端只发 `{task_title, outcome}` 拿 `{cv, polished}`, 不暴露 Anthropic 协议复杂度
+  - **lesson #4 "完成路径堵死" 同源教训**: #4 是"不能完成" (路径死锁), #14 是"完成太麻烦" (摩擦过大), 根因都是"完成路径 UX 没用户测试"。下次设计任何"完成 / 提交 / 关闭" 类动作前, 先问"这一刻用户的认知状态是什么? 我增加了多少摩擦?"
+- **修法位置**:
+  - 后端: `app/api/llm.py` 加 `polish_cv` 端点 + `app/tests/test_api_polish_cv.py` 9 条端点测试
+  - 前端弹窗: `web/components/CompleteTaskModal.tsx` 完全重写 v3 (1 必填 + 智能 + 折叠)
+  - 前端 API 封装: `web/lib/api.ts` 加 `api.polishCv()`
+  - 前端 Toast: `web/components/Toast.tsx` 新建 + `web/app/layout.tsx` 挂载
+  - 前端 Toast 调用: `web/components/MainBoard.tsx` + `web/app/today/page.tsx` 完成路径
+  - 不变量测试: `app/tests/test_complete_modal_minimal_invariants.py` (9 条) + `app/tests/test_completion_toast_invariants.py` (8 条)

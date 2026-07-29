@@ -302,6 +302,16 @@ export const api = {
     return request<Achievement[]>(`/api/achievements${q ? `?${q}` : ""}`);
   },
 
+  // ===== LLM helpers (2026-07-28 立) =====
+
+  // 把 outcome 润色成 CV 风格的成就陈述 (完成弹窗"✨ 润色"按钮用)
+  // 后端 POST /api/llm/polish_cv: polished=false 表示 LLM 不可用已 fallback
+  polishCv: (taskTitle: string, outcome: string) =>
+    request<{ cv: string; polished: boolean }>("/api/llm/polish_cv", {
+      method: "POST",
+      body: JSON.stringify({ task_title: taskTitle, outcome }),
+    }),
+
   updateAchievement: (id: string, data: { cv?: string; cv_status?: CVStatus }) =>
     request<Achievement>(`/api/achievements/${id}`, {
       method: "PATCH",

@@ -32,6 +32,7 @@
 | 11 | TaskRow 4 个 ▾ 上下叠视觉堆叠 | [01-frontend-ux-bugs.md](./docs/lessons/01-frontend-ux-bugs.md) |
 | 12 | 整行 click = 完成 反直觉 (v2 推翻) | [01-frontend-ux-bugs.md](./docs/lessons/01-frontend-ux-bugs.md) |
 | 13 | ChatWindow 顶层 loading 跟消息气泡"思考中"重复 | [01-frontend-ux-bugs.md](./docs/lessons/01-frontend-ux-bugs.md) |
+| 14 | 完成弹窗 4 字段问卷摩擦 → 砍到 1 必填 + 智能润色 + toast 庆祝 | [01-frontend-ux-bugs.md](./docs/lessons/01-frontend-ux-bugs.md) |
 
 新增 lessons 写到 `docs/lessons/` 对应主题文件, AGENTS.md 入口只放索引（保持主文件轻量）。
 
@@ -570,5 +571,199 @@ Agent 工具能改的 task 字段 (`app/llm/tools.py:139-175 tool_update_task`):
 
 **回归**: 170 → **172** tests pass (+2 新不变量; 其他 priority 套件 0 变化). `tsc --noEmit` 0 错误. 改动 1 文件删 10 行 + 1 文件加 ~70 行测试, 净 +60 行, 但用户视觉上的"红框两个思考中" 变成 "红框一个思考中"。
 
+## Changelog: 2026-07-28 完成弹窗极简化 A+D (PM 视角 UX 重做)
 
+用户原话 (2026-07-28): "我在完成一个任务的时候, 我需要去填写 CV 这一部分以及完成了什么, 就我觉得有点麻烦"。
+
+### 调查 + 根因
+
+旧 `CompleteTaskModal` 是 4 字段全显示 (outcome / cv / reflection / cv_status, 见旧 v1 设计), 核心痛点:
+
+1. **outcome 和 cv 90% 重复** — 弹窗 placeholder 就是同一件事的两种写法
+   - outcome: "用户反馈登录 bug 已修复, 无复现, DAU 提升 5%"
+   - cv: "定位并修复高优先级登录鉴权 bug, 消除用户阻塞, 当日上线验证"
+   - 用户填完 outcome 再写 cv, 本能反应"我不是刚写过了吗"
+2. **完成时刻是多巴胺峰值, 4 字段问卷是最差时机** — 心理学问题, 跑过终点让人填表
+3. **cv_status 三态让认知再加重一档** — ready / needs_data / pending 大多数用户没空想直接选 ready
+4. **价值是"未来兑现"用户当下看不到** — 成就库不主动去的话, 弹窗就是纯成本
+
+**取舍**: "完成即沉淀" 哲学 (task-cockpit 核心) 没错, **错在执行** — 把全部成本压在用户最容易疲劳的那一刻, 又不让用户当下感受到沉淀的价值。
+
+### 改动
+
+| # | 项 | 位置 | 备注 |
+|---|---|---|---|
+| A1 | **后端: 新增 `POST /api/llm/polish_cv` 端点** | `app/api/llm.py` | body=`{task_title, outcome}`, 返 `{cv, polished}`. LLM 不可用/异常/空返回 → 静默 fallback `完成「${title}」`, 不抛 500. polished=false 标记走了 fallback |
+| A2 | **前端: `api.polishCv()` 封装** | `web/lib/api.ts` | 跟其他端点同款 `request<T>()` 包装, 错误透传 |
+| A3 | **前端: CompleteTaskModal 砍到 1 必填 (outcome)** | `web/components/CompleteTaskModal.tsx` | 旧 4 字段全显示 → 主流程只剩 outcome 必填, cv 智能预填 `完成「${task.title}」` |
+| A4 | **前端: CV 区域加 "✨ 润色" 按钮** | 同上 | 调 `api.polishCv()`, 失败保留原文 cv + warning 提示, 不阻塞提交 |
+| A5 | **前端: 高级选项折叠** | 同上 | reflection + cv_status 折叠在"高级选项 (可选)" 默认收起, 不挡视线但还在 |
+| D1 | **前端: 全局 Toast 系统** | `web/components/Toast.tsx` (新) + `web/app/layout.tsx` 挂载 | `ToastProvider` + `useToast()` hook, 3 种 variant (success/info/warning), 3.5s 自动关闭, hover 暂停, 上限 3 条并发 |
+| D2 | **前端: 完成时弹 toast 庆祝** | `web/components/MainBoard.tsx` + `web/app/today/page.tsx` | 文案 `🎉 已沉淀 · 成就库累计 N 个 ready` + "查看成就库 →" 跳转 `/achievements` |
+| A6 | **不变量测试 9 条新增** | `app/tests/test_complete_modal_minimal_invariants.py` (新) | 锁 outcome 必填/cv 不必填/cv 预填/有润色按钮/高级折叠默认收起/submit 条件/自动 focus/走 api.polishCv 封装/失败不阻塞 |
+| A7 | **端点测试 9 条新增** | `app/tests/test_api_polish_cv.py` (新) | 锁无 LLM fallback/LLM 异常 fallback/LLM error 返 fallback/正常 polish/引号清理/超长截断/空白返 fallback/missing outcome 422/空 outcome 422 |
+| D3 | **不变量测试 8 条新增** | `app/tests/test_completion_toast_invariants.py` (新) | 锁 Toast 组件导出/Provider 在根 layout/MainBoard 弹 toast/今天也弹/自动关闭 3500ms/hover 暂停/上限 3 条/两处入口文案一致 |
+| A8 | **lesson #14 立** | `docs/lessons/01-frontend-ux-bugs.md` + `AGENTS.md` 索引 | "完成时刻摩擦" — 4 字段问卷的"完成成本 vs 沉淀价值" 反向设计, 跟 #4 "完成路径堵死" 同源(都是完成路径 UX 失败) |
+
+### 设计决定记录
+
+**A. 砍到 1 必填 vs 留 2 字段分两层**
+
+- 旧版 2 必填 (outcome + cv) 的"分工"是 outcome 自由写, cv 简历润色版 — **理论上**合理, **实践上** 90% 重复
+- 选 1 必填 + cv 智能预填 + 润色按钮:
+  - 必填项 = 真正"用户独有信息" = outcome (LLM 推不出来)
+  - cv 字段 = LLM 主导 (用户可以一键润色, 也可以接受默认 `完成「${title}」`)
+  - 用户认知负担 = 1 字段, 跟"完成任务"心智模型匹配
+- 旧版 lesson #4 教训"完成路径堵死" 已挡住"不能完成"路径, 新版防"完成太麻烦" 路径 — 两个 lesson 是同一根问题的两个症状
+
+**B. 高级选项默认折叠 vs 全部隐藏**
+
+- 全部隐藏: 用户主动权下降, 不能写 reflection / 改 cv_status
+- 选折叠: power user 仍能用, 默认用户看不到 → 主流程 1 字段
+- lesson: "可选字段不删, 折叠起来" — 跟 StatusMenu 末尾 blocked/draft toggle 同款思路 (2026-07-22 立)
+
+**C. AI 润色失败 fallback vs 阻塞**
+
+- 阻塞: 润色失败 → 完成失败 → 用户挫败, LLM 偶尔抽风 体验崩
+- 静默 fallback: 失败保留原文 cv (用户原始输入), 弹 warning toast 提示, 完成可继续
+- lesson: **AI 增强层永远不能在主流程上制造新阻塞** — fallback 优先
+
+**D. Toast 3.5s vs 5s vs 永久**
+
+- 3.5s: 足够读"已沉淀 · 累计 N 个" + 决定要不要点跳转
+- 太短 (1-2s): 用户看不清就消失
+- 太长 (5s+): 挡住聊天窗/任务列表
+- hover 暂停: 用户犹豫时可暂停决策, 不强制 3.5s 内选
+
+**E. 入口文案"🎉 已沉淀 · 成就库累计 N 个 ready" vs "任务已完成"**
+
+- 旧思维: "任务已完成" = 状态通知, 跟系统本身功能重复
+- 选"已沉淀 · 累计 N": 把完成动作翻译成"价值获得", 用户当下能感受到在攒家底
+- lesson: **完成 toast 不是"操作反馈", 是"价值反馈"** — 完成即沉淀 的"沉淀" 两字用户必须看见
+
+**F. 后端 polish_cv 端点 vs 前端直接调 chat**
+
+- 前端直调 chat 端点: 复用对话基础设施, 但要构造 messages/system 协议 (Anthropic 格式), 维护成本高
+- 选独立端点: 协议在后端, 前端只发 `{task_title, outcome}` 拿 `{cv, polished}`, 干净解耦
+- lesson: **专用 API 优于通用 chat 端点** — 不复用复杂度, 让每个端点聚焦一件事
+
+**G. 旧 4 字段弹窗架构保留 (高级区) vs 完全删除**
+
+- 完全删除 reflection/cv_status: 旧 power user 流失, 成就库少一个维度
+- 折叠保留: 默认用户看不到, power user 仍能填, 后端 schema 0 改动
+- lesson: **降级而不是删除** — 把"必须填"降级成"可选填", 用户价值不丢, 摩擦砍掉
+
+### 完成路径 UX 不变量 (防退化)
+
+| 不变量 | 锁哪 | 文件 |
+|---|---|---|
+| outcome 必填, cv 预填 | modal 必填标记 + useState 初始值 | `CompleteTaskModal.tsx` |
+| 有 ✨ 润色按钮 + 调 api.polishCv | "润色" 文案 + `await api.polishCv` | 同上 |
+| 高级选项默认折叠 | `useState(false)` + `showAdvanced && (...)` | 同上 |
+| Toast 挂根 layout | `<ToastProvider>` 包裹 children | `layout.tsx` |
+| 完成必弹 toast + 跳转 | `toast.success(...)` + `router.push("/achievements")` | `MainBoard.tsx` + `today/page.tsx` |
+| 两入口文案一致 | 正则提取 `toast.success` 模板, 剥掉 `${}` 插值后必须相等 | 测试断言 |
+| polish 失败不阻塞 | `try/catch` + `setPolishError` 不 throw | `CompleteTaskModal.tsx` |
+
+### 字段表 (改完之后)
+
+| modal 字段 | 旧版 (4 必填/选填) | 新版 (1 必填 + 1 智能 + 2 折叠) | 摩擦变化 |
+|---|---|---|---|
+| `outcome` | 必填 | 必填 | 不变 |
+| `cv` | 必填 | **预填** (用户可不管) + 润色按钮 | 必填 → 默认有值 |
+| `reflection` | 选填 | **折叠** (默认收起) | 不挡视线 |
+| `cv_status` | 三态必选 | **折叠** (默认 ready) | 不挡视线 |
+
+**回归**: 172 → **200** tests pass (+28: 9 polish_cv 端点 + 9 modal 不变量 + 8 toast 不变量 + 2 之前顺手修的 storage 测试). `tsc --noEmit` 0 错误. `npm run build` 10/10 静态页导出通过. 改动 1 后端 + 4 前端 + 3 测试 + 1 layout, 净 +约 600 行 (含 200 行测试), 用户视觉上的"4 字段问卷" 变成 "1 字段 + 1 智能按钮 + 完成 toast 庆祝"。
+
+
+
+
+## Changelog: 2026-07-28 成就库 v2 项目层级 (晚 23:50 立)
+
+用户原话 (2026-07-28 23:50): "成就库里面是不是没有采用项目和任务的层级？是不是只有任务这一层?"
+
+### 调查 + 现状
+
+- 后端 Achievement 表**有完整数据**支持层级: `app/core/models.py:280-288` Achievement 实体带 `project_id` + `project` 名称快照
+- 旧前端 `web/app/achievements/page.tsx` (v1) **确实没用上**:
+  - 顶层分组: 只按 `date` 分组 (`Object.entries(groups).sort(...)` )
+  - 每个成就条目: 标题 + 旁边一个 project 徽章 (`<span>{a.project}</span>`)
+  - **没有按 project 分组/折叠/计数**
+- 用户想看"我在哪些项目上有沉淀" — 需要项目级聚合
+- 跟 2026-07-22 /today 项目卡片里加的"已沉淀 N · 7 天内" 子区呼应, 但 /today 那个是 7 天窗口, 这次 /achievements 是**全量视图**
+
+### 改动
+
+| # | 项 | 位置 | 备注 |
+|---|---|---|---|
+| 1 | **`/achievements` 完全重写 v1 → v2** | `web/app/achievements/page.tsx` | 一级 = project card (按项目聚合), 二级 = date (项目内按日期分组) |
+| 2 | **项目卡片复用 `projectEmoji`** | `lib/api.ts` 已存在的工具 | 跟 /today 项目卡片视觉一致 (50 emoji 池子, hash 选) |
+| 3 | **项目卡片三态计数** | ProjectSection header | `✅ N ready / 📊 N needs_data / ⏳ N pending` 三色徽章, 跟成就卡片状态色一致 |
+| 4 | **项目排序: ready desc** | `projectGroups` useMemo | 最近沉淀最多的项目最显眼 |
+| 5 | **折叠状态 localStorage 持久化** | `cockpit_achievements_collapsed_projects` | 跨刷新保留, 默认全部展开 |
+| 6 | **AchievementItem 抽成独立组件** | 同文件 | 减少主组件复杂度, 跟 ProjectSection 解耦 |
+| 7 | **保留所有 4 字段 + 编辑/升级/撤销 动作** | AchievementItem | cv / outcome / reflection / cv_status 全保留, edit / upgrade / undo 三个 action 都不动 |
+| 8 | **不变量测试 12 条新增** | `app/tests/test_achievements_hierarchy_invariants.py` (新) | 锁住项目级聚合 / emoji / 三态计数 / 排序 / 二级日期分组 / 折叠持久化 / 4 字段保留 / 状态过滤 / 空状态 / 顶层防回退 |
+
+### 设计决定记录
+
+- **一级 project vs 保持 date-only 的选择**:
+  - 旧 date-only 适合"按时间线看自己最近干了啥" 的视角
+  - 新 project-first 适合"按项目看自己沉淀了多少" 的视角
+  - 用户原话 "我没看到项目层级" 暗示**他想要 project 视角**, 不只是时间线
+  - 折中: 顶层 project (用户最想要的视角), 项目内仍保留 date 子分组 (不丢时间线信息)
+  - lesson: 顶层导航结构 = 用户最常问"我 X 怎么样" 的那个维度, 不能拍脑袋选
+
+- **复用 `projectEmoji` 跟 /today 风格一致**:
+  - /today 项目卡片已经用了 50 emoji 池子, hash 选 (2026-07-22 立的, 见 Changelog 4a)
+  - /achievements 不另搞一套, 直接 import 同一个 `projectEmoji` 函数
+  - 好处: 用户在 /today 看到一个 emoji, 进 /achievements 看到同一个, **跨页面的视觉锚点统一**
+  - lesson: 跨页面的视觉常量 (颜色 / emoji / 形状) 必须共享一份定义, 不能各处硬编码
+
+- **项目排序: ready desc vs total desc vs 最近活动 desc**:
+  - ready desc: 最近"沉淀的资产" 最多的项目 (最显眼 = 价值密度最高)
+  - total desc: 历史成就最多 (但可能很久没动了, 误导)
+  - 最近活动 desc: 最近 7 天有沉淀的项目 (跟 /today 7 天窗口呼应)
+  - 选 ready desc: "累计 ready 数" 是用户最关心的"资产" 指标, 跟 toast 庆祝的"累计 N 个 ready" 数字同源
+  - secondary sort: total desc (tiebreak), project name asc (稳定排序)
+
+- **折叠状态 localStorage 而非 React state**:
+  - 用户关掉浏览器再开, 折叠状态应该保留 — 用户主动收起 = 表达"这个项目我暂时不关心", 跨刷新不弹回很烦
+  - 跟 /today "今天已完成" 折叠 (MainBoard.tsx) 同款做法
+  - 跟对话栏折叠 (`cockpit_chat_collapsed` localStorage) 同款做法
+  - lesson: 用户主动操作的 UI 状态 (折叠 / 排序 / 过滤) 跨刷新保留 = 体感"产品懂我"
+
+- **AchievementItem 抽成独立组件 vs 内联**:
+  - 内联: 300+ 行单文件, 难读
+  - 抽: 主组件只管"取数 + 聚合 + 渲染 N 个项目卡", AchievementItem 只管"渲染一条成就 + 处理 edit/upgrade/undo"
+  - 后续如果要改成就条目的视觉 (加 tags / 加截图 / 加关联 task), 只动 AchievementItem, 不动项目卡
+  - lesson: 一个组件做多件事 (聚合 + 渲染 + 状态) 是技术债, 拆 = 单文件 < 200 行 + 单一职责
+
+- **needs_data → ready 的升级入口从"批量过滤" 变成"行内 button"**:
+  - 旧 v1: 顶部 filter "📊 还差数据" 选了之后, 在列表里手动编辑 CV 保存 = cv_status 自动变 ready
+  - 新 v2: needs_data 状态下, 成就条目**直接挂一个"📊 还差数据 · 升级" button**, 一键升级 (前提: cv 已经有值)
+  - 原因: 升级是高频动作 (用户补全数据后第一件事), 不该埋藏在 filter 后面
+  - lesson: **高频动作的入口要"内嵌" 在触发对象上, 不要"外面过滤, 里面找"** — 跟 StatusMenu 末尾 blocked/draft toggle 同款思路 (2026-07-22)
+
+- **不变量 #12 锁"防回退到 date-only"**:
+  - 显式断言 `projectGroups.map(($g$)` 模式必须存在
+  - 防止以后有人 refactor 觉得"项目卡多余" 直接删了, 回退到 v1 的 date-only
+  - lesson: 用户报过的痛点必须有专门的防退化测试, 不能只测"新功能存在"
+
+### 字段表 (层级改造后的成就条目)
+
+| 条目字段 | 来源 | 旧 v1 | 新 v2 |
+|---|---|---|---|
+| 标题 | `a.title` | ✅ | ✅ |
+| project 徽章 | `a.project` | ✅ 装饰 | **提升为顶层卡片** |
+| cv | `a.cv` | ✅ | ✅ |
+| outcome | `a.outcome` | ✅ | ✅ |
+| reflection | `a.reflection` | ✅ | ✅ |
+| cv_status 图标 | `a.cv_status` | ✅ | ✅ |
+| 编辑 CV | `updateAchievement` | ✅ | ✅ |
+| needs_data 升级 | `updateAchievement cv_status=ready` | 顶部 filter 间接 | **行内 button 一键** |
+| 撤销 | `undoAchievement` | ✅ | ✅ |
+
+**回归**: 200 → **212** tests pass (+12: 项目级聚合 / emoji / 三态计数 / 排序 / 二级日期 / 折叠持久化 / 4 字段保留 / 状态过滤 / 空状态 / 防回退 12 条不变量). `tsc --noEmit` 0 错误. `npm run build` 10/10 静态页导出通过. 改动 1 前端文件 (完全重写) + 1 测试文件 (新), 净 +约 350 行, 用户视觉上的"扁平时间线 + 装饰徽章" 变成 "项目维度聚合 + 内嵌升级按钮"。
 

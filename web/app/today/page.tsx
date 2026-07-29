@@ -16,6 +16,7 @@
 import { useState, useEffect } from "react";
 import useSWR from "swr";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Sparkles,
@@ -27,6 +28,7 @@ import {
 } from "lucide-react";
 import { api, type Snapshot, dueColor, dueLabel, projectEmoji, type Task, PRIORITY_BADGE_STYLES } from "@/lib/api";
 import { CompleteTaskModal } from "@/components/CompleteTaskModal";
+import { useToast } from "@/components/Toast";
 
 const WEEKDAY_LABEL = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
@@ -48,6 +50,9 @@ export default function TodayPage() {
   const [now, setNow] = useState<Date | null>(null);
   const [doneExpanded, setDoneExpanded] = useState(true);
   const [completingTask, setCompletingTask] = useState<Pick<Task, "id" | "title"> | null>(null);
+  // 完成 toast (2026-07-28 立)
+  const toast = useToast();
+  const router = useRouter();
 
   // 客户端 mount 后再 setDate, 避免 hydration mismatch
   useEffect(() => {
@@ -211,7 +216,7 @@ export default function TodayPage() {
         )}
       </div>
 
-      {/* 完成任务 4 字段 modal */}
+      {/* 完成任务 modal (2026-07-28 v3: 1 必填 + 智能 CV) */}
       {completingTask && (
         <CompleteTaskModal
           task={completingTask}
@@ -219,6 +224,13 @@ export default function TodayPage() {
           onSave={async (data) => {
             await api.completeTask(completingTask.id, data);
             setCompletingTask(null);
+            // 庆祝 toast (D 项)
+            const readyAfter = (snapshot?.counts.achievementsReady ?? 0) + 1;
+            toast.success(
+              `🎉 已沉淀 · 成就库累计 ${readyAfter} 个 ready`,
+              "查看成就库",
+              () => router.push("/achievements"),
+            );
             mutate();
           }}
         />

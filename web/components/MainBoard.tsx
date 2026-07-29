@@ -3,11 +3,13 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import useSWR from "swr";
+import { useRouter } from "next/navigation";
 import { api, type Snapshot, type Project, type Task, type Achievement, type TaskStatus, statusIcon, dueColor, dueLabel, taskAgeDays, projectEmoji, relativeDate, daysAgoISO, type Priority, PRIORITY_BADGE_STYLES } from "@/lib/api";
 import { Check, Trash2, ChevronRight, ChevronDown, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2, Archive, ArchiveRestore, Sparkles } from "lucide-react";
 import { ChatWindow } from "./ChatWindow";
 import { CompleteTaskModal } from "./CompleteTaskModal";
 import { usePopover, usePopoverPosition } from "./Popover";
+import { useToast } from "./Toast";
 import Link from "next/link";
 
 const CHAT_COLLAPSED_KEY = "cockpit_chat_collapsed";
@@ -20,6 +22,9 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
   const { data: llmStatus } = useSWR("/api/llm/status", () => api.llmStatus(), {
     refreshInterval: 30000,
   });
+  // 完成 toast (2026-07-28 立)
+  const toast = useToast();
+  const router = useRouter();
 
   // 对话栏默认展开;用户可收起,状态持久化到 localStorage
   const [chatOpen, setChatOpen] = useState<boolean>(true);
@@ -172,7 +177,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
         </div>
       </div>
 
-      {/* 完成任务弹窗 - 4 字段沉淀 (outcome / cv / reflection / cv_status) */}
+      {/* 完成任务弹窗 - 2026-07-28 v3 砍到 1 必填 (outcome) + CV 智能预填 + ✨ 润色按钮 */}
       {completingTask && (
         <CompleteTaskModal
           task={completingTask}
@@ -180,6 +185,13 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
           onSave={async (data) => {
             await api.completeTask(completingTask.id, data);
             setCompletingTask(null);
+            // 庆祝 toast: 告知用户沉淀成功 + 跳转到成就库入口 (D 项)
+            const readyAfter = (snapshot?.counts.achievementsReady ?? 0) + 1;
+            toast.success(
+              `🎉 已沉淀 · 成就库累计 ${readyAfter} 个 ready`,
+              "查看成就库",
+              () => router.push("/achievements"),
+            );
             refresh();
           }}
         />
