@@ -32,14 +32,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS：白名单从 COCKPIT_CORS_ORIGINS 读，逗号分隔。
-# 开发默认只允许 Next.js dev server (3000 端口)。
-# Docker 部署时如果前端由 FastAPI 静态服务（同源）不会触发 CORS；
-# 如果加 nginx/反代 把前端/后端分开到不同 origin，需要把反代 origin 加进环境变量。
+# CORS：
+# - 白名单 (allow_origins) 从 COCKPIT_CORS_ORIGINS 读，逗号分隔，prod 严格走这里。
+# - dev 模式额外加 allow_origin_regex 匹配 localhost/127.0.0.1 的任意端口，
+#   解决前端端口不固定（用户可能在 3001/3005 跑别项目，cockpit 切到 3001+）
+#   反复改 CORS 白名单的痛点。dev 放宽到只匹配 loopback, 不暴露外网域名。
+# - Docker 部署时前端由 FastAPI 静态服务（同源）不会触发 CORS；
+#   如果加 nginx/反代 把前端/后端分开到不同 origin，把反代 origin 加进环境变量。
 _cors_origins = [o.strip() for o in settings.cockpit_cors_origins.split(",") if o.strip()]
+_is_dev = settings.cockpit_env == "development"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+" if _is_dev else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
