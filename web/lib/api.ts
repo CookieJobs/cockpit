@@ -302,12 +302,19 @@ export const api = {
     return request<Achievement[]>(`/api/achievements${q ? `?${q}` : ""}`);
   },
 
-  // ===== LLM helpers (2026-07-28 立) =====
+  // ===== LLM helpers (2026-07-28 立, 2026-07-30 加 follow_up_questions) =====
 
   // 把 outcome 润色成 CV 风格的成就陈述 (完成弹窗"✨ 润色"按钮用)
-  // 后端 POST /api/llm/polish_cv: polished=false 表示 LLM 不可用已 fallback
+  // 后端 POST /api/llm/polish_cv:
+  //   - polished=false 表示 LLM 不可用已 fallback
+  //   - follow_up_questions: 当 outcome 信息不够具体时, LLM 主动追问 1-2 个问题
+  //     (2026-07-30 立, 解决"完成 PRD" 类抽象任务"动作≠价值" 痛点)
   polishCv: (taskTitle: string, outcome: string) =>
-    request<{ cv: string; polished: boolean }>("/api/llm/polish_cv", {
+    request<{
+      cv: string;
+      polished: boolean;
+      follow_up_questions?: string[];
+    }>("/api/llm/polish_cv", {
       method: "POST",
       body: JSON.stringify({ task_title: taskTitle, outcome }),
     }),

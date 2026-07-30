@@ -1,25 +1,34 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { X, Sparkles, Check, ChevronDown, Loader2, AlertCircle } from "lucide-react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { X, Sparkles, Check, ChevronDown, Loader2, AlertCircle, MessageCircleQuestion, Plus, RotateCcw } from "lucide-react";
 import type { Task, CVStatus } from "@/lib/api";
 import { api } from "@/lib/api";
+import { classifyTaskTitle, getGuidance, type TaskCategory } from "@/lib/taskGuidance";
 
 /**
- * 完成任务弹窗（v3 — 2026-07-28 砍 4 字段为 1 必填）。
+ * 完成任务弹窗（v4 — 2026-07-30 加任务引导 + AI 追问）。
  *
- * 旧设计 (v1-v2): 4 字段全显示 (outcome / cv / reflection / cv_status)
- *   - 用户反馈: "感觉在写两遍" (outcome + cv 90% 重复)
- *   - 完成时多巴胺峰值, 4 字段问卷最差时机
- *   - 完成价值用户当下看不到, 弹窗变纯成本
+ * 演进历史:
+ *   v1: 4 字段全显示 (outcome / cv / reflection / cv_status) — 完成时摩擦最大
+ *   v2: 折叠 cv_status + reflection
+ *   v3 (2026-07-28): 砍到 1 必填 (outcome) + cv 智能预填 + ✨ 润色按钮
+ *       → 解决"完成时刻摩擦" 痛点 (lesson #14)
+ *   v4 (本次, 2026-07-30): 加"任务标题分类 → 引导卡片 + 动态 placeholder" + "AI 追问 (follow_up_questions)"
+ *       → 解决"动作≠价值" 痛点 (lesson #15):
+ *         用户写"完成 PRD" 这种抽象任务, 不知道怎么产出有价值的 outcome / cv
+ *         新设计:
+ *           - 弹窗根据 task.title 自动分类 (artifact/fix/discussion/research/generic)
+ *           - outcome 下方显示轻量引导卡片 (emoji + label + 4 维度 + 1-2 follow-up chip)
+ *           - outcome placeholder 动态化 (按类型给具体示例)
+ *           - "✨ 润色" 时 LLM 如觉得信息不够, 返 1-2 个追问 questions
+ *           - 追问以 chip 形式展示在 cv 框上方, 用户点 chip 把问题追加到 outcome
+ *             (再点润色, LLM 看到补全的信息会返更好的 cv)
+ *           - 形成"outcome → AI 追问 → 补全 → 再润色" 的对话闭环
  *
- * 新设计 (v3): 主流程只剩 outcome 1 必填
- *   - outcome: 用户填结果描述 (1-2 句)
- *   - cv: 智能预填 `完成「${title}」` + "✨ 润色" 按钮调 LLM 重写
- *     LLM 不可用 / 失败 → 静默 fallback, 不阻塞完成
- *   - reflection + cv_status: 折叠在"高级"区, 默认收起
- *
- * 设计哲学继承: "完成即沉淀" 还在, 只是从"问 4 个字段" 变成"沉淀默认就好, 你想润色再润色"
+ * 哲学:
+ *   弹窗不只是"收集字段", 更是"帮用户回忆价值" 的引导工具。
+ *   用户当下只记得"动作", 弹窗主动给"价值维度" 和"追问", 帮他把动作翻译成价值。
  */
 export function CompleteTaskModal({
   task,
@@ -36,14 +45,26 @@ export function CompleteTaskModal({
     cv_status: CVStatus;
   }) => Promise<void>;
 }) {
+  // 任务分类 + 引导文案 (按 task.title 静态决定, 弹窗打开一次后不变)
+  const taskCategory: TaskCategory = useMemo(
+    () => classifyTaskTitle(task.title),
+    [task.title],
+  );
+  const guidance = useMemo(() => getGuidance(taskCategory), [taskCategory]);
+
   const [outcome, setOutcome] = useState("");
   const [cv, setCv] = useState(`完成「${task.title}」`);
   const [reflection, setReflection] = useState("");
   const [cvStatus, setCvStatus] = useState<CVStatus>("ready");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showGuidance, setShowGuidance] = useState(true); // 引导卡片默认展开, 用户可关
   const [submitting, setSubmitting] = useState(false);
   const [polishing, setPolishing] = useState(false);
   const [polishError, setPolishError] = useState<string | null>(null);
+  // LLM 主动追问 (2026-07-30 立): 信息不够具体时, LLM 返 1-2 个 follow_up_questions
+  const [followUpQuestions, setFollowUpQuestions] = useState<string[]>([]);
+  // outcome 框高亮 (2026-07-30 立, v4.1): 追问 chip 追加后让 outcome 框闪一下, 用户知道追加到了
+  const [outcomeHighlight, setOutcomeHighlight] = useState(false);
   const outcomeRef = useRef<HTMLTextAreaElement>(null);
 
   // 打开时焦点 outcome
@@ -77,6 +98,7 @@ export function CompleteTaskModal({
   };
 
   // ✨ AI 润色: 把 outcome 转成 CV 风格的成就陈述
+  // 2026-07-30 增强: 同时接收 LLM 主动追问的 follow_up_questions
   const polish = async () => {
     if (!outcome.trim()) {
       outcomeRef.current?.focus();
@@ -87,6 +109,8 @@ export function CompleteTaskModal({
     try {
       const res = await api.polishCv(task.title, outcome);
       setCv(res.cv);
+      // 保留 LLM 的追问 (覆盖之前的, 因为是基于新 outcome 重新判断的)
+      setFollowUpQuestions(res.follow_up_questions ?? []);
     } catch (e) {
       // 失败: 保留当前 cv (兜底), 给个轻量提示
       setPolishError(e instanceof Error ? e.message : "润色失败, 保留原文");
@@ -95,6 +119,28 @@ export function CompleteTaskModal({
       setPolishing(false);
     }
   };
+
+  // 把追问追加到 outcome 末尾 (用户填了答案后, 下次润色会拿到更完整的 outcome)
+  const appendFollowUp = (q: string) => {
+    const sep = outcome.trim() ? "\n" : "";
+    const newOutcome = `${outcome}${sep}【${q}】`;
+    setOutcome(newOutcome);
+    setFollowUpQuestions((prev) => prev.filter((item) => item !== q));
+    // 重新 focus outcome 框, 让用户接着打字
+    setTimeout(() => outcomeRef.current?.focus(), 50);
+    // 视觉反馈: outcome 框临时高亮 1.2s, 让用户知道追加成功了 (2026-07-30 立)
+    setOutcomeHighlight(true);
+    setTimeout(() => setOutcomeHighlight(false), 1200);
+  };
+
+  // 重置 CV 框到默认值 (2026-07-30 立, v4.1 UX 残留)
+  // 场景: 用户润色后想看默认 `完成「title」` 兜底, 不用手动删 CV 文本
+  const resetCv = () => {
+    setCv(`完成「${task.title}」`);
+  };
+
+  // CV 是否已经不是默认值 (决定是否显示重置按钮)
+  const isCvModified = cv !== `完成「${task.title}」`;
 
   return (
     <div
@@ -142,27 +188,40 @@ export function CompleteTaskModal({
             ref={outcomeRef}
             value={outcome}
             onChange={(e) => setOutcome(e.target.value)}
-            placeholder="例如：用户反馈登录 bug 已修复，无复现，DAU 提升 5%"
+            placeholder={guidance.placeholder}
             rows={2}
-            className="w-full bg-bg border border-border rounded-md px-3 py-2 text-[14px] text-fg placeholder-fg-muted/60 focus:outline-none focus:border-accent resize-none"
+            className={
+              "w-full bg-bg border rounded-md px-3 py-2 text-[14px] text-fg placeholder-fg-muted/60 focus:outline-none focus:border-accent resize-none transition-colors " +
+              (outcomeHighlight ? "border-accent ring-2 ring-accent/30" : "border-border")
+            }
           />
-        </div>
 
-        {/* CV 区域 — 智能预填 + 一键润色 */}
-        <div className="px-5 pt-3">
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted">
-              CV 成就陈述
-              <span className="ml-2 normal-case font-normal text-fg-muted/70 tracking-normal">
-                动词开头, 含结果/影响
-              </span>
-            </label>
+          {/* ✨ 润色按钮行 (2026-07-30 改位置: 移到 outcome 下方)
+              关键: 按钮要贴着行动目标 outcome, 不是贴着 CV 输出框
+              之前位置 (CV 框旁) 让用户误以为按钮操作 CV, 实际流程是 outcome → CV */}
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="text-[10.5px] text-fg-muted/80 flex items-center gap-1">
+              <span aria-hidden>↓</span>
+              <span>改写成下方 CV 框</span>
+              {!outcome.trim() && (
+                <span className="text-fg-muted/60">· 先填结果描述</span>
+              )}
+            </span>
             <button
               type="button"
               onClick={polish}
               disabled={polishing || !outcome.trim()}
-              className="text-[11px] px-2 py-0.5 rounded bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1"
-              title="让 AI 把结果描述改写成简历级别的成就陈述"
+              className={
+                "text-[11px] px-2.5 py-1 rounded transition flex items-center gap-1 " +
+                (polishing || !outcome.trim()
+                  ? "bg-bg-tertiary text-fg-muted cursor-not-allowed"  // disabled: 灰底灰字, 强对比
+                  : "bg-accent/15 text-accent hover:bg-accent/25")  // enabled: accent 色调
+              }
+              title={
+                outcome.trim()
+                  ? "基于「结果描述」润色成下方 CV 框"
+                  : "先在「结果描述」框写点东西才能润色"
+              }
             >
               {polishing ? (
                 <>
@@ -177,12 +236,114 @@ export function CompleteTaskModal({
               )}
             </button>
           </div>
+        </div>
+
+        {/* 任务引导卡片 (2026-07-30 立, lesson #15):
+            按 task.title 分类, 给用户"价值维度" 提示, 帮用户回忆动作背后的价值 */}
+        {showGuidance && (
+          <div className="px-5 pt-2.5">
+            <div className="rounded-md bg-accent/5 border border-accent/20 px-3 py-2.5">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="text-[11px] text-fg-secondary flex items-center gap-1.5">
+                  <span className="text-[13px] leading-none">{guidance.emoji}</span>
+                  <span className="font-medium">{guidance.label}</span>
+                  <span className="text-fg-muted">· 试试从这些角度写</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowGuidance(false)}
+                  className="text-fg-muted hover:text-fg p-0.5 rounded transition"
+                  title="隐藏引导"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {guidance.dimensions.map((dim) => (
+                  <span
+                    key={dim}
+                    className="text-[10.5px] px-1.5 py-0.5 rounded bg-bg/60 border border-border text-fg-muted"
+                  >
+                    {dim}
+                  </span>
+                ))}
+              </div>
+              <div className="text-[10.5px] text-fg-muted mt-1.5">
+                写不出来？点上方「结果描述」旁的 ✨ 润色，AI 会主动问你几个关键问题。
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* LLM 主动追问 (2026-07-30 立, lesson #15):
+            polish 完后, 如果 LLM 觉得 outcome 不够具体, 会返 1-2 个追问.
+            点 chip 把问题追加到 outcome 末尾, 用户填答案后下次润色会拿到更完整的 cv. */}
+        {followUpQuestions.length > 0 && (
+          <div className="px-5 pt-2.5">
+            <div className="rounded-md bg-info/10 border border-info/30 px-3 py-2.5">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="text-[11px] text-info font-medium flex items-center gap-1.5">
+                  <MessageCircleQuestion size={12} />
+                  AI 想问你几个问题帮你补全 (点追加到结果描述)
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFollowUpQuestions([])}
+                  className="text-fg-muted hover:text-fg p-0.5 rounded transition"
+                  title="收起追问"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {followUpQuestions.map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => appendFollowUp(q)}
+                    className="text-[11px] px-2 py-1 rounded bg-bg border border-info/30 text-info hover:bg-info/15 transition flex items-center gap-1"
+                  >
+                    <Plus size={9} />
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* CV 区域 — AI 润色结果 (输出, 不是输入) */}
+        <div className="px-5 pt-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted">
+              CV 成就陈述
+              <span className="ml-2 normal-case font-normal text-fg-muted/70 tracking-normal">
+                AI 润色结果 · 可手动改
+              </span>
+            </label>
+            {/* 重置按钮: 仅在 cv 已被修改时显示 (2026-07-30 立, v4.1 UX 残留) */}
+            {isCvModified && (
+              <button
+                type="button"
+                onClick={resetCv}
+                className="text-[10.5px] text-fg-muted hover:text-fg-secondary flex items-center gap-1 transition"
+                title="重置 CV 到默认值 「完成「${task.title}」」"
+              >
+                <RotateCcw size={10} />
+                重置
+              </button>
+            )}
+          </div>
           <textarea
             value={cv}
             onChange={(e) => setCv(e.target.value)}
             rows={2}
             className="w-full bg-bg border border-border rounded-md px-3 py-2 text-[13px] text-fg-secondary placeholder-fg-muted/60 focus:outline-none focus:border-accent resize-none"
-            placeholder="例如：定位并修复高优先级登录鉴权 bug, 消除用户阻塞, DAU 提升 5%"
+            placeholder={
+              outcome.trim()
+                ? "例如：定位并修复高优先级登录鉴权 bug, 消除用户阻塞, DAU 提升 5%"
+                : "先在上方「结果描述」框写点东西，然后点上方「润色」让 AI 帮你改写"
+            }
           />
           {polishError && (
             <div className="mt-1.5 text-[11px] text-warning flex items-center gap-1">

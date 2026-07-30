@@ -115,3 +115,42 @@
   - **错误信息检测内容类型** — `res.text()` 拿到 HTML 还是 JSON 是**重要诊断信号**。检测到 HTML 应该截短 + 提示"是不是打错端口了"，而不是整个塞错误信息
   - **"前端用相对路径" 的隐患** — `fetch("/api/x")` 在 next dev 里**不会自动代理到后端**，也不会报错。如果你想让前端代码"零配置"工作，要么配 `API_BASE` 默认值，要么在 next.config.js 里写 `rewrites()` 代理
 - **修法位置**：`web/lib/api.ts:5`（默认值）、`web/lib/api.ts:15`（HTML 检测）、`web/.env.example`（新）、`scripts/setup.sh` `[5/5]` 步骤
+
+## #16. `next build` 污染 dev server 的 `.next/` → 样式全丢（修于 2026-07-30）
+
+- **症状**：用户报"前端样式丢了"——截图显示所有 Tailwind 类（`bg-bg-secondary`、`text-fg`、`flex`、`rounded-2xl` 等）都没生效，按钮/链接/textarea 全是默认浏览器样式。**功能正常但视觉炸了**。
+- **背景**：
+  - 同一时刻 dev server（`next dev -p 3002`，PID 1627）在跑，监听 3002
+  - 我为跑回归验证执行了 `next build`（项目是 `output: 'export'` 模式）
+  - 修完代码后用户刷新浏览器 → 样式全没
+- **调查 + 根因**（三步定位）：
+  1. **curl 拿 dev server 渲染的 HTML 看一下** — 完美，所有 Tailwind 类都在 DOM 里（`bg-bg text-fg`、`flex h-screen bg-bg` 等）
+  2. **HTML `<link>` 指向 dev 模式 CSS 路径** — `/_next/static/css/app/layout.css?v=...`
+  3. **看磁盘 `.next/static/css/`** — 目录里有 CSS 文件，但**只有 `5e0ce4a6a9b5f352.css` 这种 hash 命名的 build 产物**，**没有 dev 期望的 `app/layout.css`**！
+- **根因**：
+  - `next dev` 跟 `next build` 用**同一个** `.next/` 目录
+  - dev 模式：CSS 路径是 `app/layout.css`、`app/page.css`（按页面 chunk 切分）
+  - build 模式 + `output: 'export'`：CSS 路径是 `5e0ce4a6a9b5f352.css`（按内容 hash 切分，缓存友好）
+  - 我跑 `next build` → build 用自己的 CSS 命名写进 `.next/` → 覆盖了 dev server 原本生成的 CSS
+  - dev server 进程没死、内存里还是老状态，但磁盘上 dev 期望的路径文件没了 → 浏览器请求 `/_next/static/css/app/layout.css` → 404 → 样式全丢
+  - 后续 dev server 自己也因为 `.next/` 状态错乱进了 500（curl 拿不到 HTML）
+- **错误的修法路径**（试过错的才意识到对）：
+  1. ❌ 只删 `.next/` 让 dev server 自动重建 — dev server 状态已错乱，重建后还是 500
+  2. ❌ `touch` 源文件触发 HMR — 没用，dev server 已经是 500 状态
+  3. ✅ Kill dev server 进程 + 删 `.next/` 跟 `out/` + 重启 dev server + 启动后端
+- **修复后**：
+  - dev server 重启 (PID 7729) → 第一次请求触发 `.next/` 重新生成 → 磁盘上有 `app/layout.css` 跟 `app/page.css` 正确路径
+  - curl `/api/llm/status` 200 OK（后端在 PID 7728/7731，端口 7842）
+  - 用户 hard refresh (Cmd+Shift+R) 浏览器 → 样式回归
+- **教训**：
+  - **跑回归验证不需要 `next build`** — `tsc --noEmit` 已经能验证 TypeScript 类型。`next build` 是端到端验证（包含构建产物），但**它的产物会污染 dev server 的 `.next/`**，而且 dev server 用的也是同名目录
+  - **dev 跟 build 不共存于同一 `.next/`** — 任何想同时 dev + 验证 build 的需求，必须用独立目录（`next build --distDir .next-build` 或 `BUILD_DIR` 环境变量）。Cockpit 现阶段没这个需求，**避免用 build 验证 = 避免这个坑**
+  - **"进程在但 500" 状态是 build 污染 dev 的常见症状** — 进程没死、端口在 LISTEN，但 curl 返 500。遇到这种"进程活但服务死" 状态，**优先怀疑 `.next/` 跟 `node_modules` 的中间状态**，不要假设是代码 bug
+  - **看到样式丢第一件事 = curl 拿 HTML 看 `<link>` 路径** — 不要立刻看 CSS 类有没有打对。先看浏览器请求什么路径、磁盘上有什么文件、dev server 期望什么路径 —— 三者对齐是定位的关键
+  - **lesson #8 "Python 3.11 + greenlet" 同源教训**: "测试流程不能影响开发环境"。这次的版本是"回归验证流程影响了用户的 dev 环境"，根因都是"两个流程用同一个共享状态没隔离"
+- **预防 check-list**（跑代码验证前先看）：
+  - [ ] 用户/同事的 dev server 在跑吗？ — 跑着就别 `next build`，只 `tsc --noEmit`
+  - [ ] 真的需要验证构建产物吗？ — 大多数情况不需要
+  - [ ] 如果必须 build 验证，用 `--distDir` 隔离 — `next build --distDir .next-build`
+  - [ ] build 完清理 build 产物 — `mavis-trash .next out` (但注意不能清 dev 用的 .next)
+- **修法位置**：根因不在项目代码，在**我的工作流程**。需要的是流程纪律，不是修代码。

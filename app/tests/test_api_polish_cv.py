@@ -187,3 +187,349 @@ async def test_polish_cv_empty_outcome_string_returns_422(client: TestClient):
         json={"task_title": "X", "outcome": ""},
     )
     assert res.status_code == 422
+
+
+# ===== follow_up_questions (2026-07-30 立, lesson #15) =====
+#
+# 新设计: LLM 必要时返 JSON {cv, follow_up_questions}
+# - 信息够具体: questions=[]
+# - 信息太抽象: questions=[1-2 个针对任务标题的追问]
+# - 鲁棒性: JSON 解析失败走老路径 (整段当 cv + questions=[])
+
+
+@pytest.mark.asyncio
+async def test_polish_cv_llm_returns_json_with_questions(client: TestClient):
+    """LLM 严格返 JSON 含 follow_up_questions → response 透传 questions 字段。"""
+    mock_client = AsyncMock()
+    mock_client.chat = AsyncMock(
+        return_value=LLMResponse(
+            stop_reason="end_turn",
+            text='{"cv": "输出 App 改版 PRD，覆盖 18 个核心场景", "follow_up_questions": ["这份是给谁看的？", "评审结果怎么样？"]}',
+        )
+    )
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
+        res = client.post(
+            "/api/llm/polish_cv",
+            json={"task_title": "完成 PRD", "outcome": "完成 PRD"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["polished"] is True
+    assert "PRD" in body["cv"]
+    assert body["follow_up_questions"] == ["这份是给谁看的？", "评审结果怎么样？"]
+
+
+@pytest.mark.asyncio
+async def test_polish_cv_llm_json_with_no_questions_when_info_enough(client: TestClient):
+    """LLM 返 JSON 但 follow_up_questions=[] (信息够了) → response questions=[]。"""
+    mock_client = AsyncMock()
+    mock_client.chat = AsyncMock(
+        return_value=LLMResponse(
+            stop_reason="end_turn",
+            text='{"cv": "定位并修复高优先级登录鉴权 bug，影响 5% DAU 用户，2 小时内解决", "follow_up_questions": []}',
+        )
+    )
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
+        res = client.post(
+            "/api/llm/polish_cv",
+            json={"task_title": "修 bug", "outcome": "修了登录 bug，影响 5% DAU，2 小时内解决"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["polished"] is True
+    assert body["follow_up_questions"] == []
+
+
+@pytest.mark.asyncio
+async def test_polish_cv_llm_json_codeblock_wrapper_parsed(client: TestClient):
+    """LLM 返 ```json ... ``` markdown 代码块包装 → 鲁棒解析成功。"""
+    mock_client = AsyncMock()
+    mock_client.chat = AsyncMock(
+        return_value=LLMResponse(
+            stop_reason="end_turn",
+            text='```json\n{"cv": "输出 PRD 覆盖 18 个核心场景", "follow_up_questions": ["给谁看？"]}\n```',
+        )
+    )
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
+        res = client.post(
+            "/api/llm/polish_cv",
+            json={"task_title": "完成 PRD", "outcome": "做完了"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["polished"] is True
+    assert "PRD" in body["cv"]
+    assert body["follow_up_questions"] == ["给谁看？"]
+
+
+@pytest.mark.asyncio
+async def test_polish_cv_llm_plain_text_falls_back_to_legacy_path(client: TestClient):
+    """LLM 返纯文本 (老格式 / 不严格 JSON) → 整段当 cv + questions=[] 老路径。"""
+    mock_client = AsyncMock()
+    mock_client.chat = AsyncMock(
+        return_value=LLMResponse(
+            stop_reason="end_turn",
+            text="定位并修复高优先级登录鉴权 bug, 消除用户阻塞, DAU 提升 5%",  # 没 JSON 包装
+        )
+    )
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
+        res = client.post(
+            "/api/llm/polish_cv",
+            json={"task_title": "登录 bug", "outcome": "修了"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["polished"] is True
+    # 老路径: 整段当 cv
+    assert "登录" in body["cv"]
+    # questions 必为空 (老格式不返 questions, 不能编)
+    assert body["follow_up_questions"] == []
+
+
+@pytest.mark.asyncio
+async def test_polish_cv_llm_json_with_empty_cv_falls_back_to_legacy(client: TestClient):
+    """LLM 返 JSON 但 cv 字段为空 → 走老路径 (整段当 cv), questions=[]。"""
+    mock_client = AsyncMock()
+    mock_client.chat = AsyncMock(
+        return_value=LLMResponse(
+            stop_reason="end_turn",
+            text='{"cv": "", "follow_up_questions": ["问1"]}',
+        )
+    )
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
+        res = client.post(
+            "/api/llm/polish_cv",
+            json={"task_title": "X", "outcome": "做完了"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    # cv 解析失败 (空字符串) → 走老路径: 整段当 cv, polished=True
+    assert body["polished"] is True
+    # 老路径不返 questions
+    assert body["follow_up_questions"] == []
+
+
+@pytest.mark.asyncio
+async def test_polish_cv_no_llm_returns_empty_questions(client: TestClient):
+    """无 LLM (无 API key) → fallback + questions 必为空数组。"""
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=None)):
+        res = client.post(
+            "/api/llm/polish_cv",
+            json={"task_title": "完成 PRD", "outcome": "做完了"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["polished"] is False
+    assert body["cv"] == "完成「完成 PRD」"
+    # fallback 路径: 必返空数组, 关键不变量 (前端 followUpQuestions.length > 0 判断依赖)
+    assert body["follow_up_questions"] == []
+
+
+@pytest.mark.asyncio
+async def test_polish_cv_llm_exception_returns_empty_questions(client: TestClient):
+    """LLM 抛异常 → fallback + questions=[] (不抛 500, 不污染主流程)。"""
+    mock_client = AsyncMock()
+    mock_client.chat.side_effect = RuntimeError("network down")
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
+        res = client.post(
+            "/api/llm/polish_cv",
+            json={"task_title": "X", "outcome": "做完了"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["polished"] is False
+    assert body["follow_up_questions"] == []
+
+
+@pytest.mark.asyncio
+async def test_polish_cv_llm_response_always_has_follow_up_questions_field(client: TestClient):
+    """response schema 不变量: 无论什么路径 (fallback / 异常 / LLM 正常), follow_up_questions 字段必存在。"""
+    # 路径 1: fallback
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=None)):
+        res = client.post("/api/llm/polish_cv", json={"task_title": "X", "outcome": "Y"})
+        assert "follow_up_questions" in res.json()
+        assert isinstance(res.json()["follow_up_questions"], list)
+
+    # 路径 2: LLM 异常
+    mock_client = AsyncMock()
+    mock_client.chat.side_effect = RuntimeError("err")
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
+        res = client.post("/api/llm/polish_cv", json={"task_title": "X", "outcome": "Y"})
+        assert "follow_up_questions" in res.json()
+        assert isinstance(res.json()["follow_up_questions"], list)
+
+    # 路径 3: LLM 正常
+    mock_client2 = AsyncMock()
+    mock_client2.chat = AsyncMock(
+        return_value=LLMResponse(stop_reason="end_turn", text='{"cv": "X", "follow_up_questions": []}')
+    )
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client2)):
+        res = client.post("/api/llm/polish_cv", json={"task_title": "X", "outcome": "Y"})
+        assert "follow_up_questions" in res.json()
+        assert isinstance(res.json()["follow_up_questions"], list)
+
+
+@pytest.mark.asyncio
+async def test_polish_cv_questions_max_length_capped_at_3(client: TestClient):
+    """follow_up_questions 超过 3 个时, 截断到 3 (schema 限制 + 防止 LLM 啰嗦)。"""
+    mock_client = AsyncMock()
+    mock_client.chat = AsyncMock(
+        return_value=LLMResponse(
+            stop_reason="end_turn",
+            text='{"cv": "X", "follow_up_questions": ["q1", "q2", "q3", "q4", "q5"]}',
+        )
+    )
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
+        res = client.post("/api/llm/polish_cv", json={"task_title": "X", "outcome": "Y"})
+    assert res.status_code == 200
+    body = res.json()
+    # max_length=3 截断
+    assert len(body["follow_up_questions"]) <= 3
+
+
+# ===== 2026-07-30 lesson #16 衍生: M3 / DeepSeek R1 / reasoning model 适配 =====
+#
+# 用户实测 MiniMax-M3 LLM 返 "<think>...</think>" CoT 前缀, 我们的 _parse_llm_json_output
+# 没处理这种情况, 导致 follow_up_questions 永远空数组, 追问卡片前端不显示.
+# 修复: 加 <think> 剥离 + 平衡大括号 JSON 块提取.
+
+
+@pytest.mark.asyncio
+async def test_polish_cv_strips_think_block_and_parses_json(client: TestClient):
+    """LLM 返 <think>...</think> CoT + 紧跟 JSON → 剥 CoT 后解析成功, follow_up_questions 透传."""
+    mock_client = AsyncMock()
+    mock_client.chat = AsyncMock(
+        return_value=LLMResponse(
+            stop_reason="end_turn",
+            text=(
+                "<think>The user gave a very abstract outcome '做完了'. "
+                "I should ask 2 follow-up questions specific to '完成 PRD' task type.</think>"
+                '{"cv": "完成「完成 PRD」", "follow_up_questions": ["这份是给谁看的？", "评审结果怎么样？"]}'
+            ),
+        )
+    )
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
+        res = client.post(
+            "/api/llm/polish_cv",
+            json={"task_title": "完成 PRD", "outcome": "做完了"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["polished"] is True
+    # 关键: cv 不应该含 <think>, 应该是解析后的 JSON cv
+    assert "<think>" not in body["cv"]
+    assert body["cv"] == "完成「完成 PRD」"
+    # 关键: 追问真的传出来了 (这是用户看不到效果的根因)
+    assert body["follow_up_questions"] == ["这份是给谁看的？", "评审结果怎么样？"]
+
+
+@pytest.mark.asyncio
+async def test_polish_cv_think_block_with_natural_language_prefix(client: TestClient):
+    """LLM 返: 自然语言 + <think> + JSON → 全部清洗后解析成功."""
+    mock_client = AsyncMock()
+    mock_client.chat = AsyncMock(
+        return_value=LLMResponse(
+            stop_reason="end_turn",
+            text=(
+                "好的, 让我分析一下这个任务。\n"
+                "<think>The outcome is abstract, need follow-ups.</think>\n"
+                '这是我的润色结果: {"cv": "修复登录 bug 影响 5% DAU", "follow_up_questions": []}'
+            ),
+        )
+    )
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
+        res = client.post(
+            "/api/llm/polish_cv",
+            json={"task_title": "修 bug", "outcome": "修了登录 bug, 影响 5% DAU"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["polished"] is True
+    assert "<think>" not in body["cv"]
+    assert "好的" not in body["cv"]
+    assert "润色结果" not in body["cv"]
+    assert body["cv"] == "修复登录 bug 影响 5% DAU"
+    assert body["follow_up_questions"] == []
+
+
+@pytest.mark.asyncio
+async def test_polish_cv_realistic_m3_response_with_think_block(client: TestClient):
+    """模拟用户真实场景: MiniMax-M3 实际会返的格式."""
+    mock_client = AsyncMock()
+    # 这是用户实际从后端 curl 拿到的格式 (复刻)
+    realistic_text = (
+        "<think>The user provided a task title \"完成 PRD\" and result description "
+        "\"做完了\". This is clearly too abstract - just \"做完了\" (done) doesn't tell "
+        "me anything about who it was for, what impact it had. I need to ask follow-up "
+        "questions. Let me also provide a fallback CV.</think>"
+        '{"cv": "完成「完成 PRD」", "follow_up_questions": ["这份 PRD 是给谁看的？", "评审结果怎么样？"]}'
+    )
+    mock_client.chat = AsyncMock(
+        return_value=LLMResponse(stop_reason="end_turn", text=realistic_text)
+    )
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
+        res = client.post(
+            "/api/llm/polish_cv",
+            json={"task_title": "完成 PRD", "outcome": "做完了"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["polished"] is True
+    # 端到端验证: 这是前端能看到的效果
+    assert "<think>" not in body["cv"]
+    assert len(body["follow_up_questions"]) > 0, (
+        "用户原话: '看不出效果来' — 修复后追问应该真的传出来, "
+        "前端 followUpQuestions.length > 0 应该渲染追问卡片"
+    )
+
+
+@pytest.mark.asyncio
+async def test_polish_cv_natural_language_only_no_json_legacy_path(client: TestClient):
+    """LLM 完全不返 JSON, 只返自然语言 → 走老路径 (整段当 cv + questions=[])."""
+    mock_client = AsyncMock()
+    mock_client.chat = AsyncMock(
+        return_value=LLMResponse(
+            stop_reason="end_turn",
+            text="定位并修复高优先级登录鉴权 bug, 消除用户阻塞, DAU 提升 5%",
+        )
+    )
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
+        res = client.post(
+            "/api/llm/polish_cv",
+            json={"task_title": "登录 bug", "outcome": "修了"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["polished"] is True
+    assert "登录" in body["cv"]
+    # 老路径不返 questions
+    assert body["follow_up_questions"] == []
+
+
+@pytest.mark.asyncio
+async def test_polish_cv_think_block_with_no_json_falls_back_to_legacy(client: TestClient):
+    """LLM 只返 <think> (没配 JSON) → 剥 <think> 后空, 走老路径, 但要返回纯文本兜底."""
+    mock_client = AsyncMock()
+    mock_client.chat = AsyncMock(
+        return_value=LLMResponse(
+            stop_reason="end_turn",
+            text=(
+                "<think>The user wants me to polish a CV. "
+                "I should focus on the action verb and quantified impact. "
+                "Let me write something good.</think>"
+            ),
+        )
+    )
+    with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
+        res = client.post(
+            "/api/llm/polish_cv",
+            json={"task_title": "X", "outcome": "做完了"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    # 剥完 <think> 啥都没了, cv 解析失败 → 走老路径 (整段空当 cv, strip 后空)
+    # 但要 polished=False (因为没有有效 cv)
+    # 实际行为: 整段 strip 后空, 走 fallback
+    assert body["cv"] == "完成「X」"
+    assert body["polished"] is False
+    assert body["follow_up_questions"] == []

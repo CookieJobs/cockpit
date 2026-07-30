@@ -33,6 +33,8 @@
 | 12 | 整行 click = 完成 反直觉 (v2 推翻) | [01-frontend-ux-bugs.md](./docs/lessons/01-frontend-ux-bugs.md) |
 | 13 | ChatWindow 顶层 loading 跟消息气泡"思考中"重复 | [01-frontend-ux-bugs.md](./docs/lessons/01-frontend-ux-bugs.md) |
 | 14 | 完成弹窗 4 字段问卷摩擦 → 砍到 1 必填 + 智能润色 + toast 庆祝 | [01-frontend-ux-bugs.md](./docs/lessons/01-frontend-ux-bugs.md) |
+| 15 | 完成弹窗「动作≠价值」— 抽象任务不会写 → 任务标题分类引导 + AI 追问 | [01-frontend-ux-bugs.md](./docs/lessons/01-frontend-ux-bugs.md) |
+| 16 | `next build` 污染 dev server `.next/` → 样式全丢 → 跑回归用 tsc 不要用 build | [03-fastapi-and-tooling.md](./docs/lessons/03-fastapi-and-tooling.md) |
 
 新增 lessons 写到 `docs/lessons/` 对应主题文件, AGENTS.md 入口只放索引（保持主文件轻量）。
 
@@ -766,4 +768,187 @@ Agent 工具能改的 task 字段 (`app/llm/tools.py:139-175 tool_update_task`):
 | 撤销 | `undoAchievement` | ✅ | ✅ |
 
 **回归**: 200 → **212** tests pass (+12: 项目级聚合 / emoji / 三态计数 / 排序 / 二级日期 / 折叠持久化 / 4 字段保留 / 状态过滤 / 空状态 / 防回退 12 条不变量). `tsc --noEmit` 0 错误. `npm run build` 10/10 静态页导出通过. 改动 1 前端文件 (完全重写) + 1 测试文件 (新), 净 +约 350 行, 用户视觉上的"扁平时间线 + 装饰徽章" 变成 "项目维度聚合 + 内嵌升级按钮"。
+
+## Changelog: 2026-07-30 完成弹窗 v4 — 任务引导卡片 + AI 追问 (动作≠价值 解药)
+
+用户原话 (2026-07-29 23:50): "如果我在项目中的一个任务是「完成 PRD」, 那么我的「结果描述」以及「CV 成就陈述」要怎么写呢?"
+
+### 调查 + 根因
+
+lesson #14 (2026-07-28) 把完成弹窗砍到 1 必填 + 智能预填 + 润色按钮, 解决了"完成时刻摩擦大"。但**新痛点浮出水面**: "摩擦没了, 但用户还是不会写" — outcome 写啥? cv 写啥? "任务标题已经说了啊"
+
+**根因 — "动作 ≠ 价值" 认知错位**:
+- 任务标题 = 动作 (写 PRD / 修 bug / 开会)
+- outcome / cv = 价值 (为 X 团队输出 PRD 覆盖 18 个场景 / 修复 bug 影响 5% DAU / 推动 5 个决策)
+- **用户当下大脑卡在"动作记忆"**, 调不出"为什么有价值" 的价值记忆
+- 弹窗只"收集字段" 不"帮用户回忆价值" — 1 个 textarea 等用户主动写, 跟"认知科学 recall > recognition 难 10 倍" 撞
+- placeholder 给"修 bug" 示例 → "写 PRD" 用户看了心想"我又不是修 bug" → 自我怀疑 + 摩擦叠加
+- LLM 润色拿到 1-2 字抽象 outcome, 即便尽力润色也只能返 `完成「title」` 兜底, 因为**没追问机制**主动问"给谁看 / 解决什么"
+
+**取舍**: 旧 lesson #14 "降级" (4 字段 → 1 字段) 是对的方向, 但光降级不够, **要再加 2 件事**:
+1. **任务标题分类 → 引导卡片** (前端, 纯函数) — 给"识别型" 提示, 帮用户从 4 维度里挑
+2. **AI 追问** (后端 prompt + 前端 chip) — 让 LLM 主动问 1-2 个关键问题, 形成"outcome → 追问 → 补全 → 再润色" 对话闭环
+
+### 改动
+
+| # | 项 | 位置 | 备注 |
+|---|---|---|---|
+| 1 | **新建 `web/lib/taskGuidance.ts`** | 新文件 | 5 类 (artifact/fix/discussion/research/generic) × 5 字段 (emoji/label/4 dimensions/placeholder/2-3 followUps). 纯前端函数 `classifyTaskTitle(title)` |
+| 2 | **CompleteTaskModal v4 改造** | `web/components/CompleteTaskModal.tsx` | outcome 下方加引导卡片 (默认展开可关) + 动态 placeholder + 追问 chip + `appendFollowUp` 函数 |
+| 3 | **后端 `polish_cv` 端点增强** | `app/api/llm.py` | prompt 让 LLM 必要时返 JSON `{cv, follow_up_questions}`, 加 `_parse_llm_json_output` 鲁棒解析 (严格 JSON / ``` 包装 / 纯文本 3 路径) |
+| 4 | **后端 `PolishCvResponse` schema 加 `follow_up_questions`** | 同上 | `list[str] = Field(default_factory=list, max_length=3)`, fallback 路径也返空数组 (前端 `length > 0` 判断依赖此不变量) |
+| 5 | **前端 `api.polishCv` 类型同步** | `web/lib/api.ts` | 返回类型加 `follow_up_questions?: string[]` |
+| 6 | **后端测试 9 条新增** | `app/tests/test_api_polish_cv.py` | JSON 含 questions / 空 questions / ``` 包装解析 / 纯文本 fallback / 空 cv fallback / 字段必存在 (3 路径) / max 3 截断 / 异常 / 无 LLM |
+| 7 | **前端不变量 9 条新增** | `app/tests/test_complete_modal_minimal_invariants.py` | import taskGuidance / 分类调用 / placeholder 动态 / 引导卡片 / 追问保存 / 追问渲染 / appendFollowUp / 5 类覆盖 / PRD 关键词识别 |
+| 8 | **lesson #15 立** | `docs/lessons/01-frontend-ux-bugs.md` | "完成弹窗「动作≠价值」— 抽象任务不会写" |
+
+### 设计决定记录
+
+**A. 引导卡片位置 (outcome 下方) vs 标题区 (顶部)**
+
+- 顶部: 显眼, 但挡视线, 用户还没填 outcome 就被一堆提示打脸
+- 下方: 填到一半时**自然看到** — 用户最需要提示的时刻 = 正在写但卡住的时刻
+- 选下方: 跟 2026-07-20 /today 晨间 ritual 的"做之前想清楚" 哲学一致
+
+**B. 引导卡片默认展开 vs 默认折叠**
+
+- 折叠: 干净, 但用户不知道有这玩意儿, 等于没做
+- 选展开: 首次打开弹窗时**主动推** 4 维度, 用户不想看可一键关 (`showGuidance` state)
+- lesson: **教育型 UI 的关键 = 主动推** — 用户不知道有更好方法时, 默认隐藏 = 等于没做
+
+**C. 5 类任务 vs 10+ 细类**
+
+- 10+ 细类: 分类准, 但维护成本爆炸 (每类要写 placeholder + 维度 + 追问), 关键词撞规则难调
+- 选 5 类: artifact / fix / discussion / research + generic 兜底, 覆盖 Cockpit 实际 80% 任务
+- generic 兜底避免"分类失败" 把弹窗搞复杂, 用户用 generic 也能拿到通用引导
+
+**D. 后端追问 vs 前端追问**
+
+- 前端追问: 纯前端函数, 无 LLM 依赖, 但追问是"硬编码模板" — 跟任务标题/项目上下文无关
+- 选后端追问: LLM 看到 task_title + outcome 后能**生成针对性追问** ("完成 PRD" → "给谁看？评审结果？" 不是泛泛"补充细节"), 质量高一个量级
+- lesson: **AI 增强型追问 = 跟任务上下文强相关**, 硬编码模板永远追不上 LLM 实际用法
+
+**E. JSON 严格格式 vs 鲁棒解析**
+
+- 严格: LLM 必须返 JSON, 否则 422/500. 但 LLM 不一定严格返 (有时返 ```json 包装, 有时返纯文本)
+- 选鲁棒: `_parse_llm_json_output` 处理 3 种情况. 纯文本走老路径 (整段当 cv + questions=[]), 不破坏现有 LLM 行为
+- lesson: **AI 输出的鲁棒性设计 = 永远有"老路径" 兜底** — 这次 LLM 严格返 JSON 是新能力, 但纯文本兜底是底线, 两条路径都要测
+
+**F. 追问 chip 点追加 (用户回答) vs 追问 chip 点直接生成答案**
+
+- 追问 = 补全 outcome 的种子, 不是答案本身 — 用户应该自己写答案
+- 选追加: 点 chip 把 "【这份是给谁看的？】" 追加到 outcome 末尾, 用户接着打字 "给产品/设计/开发三方"
+- 如果点 chip 直接生成答案, 容易变 LLM 替用户编数据 (违反"事实原则" — 不编数据/影响)
+- lesson: **追问机制 ≠ 答案机制** — AI 提问, 人回答, 保持"事实来自用户" 的不变量
+
+**G. 追问卡片位置 (cv 框上方) vs 弹窗顶部**
+
+- 顶部: 跟引导卡片撞, 用户被两次提示夹击
+- cv 框上方: 上下文正确 (用户在准备润色时看到追问) — **追问只在 polish 完之后才出现**, 时机刚好
+- 选 cv 框上方: 跟"主动推 + 时机" 一致 — 引导卡片主动推 (用户还没填), 追问卡片时机推 (用户刚润色完)
+
+### 字段表 (v4 改造后的弹窗)
+
+| 区域 | 旧 v3 (2026-07-28) | 新 v4 (2026-07-30) | 变化 |
+|---|---|---|---|
+| outcome placeholder | 硬编码 "用户反馈登录 bug 已修复..." | 动态 `guidance.placeholder` (按任务类型) | **类型感知** |
+| 引导卡片 | 无 | outcome 下方, 5 类 emoji + label + 4 维度 chip | **新加** |
+| AI 追问 | 无 | cv 框上方, follow_up_questions 渲染为可点 chip | **新加** |
+| appendFollowUp | 无 | 点追问 chip → 追加到 outcome 末尾 + 消费追问 | **新加** |
+| 后端 prompt | 纯文本润色 | JSON {cv, follow_up_questions} | **结构化** |
+| response schema | {cv, polished} | {cv, polished, follow_up_questions} | **新字段** |
+
+**回归**: 212 → **234** tests pass (+22: 9 后端 polish_cv + 9 modal 不变量 + 4 taskGuidance 静态). `tsc --noEmit` 0 错误. `npm run build` 10/10 静态页导出通过. 改动 1 后端 + 1 新前端文件 + 2 改前端文件 + 2 改测试 + 1 新 lesson, 净 +约 700 行, 用户视觉上的"4 字段问卷" 变成 "1 必填 + 任务类型引导 + 智能追问 + 再润色 对话闭环"。
+
+## Changelog: 2026-07-30 完成弹窗 v4.1 — 按钮位置 UX + 分类器盲点修复 (用户实测 4 轮反馈)
+
+用户原话 (2026-07-30 上午): "润色按钮会让用户以为润色的目标是「CV」而不是「结果描述」" + "修登录鉴权 bug" 走 generic 引导（lesson #15 盲点）。
+
+### 调查 + 根因
+
+**问题 1：按钮位置 UX 反模式**
+
+- 旧设计：润色按钮在 CV 框**右侧**（"CV 成就陈述  动词开头, 含结果/影响 [...] [✨ 润色]"）
+- 用户认知：按钮 = 操作 CV 框（视觉上贴着 CV）
+- 实际行为：润色流程是 **outcome → CV**（读 outcome 写 CV，按钮的实际目标是 outcome）
+- 冲突：用户点按钮期待看到"CV 框变化"，但实际看到的是"outcome 末尾追加追问"——按钮位置和按钮目标不一致，UX 反模式
+
+**问题 2：分类器盲点（lesson #15 单测通过但真实数据失败）**
+
+- 用户实测任务：修登录鉴权 bug / 写完 Q3 述职草稿 / 周末写小红书选题 / 写周报 / 整理述职材料
+- 旧 fix 正则要"修复/修好/修完" 复合词，**单独的"修"字**漏匹配
+- 旧 artifact 正则只覆盖"PRD/文档/PPT"等明确制品词，**"周报/选题/材料"**漏匹配
+- **\b 在中文里不工作**：`/\b修\b.../i` 跟 "修线上问题" 中间隔了字符时不匹配
+- 旧 discussion 关键词"述职"导致 "整理述职材料" 误走 discussion（artifact 应该优先）
+
+**问题 3：润色按钮 disabled 视觉太弱**
+
+- 旧：`disabled:opacity-40` × `bg-accent/15` ≈ 6% 透明——视觉上跟 enabled 几乎一样
+- 用户看不出来按钮是灰的
+
+### 改动
+
+| # | 项 | 位置 | 备注 |
+|---|---|---|---|
+| 1 | **润色按钮位置改** | `web/components/CompleteTaskModal.tsx` | 从 CV 框旁 → outcome 框**下方**（紧贴行动目标） |
+| 2 | **加流向提示** | 同上 | 按钮行左侧 "↓ 改写成下方 CV 框 · 先填结果描述"（outcome 空时追加后半句） |
+| 3 | **CV 框 label 明确标 output** | 同上 | "CV 成就陈述  AI 润色结果 · 可手动改"（区分 input vs output） |
+| 4 | **disabled 视觉改强对比** | 同上 | `bg-bg-tertiary text-fg-muted`（灰底灰字）替代 `opacity-40` 衰减 |
+| 5 | **引导卡片提示语更新** | 同上 | "点下方" → "点上方「结果描述」旁的"（按钮位置同步） |
+| 6 | **分类器彻底重构** | `web/lib/taskGuidance.ts` | 改"动作+产物"配对 + 移除 \b + 扩展 artifact 关键词 (周报/月报/季报/材料/选题/文案/笔记/日志/分享) + 扩展 fix 关键词 (崩溃/闪退/故障/超时/宕机/卡顿/泄露/泄漏/exception/crash/timeout/500/404) + 扩展 discussion 复合会议 (复盘会/评审会/对齐会/分享会/讨论会/kickoff) |
+| 7 | **端到端测试脚本** | `web/scripts/test-task-guidance.mjs` (新) | 21 个用户真实任务标题跑真实 `classifyTaskTitle` 函数，21/21 全过 |
+| 8 | **pytest 调 node 端到端** | `app/tests/test_complete_modal_minimal_invariants.py` | 用 subprocess 调 mjs，跨回归锁住真实分类不退化 |
+| 9 | **按钮位置不变量 4 条** | 同上 | 锁 outcome < button < cv 物理顺序 + 流向提示字样 + CV 框 label 标 output + CV 框后无第二按钮 |
+| 10 | **lesson #2 强化** | `docs/lessons/02-llm-pitfalls.md` | 加 polish_cv 端点 M3 CoT 污染实战 + 4 路径修法 + "每加 LLM 端点都要端到端实测" 教训 |
+| 11 | **lesson #15 强化** | `docs/lessons/01-frontend-ux-bugs.md` | 加"按钮位置 UX 反模式" + "关键词盲点" + "端到端测试方法论" 3 个子教训 |
+
+### 设计决定记录
+
+**A. 按钮位置 vs 文案 vs 流向提示（三选一还是三选三）**
+
+- 单选位置：用户能看出"按钮在 outcome 旁" = 操作 outcome，但 CV 框被"抛"在下面，缺少视觉关联
+- 单选文案：把"润色"改成"AI 改写 outcome 到 CV"——文案太长，按钮变宽，破坏 layout
+- 单选流向：CV 框加 "👇 来自上方 outcome" 提示——仍然把按钮留在 CV 旁，根因没解决
+- **三选三**：按钮移到 outcome 下方 + 文案保留"润色" + 加"↓ 改写成下方 CV 框"流向。位置是根因解决，文案和流向是辅助冗余——**任一单独不够，三个一起才稳**
+
+**B. 润色按钮 disabled 视觉：强对比 vs opacity 衰减**
+
+- opacity 衰减（`opacity-40` × `bg-accent/15`）：叠加后几乎透明，视觉上"没灰" → 用户看不出不可点
+- 强对比（`bg-bg-tertiary text-fg-muted`）：灰底灰字，跟 enabled 时的 accent 黄色对比强烈 → 一眼看出
+- 教训：**"disabled" 视觉要主动设计，不能用 enabled 态叠加属性实现**。enabled 是什么色，disabled 应该是该色的"反色"或"灰阶"，不是该色"透明"——透明在大多背景上都看不出
+
+**C. 分类器：动作+产物 配对 vs 单一关键词**
+
+- 单一关键词（任意"修"字都走 fix）：误匹配"修文档""修语法"（其实是 artifact）
+- 单一关键词（任意"文档"都走 artifact）：误匹配"看文档"（generic）
+- **动作+产物配对**：必须有"写/整理/制作"等动作 + "文档/PPT/材料"等产物。**两个条件 AND**，避免单关键词误匹配
+- 性能：跟单一关键词比，每个标题多 1 次 regex test，但分类器只跑一次（useMemo 缓存 task.title），开销 < 0.1ms
+
+**D. 端到端 mjs 测试 vs pytest 静态分析**
+
+- 旧 pytest 静态分析（test_complete_modal_minimal_invariants.py）：断言"fix 关键词含 'bug'""artifact 关键词含 'prd'"等——**只验关键词存在，不验函数行为**
+- 新 mjs 端到端（scripts/test-task-guidance.mjs）：用 node 跑真实 `classifyTaskTitle` 函数，断言"修登录鉴权 bug → fix"——**验真实函数对真实数据的真实分类**
+- 旧 pytest 漏过的盲点（"修登录鉴权 bug" 走 generic）端到端全捕获
+- lesson：**单测通过 ≠ 真实数据通过**。每加一个分类器/解析器/LLM 工具，端到端测试是必做的，不是 nice-to-have
+
+**E. 中文 \b 不工作的踩坑**
+
+- 旧 fix 正则用 `/\b修\b.*?(bug|问题|...)/i`——预期"修"字独立成词
+- 实际：中文没有 word boundary，`\b` 在 "修" 和 "线" 之间不匹配（因为都是"字"非"word"）
+- 修法：直接去掉 `\b`，让 regex 在字符间自由匹配
+- 教训：**中文场景下用 \b 前要先验证**，很多 JS 正则教程都默认英文环境
+
+### 字段表（v4.1 改造后的弹窗布局）
+
+| 区域 | 旧 v4 (2026-07-30 凌晨) | 新 v4.1 (2026-07-30 上午) | 变化 |
+|---|---|---|---|
+| 润色按钮位置 | CV 框旁 | outcome 框下方 | **位置改** |
+| 流向提示 | 无 | "↓ 改写成下方 CV 框" | **新加** |
+| CV 框 label | "动词开头, 含结果/影响" | "AI 润色结果 · 可手动改" | **明确 output** |
+| 引导卡片提示 | "点下方 ✨ 润色" | "点上方「结果描述」旁的 ✨ 润色" | **指代更新** |
+| 润色按钮 disabled | opacity-40 × accent/15 ≈ 6% 透明 | 灰底灰字 bg-bg-tertiary text-fg-muted | **强对比** |
+| 分类器 | 4 类 + 复合词优先 | 4 类 + 动作产物配对 + 移除 \b + 扩展关键词 | **重构** |
+| 测试方法 | pytest 关键词字符串覆盖率 | pytest 关键词 + mjs 端到端 21 case | **端到端补** |
+
+**回归**: 234 → **246** tests pass (+12: 5 按钮位置/流向不变量 + 1 disabled 改写 + 1 端到端分类 + 5 polish_cv 端点强化测试). `tsc --noEmit` 0 错误. 端到端 mjs: 21/21 用户真实任务标题分类全过. 改动 2 前端文件 + 1 新前端文件 + 2 改测试 + 1 新 mjs 脚本 + 2 lesson 强化, 净 +约 400 行.
 
