@@ -103,6 +103,16 @@ export default function ReportPage() {
     (a) => a.cv_status === "pending"
   );
 
+  // v0.3.2 立: 拉 follow-up 追问待补条目 (跨时间范围, 写周报时主动调出).
+  // 跟 /api/reminders/pending 同源 — 跟主页 FollowUpReminder 共享.
+  // 跟 pendingItems 区别: pendingItems 包含所有非 ready (含 pending);
+  // 追问待补只含"有 follow_up_questions 且 cv_status != ready" 的.
+  const { data: followUps } = useSWR<{ items: Achievement[]; total: number }>(
+    "/api/reminders/pending",
+    () => api.listPendingFollowUps({ limit: 10 }),
+    { refreshInterval: 60000 },
+  );
+
   return (
     <div className="min-h-screen bg-bg text-fg">
       <div className="max-w-7xl mx-auto px-6 py-6">
@@ -133,6 +143,50 @@ export default function ReportPage() {
             成就库
           </Link>
         </div>
+
+        {/* v0.3.2 立: 补全追问 section — 写周报时主动调出"还有 N 条待补追问" */}
+        {followUps && followUps.total > 0 && (
+          <div className="rounded-lg border border-info/30 bg-info/5 p-3.5 mb-4">
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center gap-1.5 text-[12px] font-medium text-info">
+                <AlertCircle size={13} />
+                还有 {followUps.total} 条成就在等你补全追问
+                <span className="text-[10.5px] text-fg-muted font-normal ml-1">· 写周报前补完, cv 立刻 ready</span>
+              </div>
+              <Link
+                href="/achievements/follow-up"
+                className="text-[11.5px] text-info hover:text-info/80 transition flex items-center gap-1"
+              >
+                <Sparkles size={11} />
+                一键去补全
+              </Link>
+            </div>
+            <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
+              {followUps.items.map((a) => (
+                <Link
+                  key={a.id}
+                  href={`/achievements/follow-up?focus=${a.id}`}
+                  className="flex items-start gap-2 rounded-md bg-bg/60 border border-border/50 px-2.5 py-2 hover:border-info/40 hover:bg-info/10 transition"
+                >
+                  <span className="text-[10.5px] text-fg-muted font-mono flex-shrink-0 mt-0.5">
+                    {a.date}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[12px] text-fg-secondary truncate">
+                      {a.title}
+                    </div>
+                    {a.follow_up_questions.length > 0 && (
+                      <div className="text-[10.5px] text-fg-muted mt-0.5 truncate">
+                        💬 {a.follow_up_questions[0]}
+                        {a.follow_up_questions.length > 1 && ` 等 ${a.follow_up_questions.length} 个追问`}
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 时间范围 + 模板选择 */}
         <div className="rounded-lg border border-border bg-bg-secondary p-4 mb-4">

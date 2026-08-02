@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.core import storage
-from app.core.models import CVStatus, TaskCreate, TaskUpdate
+from app.core.models import CVStatus, TaskCreate, TaskReorderRequest, TaskUpdate
 
 router = APIRouter()
 
@@ -27,6 +27,18 @@ async def create_task(data: TaskCreate):
     except ValueError as e:
         raise HTTPException(400, str(e))
     return task.model_dump(mode="json")
+
+
+@router.post("/reorder")
+async def reorder_tasks(data: TaskReorderRequest):
+    """批量更新任务排序 (2026-07-30 立)。
+
+    任务排序是项目内局部的 — 跨项目 reorder 被拒绝 (返回 updated=0)。
+    前端按项目分别 reorder。
+    """
+    items = [it.model_dump() for it in data.items]
+    updated = await storage.reorder_tasks(items)
+    return {"updated": updated}
 
 
 @router.post("/confirm-drafts")
@@ -88,6 +100,7 @@ async def complete_task(tid: str, data: CompleteTaskRequest):
         reflection=data.reflection,
         cv=data.cv,
         cv_status=status,
+        follow_up_questions=data.follow_up_questions,
     )
     if not achievement:
         raise HTTPException(404, "Task not found")
@@ -98,11 +111,13 @@ class CompleteTaskRequest(BaseModel):
     """完成任务请求 body。
 
     4 字段结构 — 跟 Achievement 表 schema + LLM tool schema 完全一致。
+    2026-08-01 加 follow_up_questions: 任务完成时 LLM 主动追问 (前端 / 端点都可传)
     """
     outcome: str = ""
     reflection: str = ""
     cv: str = ""
     cv_status: str = "ready"
+    follow_up_questions: list[str] = []
 
 
 # ===== Checklist 子端点 =====
@@ -114,6 +129,18 @@ class ChecklistAddRequest(BaseModel):
 
 class ChecklistIndexRequest(BaseModel):
     index: int
+
+
+@router.post("/{tid}/undo")
+async def undo_task(tid: str):
+    """按 task_id 撤销最近一次完成（2026-08-01 立）。
+
+    主页"已完成 task" 折叠区的撤销按钮走这里 — 找该 task 对应最新一条 achievement 撤销。
+    """
+    task = await storage.undo_by_task_id(tid)
+    if not task:
+        raise HTTPException(404, f"No recent achievement for task {tid}")
+    return task
 
 
 @router.post("/{tid}/checklist/add")

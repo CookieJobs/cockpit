@@ -206,6 +206,14 @@ export function ChatWindow({
     const maxH = 144; // max-h-36
     el.style.height = Math.min(el.scrollHeight, maxH) + "px";
   }, [input]);
+
+  // 监听全局 event 让外部组件 (e.g. FocusSection 空状态 CTA) 触发输入框 focus
+  //   2026-08-01 立: 不用 forwardRef, 简单 event 模式
+  useEffect(() => {
+    const handler = () => textareaRef.current?.focus();
+    window.addEventListener("cockpit:focus-chat", handler);
+    return () => window.removeEventListener("cockpit:focus-chat", handler);
+  }, []);
   const [showCot, setShowCotState] = useState<boolean>(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 

@@ -3,7 +3,7 @@
 改造 (D 项):
 - 弹窗关闭后弹一个轻量 toast, 告诉用户"已沉淀 · 累计 N 个 ready"
 - 跳转到 /achievements 的入口 (让"完成即沉淀"的价值用户当下能看见)
-- 任何走 CompleteTaskModal 的入口 (MainBoard + /today) 都必须弹 toast
+- 任何走 CompleteTaskModal 的入口 (现在只剩 MainBoard — 2026-08-01 删 /today) 都必须弹 toast
 
 这条测试锁住, 防退化。
 """
@@ -13,9 +13,6 @@ from pathlib import Path
 # 源码路径 — 跟着项目根走
 MAINBOARD_TSX = (
     Path(__file__).parent.parent.parent / "web" / "components" / "MainBoard.tsx"
-)
-TODAY_PAGE_TSX = (
-    Path(__file__).parent.parent.parent / "web" / "app" / "today" / "page.tsx"
 )
 TOAST_TSX = (
     Path(__file__).parent.parent.parent / "web" / "components" / "Toast.tsx"
@@ -58,12 +55,8 @@ def test_toast_has_achievement_count_message_in_mainboard():
     assert "router.push(\"/achievements\")" in src, "toast 必须有跳转到 /achievements 的 action"
 
 
-def test_toast_has_achievement_count_message_in_today_page():
-    """今天页面完成入口也必须弹 toast (跟 MainBoard 一致, 防止只有一处)。"""
-    src = read(TODAY_PAGE_TSX)
-    assert "toast.success" in src, "/today 完成路径也必须调 toast.success"
-    assert "achievementsReady" in src, "/today toast 也必须带成就数"
-    assert "router.push(\"/achievements\")" in src, "/today toast 也必须有跳转 action"
+# 2026-08-01 删 /today: 不再有"第二处完成入口" 的不变量
+# (test_toast_has_achievement_count_message_in_today_page 删掉了)
 
 
 # ===== Toast 行为 =====
@@ -92,26 +85,14 @@ def test_toast_max_concurrent_limit():
     assert "TOAST_LIMIT" in src, "toast 必须有并发上限常量"
 
 
-# ===== 双向对称性: 完成入口的 toast 文案必须一致 =====
+# ===== 双向对称性: MainBoard 自己的 toast 文案必须包含关键 token =====
 
 
-def test_toast_message_text_consistent_across_entry_points():
-    """MainBoard 和 /today 的完成 toast 文案必须一致 (UX 一致性)。"""
+def test_toast_message_contains_key_tokens():
+    """MainBoard 完成 toast 文案必须包含关键 token (🎉 + ready + 跳转 /achievements)。"""
     mb_src = read(MAINBOARD_TSX)
-    today_src = read(TODAY_PAGE_TSX)
-    # 找 toast.success 的完整消息字符串 (在反引号 template literal 里)
     mb_match = re.search(r"toast\.success\(\s*`([^`]+)`", mb_src)
-    today_match = re.search(r"toast\.success\(\s*`([^`]+)`", today_src)
     assert mb_match, "MainBoard toast.success 文案缺失"
-    assert today_match, "/today toast.success 文案缺失"
-    # 必须用同一句模板 (除 placeholder 外), 这里只校验都含 🎉 和 ready
-    assert "🎉" in mb_match.group(1) and "ready" in mb_match.group(1)
-    assert "🎉" in today_match.group(1) and "ready" in today_match.group(1)
-    # 文案主体应该一致 (剥掉动态插值的纯文本部分)
-    mb_clean = re.sub(r"\$\{[^}]+\}", "X", mb_match.group(1))
-    today_clean = re.sub(r"\$\{[^}]+\}", "X", today_match.group(1))
-    assert mb_clean == today_clean, (
-        f"完成 toast 文案 MainBoard 和 /today 不一致:\n"
-        f"  MainBoard: {mb_match.group(1)!r}\n"
-        f"  /today:    {today_match.group(1)!r}"
-    )
+    msg = mb_match.group(1)
+    assert "🎉" in msg, "toast 文案必须含 🎉 (庆祝信号)"
+    assert "ready" in msg, "toast 文案必须含 ready (成就状态)"

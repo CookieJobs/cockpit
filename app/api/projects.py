@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException
 
 from app.core import storage
-from app.core.models import ProjectCreate, ProjectUpdate
+from app.core.models import ProjectCreate, ProjectReorderRequest, ProjectUpdate
 
 router = APIRouter()
 
@@ -19,6 +19,18 @@ async def create_project(data: ProjectCreate):
     """创建项目。"""
     project = await storage.add_project(data)
     return project.model_dump(mode="json")
+
+
+@router.post("/reorder")
+async def reorder_projects(data: ProjectReorderRequest):
+    """批量更新项目排序 (2026-07-30 立)。
+
+    前端拖完一次性发, 减少 N 次 PATCH 请求。body = {items: [{id, sort_order}, ...]}。
+    返回: {updated: N} — 实际更新的行数 (id 不存在的不计)。
+    """
+    items = [it.model_dump() for it in data.items]
+    updated = await storage.reorder_projects(items)
+    return {"updated": updated}
 
 
 @router.get("/{pid}")

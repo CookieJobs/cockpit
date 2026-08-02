@@ -784,7 +784,7 @@ def test_taskrow_meta_row_no_draft_blocked_badges():
             "第二行 meta 不再渲染独立徽章 (避免「同一维度信息分散在两行 + 两种视觉语言」)。\n"
             "修法: 删掉第二行 meta 区的 {task.draft && (...)} 和 {task.blocked && (...)} "
             "两个条件渲染块, meta 条件从 (task.draft || task.blocked || ...) 改成 "
-            "(totalCount > 0 || taskAgeDays >= 2) — 只留 checklist 进度和年龄提示。"
+            "(totalCount > 0) — 只留 checklist 进度 (2026-08-01 删掉了 taskAgeDays 提示)。"
         )
 
 
@@ -1345,7 +1345,10 @@ def test_dueditor_uses_popover_hook():
     )
 
 
-# ===== 不变量 19: /today FocusRow 必须用 P0/P1/P2/P3 badge + 左侧竖色条 =====
+# ===== 不变量 19: /today 已删除 (2026-08-01) =====
+#   2026-08-01 立: /today 跟主页 FocusSection 重复, 删 /today 统一到主页。
+#   不变量改为"反向断言": 文件不存在 + 主页顶栏无 /today 链接
+#   防退化: 防止有人重新加 /today (重复就回来)
 
 TODAY_PAGE_TSX = (
     Path(__file__).parent.parent.parent
@@ -1356,93 +1359,27 @@ TODAY_PAGE_TSX = (
 )
 
 
-def read_today_page() -> str:
-    """读 /today page.tsx 全文 (含 FocusRow 函数体)。"""
-    if not TODAY_PAGE_TSX.exists():
-        raise FileNotFoundError(f"today/page.tsx not found at {TODAY_PAGE_TSX}")
-    return _strip_comments_and_strings(TODAY_PAGE_TSX.read_text(encoding="utf-8"))
-
-
-def test_today_focusrow_uses_priority_badge():
-    """FocusRow 必须用 PRIORITY_BADGE_STYLES 渲染 P0/P1/P2/P3 软底色 badge (2026-07-23)。
-
-    同步项目列表 (TaskRow) 的优先级表达, 不再用旧 1.5x1.5 小色点 (w-1.5 h-1.5)。
-    锁 3 件事:
-    1. FocusRow 函数必须存在
-    2. body 内必须用 PRIORITY_BADGE_STYLES[focus.priority] 取样式 (跟 TaskRow 共用)
-    3. badge 文字必须渲染 {focus.priority} (P0/P1/P2/P3 显式文字, 不是色点)
-    4. 不再用旧 w-1.5 h-1.5 小色点形态
-    """
-    src = read_today_page()
-    body = _find_function_body_with_ts_types(src, "FocusRow")
-
-    # 1. 必须用 PRIORITY_BADGE_STYLES (跟 TaskRow 同源)
-    assert "PRIORITY_BADGE_STYLES" in body, (
-        "FocusRow 没引 PRIORITY_BADGE_STYLES — 没跟项目列表 TaskRow 同步, "
-        "可能回退到旧 1.5x1.5 小色点或内联三元判断。\n"
-        "修法: `import { PRIORITY_BADGE_STYLES } from \"@/lib/api\"`, "
-        "badge 样式用 `${PRIORITY_BADGE_STYLES[focus.priority]}`"
-    )
-
-    # 2. badge 必须用 focus.priority 索引 (不是三元)
-    assert "PRIORITY_BADGE_STYLES[focus.priority]" in body, (
-        "FocusRow 没看到 PRIORITY_BADGE_STYLES[focus.priority] — "
-        "可能写错了索引表达式 (例如 focus.priority 写成了 task.priority 或 item.priority)。\n"
-        "修法: 跟 TaskRow 一致, 用 PRIORITY_BADGE_STYLES[focus.priority]"
-    )
-
-    # 3. badge 文字必须渲染 {focus.priority} (P0/P1/P2/P3 显式文字)
-    assert "{focus.priority}" in body, (
-        "FocusRow badge 没渲染 P0/P1/P2/P3 文字 — 可能只渲染了色块没文字, "
-        "回退到跟项目列表 P0/P1/P2/P3 badge 不一致。\n"
-        "修法: badge `<span>{focus.priority}</span>` 显式渲染 P0/P1/P2/P3"
-    )
-
-    # 4. 不再用旧 1.5x1.5 小色点
-    assert "w-1.5 h-1.5" not in body, (
-        "FocusRow 还在用 w-1.5 h-1.5 小色点 — 旧形态, 没跟项目列表 P0/P1/P2/P3 badge 同步。\n"
-        "修法: 把色点整段删掉, 替换成 PRIORITY_BADGE_STYLES[focus.priority] 的 badge"
+def test_today_page_does_not_exist():
+    """2026-08-01 删 /today 后, 路由文件不能复活 (防退化)。"""
+    assert not TODAY_PAGE_TSX.exists(), (
+        f"today/page.tsx 不应存在 (2026-08-01 跟主页 FocusSection 合并), "
+        f"但在 {TODAY_PAGE_TSX} 找到了。\n"
+        "修法: 如果是想恢复晨间 ritual 单独页, 重新讨论产品定位 (跟主页 FocusSection 重复)。"
     )
 
 
-# ===== 不变量 20: FocusRow 不能有左侧竖色条 (统一 badge only) =====
-
-
-def test_today_focusrow_has_NO_left_priority_bar():
-    """FocusRow 不能有左侧竖色条 — 2026-07-23 跟 TaskRow / FocusItem 三处统一 badge only。
-
-    上一轮按用户"竖线"加了色条 + badge 双编码, 用户反馈"割裂" (色条跟 TaskRow 的
-    badge 形态不统一)。v2 删色条, 只保留 P0/P1/P2/P3 badge, 跟 TaskRow 1:1 一致。
-
-    锁 3 件事:
-    1. FocusRow 函数体内**不能**出现 `w-[3px]` 形态的色条 (那是旧 v1 形态)
-    2. FocusRow 函数体内**不能**再 import / 使用 PRIORITY_BAR_STYLES (色条样式已删)
-    3. 容器不应该有 relative + absolute 组合 (色条定位用的, 现在不需要)
-    """
-    src = read_today_page()
-    body = _find_function_body_with_ts_types(src, "FocusRow")
-
-    # 1. 不能有 w-[3px] 形态的色条
-    assert "w-[3px]" not in body, (
-        "FocusRow 还有左侧竖色条 (w-[3px]) — 2026-07-23 用户反馈'割裂', "
-        "已决定统一成 badge only 形态 (跟 TaskRow / FocusItem 一致)。\n"
-        "修法: 删 `<div className={`absolute left-1.5 top-2.5 bottom-2.5 w-[3px] "
-        "rounded-full ${priorityBar}`} aria-hidden />` 这行, 容器 padding 改 px-4"
+def test_mainboard_no_today_link():
+    """主页顶栏不能有 /today 链接 (删 /today 同步清理)。"""
+    mb_src = MAINBOARD_TSX.read_text(encoding="utf-8")
+    # 反向断言: 找 'href="/today"' 字符串
+    assert 'href="/today"' not in mb_src, (
+        "MainBoard 顶栏还有 /today 链接 — 2026-08-01 删 /today 后必须同步清理顶栏。\n"
+        "修法: 删 MainBoard.tsx 顶栏 <Link href=\"/today\"> ... </Link> 整段"
     )
 
-    # 2. 不能引用 PRIORITY_BAR_STYLES (色条样式已删除, 引用会 TS 报错)
-    assert "PRIORITY_BAR_STYLES" not in body, (
-        "FocusRow 还在引 PRIORITY_BAR_STYLES — 这个常量在 lib/api.ts 已被删除 "
-        "(改用单一 badge 形态后不需要色条样式), 引用会 TS 报错。\n"
-        "修法: import 里删 PRIORITY_BAR_STYLES, FocusRow body 里删 priorityBar 计算"
-    )
 
-    # 3. 容器不应该有 relative + absolute 配合
-    assert "relative" not in body or "absolute" not in body, (
-        "FocusRow 容器还有 relative + absolute 组合 — 那是色条定位用的, "
-        "现在没色条应该删掉避免视觉噪音。\n"
-        "修法: 容器 className 改回 `flex items-center gap-3 ... px-4 py-3`"
-    )
+# ===== 不变量 20: /today 已删除 (2026-08-01) =====
+#   旧 test_today_focusrow_has_NO_left_priority_bar 删了, 跟 /today 一起被合并到主页 FocusSection。
 
 
 # ===== 不变量 21: MainBoard FocusItem 必须用 P0/P1/P2/P3 badge (跟 TaskRow / FocusRow 三处统一) =====

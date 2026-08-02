@@ -116,7 +116,7 @@
 - **修法位置**：
   - `web/components/MainBoard.tsx` TaskRow 第一行 onClick (toggleExpand) + 展开 chevron 改指示器 + hover ✅ 按钮加回
   - `app/tests/test_complete_path_invariants.py` #2 改版 (反转) + #5 改版 (加回 hover ✅)
-  - `AGENTS.md` Changelog 加 v3 段 (推翻 v2 部分)
+  - `AGENTS.md` Changelog 加 v3 段 (推翻 v2 部分) → 已拆到 [docs/changelog/2026-07-21-status-menu-v3-taskrow.md](../../changelog/2026-07-21-status-menu-v3-taskrow.md)
 
 ## #13. ChatWindow 顶层 loading 框跟消息气泡内"思考中…"重复，视觉堆叠 (修于 2026-07-23)
 
@@ -160,7 +160,7 @@
   - **cv_status 三态让认知再加重一档**: ready / needs_data / pending, 大多数用户没空想直接选 ready, 但**形式上要选**
   - **价值是"未来兑现"用户当下看不到**: 弹窗就是纯成本, 沉淀的复利感要等 3 个月后写述职才能感受
 - **错误的设计哲学**: "完成即沉淀" (task-cockpit 核心) 没错, **错在执行** — 把全部成本压在用户最容易疲劳的那一刻, 又不让用户当下感受到沉淀的价值
-- **修法** (A+D 组合, 见 AGENTS.md Changelog 2026-07-28 完整记录):
+- **修法** (A+D 组合, 见 [docs/changelog/2026-07-28-complete-modal-minimal.md](../../changelog/2026-07-28-complete-modal-minimal.md) 完整记录):
   - **A: 砍到 1 必填 + 智能预填 + 润色按钮**
     - outcome 唯一必填 (用户独有信息, LLM 推不出来)
     - cv 智能预填 `完成「${title}」` + ✨ 润色按钮调 LLM
@@ -198,7 +198,7 @@
 - **错误的设计假设**：
   - 假设"用户能主动回忆出价值" — 但认知科学告诉我们: **当下回忆 (recall) 比当下识别 (recognition) 难 10 倍**。给 4 个维度 chip, 用户能从里面识别/选择, 比让用户自由回忆容易得多
   - 假设"1 必填 + 1 智能预填就够" — 但智能预填只有"任务标题" 信息, 没有"任务类型" 信息, 没针对性
-- **修法** (A+B 组合, 见 AGENTS.md Changelog 2026-07-30 完整记录):
+- **修法** (A+B 组合, 见 [docs/changelog/2026-07-30-complete-modal-v4.md](../../changelog/2026-07-30-complete-modal-v4.md) 完整记录):
   - **A: 任务标题分类 → 引导卡片 (前端, 纯函数)**
     - 新建 `web/lib/taskGuidance.ts`, 按 `task.title` 关键词分 5 类: `artifact` (PRD/PPT/文档) / `fix` (修/解决/bug) / `discussion` (开会/沟通) / `research` (调研/对比) / `generic` (兜底)
     - 每类给 `{emoji, label, 4 dimensions, placeholder, 2-3 followUp questions}`
@@ -332,3 +332,158 @@ v4 → v4.1 这 4 轮用户反馈暴露 **3 类"单测过但真实数据失败" 
 - pytest 集成: `app/tests/test_complete_modal_minimal_invariants.py` 加 subprocess 调 mjs + 4 条按钮位置/流向不变量
 - 端点测试: `app/tests/test_api_polish_cv.py` 加 5 条 (M3 CoT 剥离 + 平衡大括号提取 + 老路径也剥 CoT)
 - 后端: `app/api/llm.py` `_parse_llm_json_output` 5 路径升级 + `_find_balanced_json` helper + 老路径也剥 CoT
+
+## #19. TaskRow "挂了 N 天" + 新用户"反讽"空状态 (修于 2026-08-01)
+
+- **症状 1**: 单行 task 视觉信号过重 — P0/P1/P2/P3 + status + 阻塞 + 草稿 + due + 加上"挂了 N 天" ≈ 6 个独立信号, 视觉扫描负担重
+- **症状 2**: 主页 FocusSection 空状态显示"所有任务都已收尾" — **新用户第一次打开看到的是反讽文案**, 听起来像吐槽"你啥都没干"
+- **根因**:
+  - taskAgeDays 阈值 2 天开始显示, "年龄" 视觉信息在 card 层级 (项目内排序) 隐式表达就够了, 单行再加是噪音
+  - 空状态文案由产品早期开发写, 当时只考虑了"老用户全做完" 这一种场景, 没考虑"新用户没项目" 的冷启动场景
+- **教训**:
+  - **新用户冷启动是产品首次体验**: 文案/CTA 必须考虑"项目=0 / task=0" 的状态, 反讽 + 抽象文案 = 用户 30 秒内流失
+  - **信号合并优于信号裁剪**: P0/P1/P2/P3 badge + status 已经够, 不要再加独立的"年龄"维度 (6 个独立信号 > 视觉带宽)
+  - **空状态必须有引导**: 大号 emoji + 主标"你还没..." + 副标"在右栏对话试试..." + 显眼 CTA 按钮
+  - **CTA 必须真做事**: 之前 FocusSection 空状态没按钮, 用户不知道"下一步"是什么。**加按钮 + onClick=聚焦对话栏 (新模式: global event 'cockpit:focus-chat')**
+- **修法位置**:
+  - 删 taskAgeDays: `web/lib/api.ts` (567-574) + `web/components/MainBoard.tsx` import + 第二行 meta 条件改 `totalCount > 0` only
+  - FocusSection 空状态分两种: 新用户 (`projects.length === 0`) vs 老用户 (focus 全完成) — `web/components/MainBoard.tsx:267-310`
+  - ProjectsSection 空状态: `web/components/MainBoard.tsx:641-665` (📁 + 引导 + CTA)
+  - Achievements 空状态: `web/app/achievements/page.tsx:152-178` (🎯 + 引导 + 跳看板)
+  - Report 空状态: `web/app/report/page.tsx` 主区域保留原有 `displayMarkdown || 提示` 模式, 不变
+  - **全局 event 模式让 FocusSection CTA 聚焦 ChatWindow input**: `web/components/MainBoard.tsx` `handleFocusChat` + `web/components/ChatWindow.tsx` 监听 `cockpit:focus-chat` event
+  - **不变量测试**: `app/tests/test_complete_path_invariants.py` (line 144 comment 更新) + `app/tests/test_achievements_hierarchy_invariants.py` "还没有成就" 文案保留
+
+## #20. /today 跟主页 FocusSection 重复, 删 /today (修于 2026-08-01)
+
+- **症状**: 用户反馈 "今日聚焦与今天这两个功能, 觉得有一点点重复" — /today 是 FocusSection 的页面化版本, 功能几乎一样, 多个入口反而割裂
+- **根因**: 2026-07-20 立 /today 时 (晨间 ritual 哲学), 跟主页 FocusSection 边界不清。/today 多一套完整 UI (大日期 + greeting + 完成 button), 但功能跟主页 FocusSection 重叠
+- **教训**:
+  - **同源功能不重复入口**: 同一个心智功能 (今天聚焦) 不应该有 2 个独立页面, 用户每次都要"在哪个?" 选一次
+  - **路由文件大就是债**: 改一处要同步改另一处, 反向回归 / 不变量测试要双倍维护。lesson #11/12 的"反复重演" 在 /today 跟 FocusSection 间就发生多次
+  - **重复就要砍, 不是合并**: 用户决策是"删 /today" 而非"重新定位", 因为主页 FocusSection 已经能 cover 90% 场景, 晨间 ritual 仪式感不是高频诉求
+- **修法位置**:
+  - 删文件: `web/app/today/page.tsx` (mavis-trash 移到回收站, 可恢复)
+  - 删顶栏: `web/components/MainBoard.tsx` (line 113-131 之前) Link `href="/today"` 整段
+  - **不变量测试反向断言** (2026-08-01 立):
+    - `app/tests/test_complete_path_invariants.py` 加 `test_today_page_does_not_exist` + `test_mainboard_no_today_link` (防退化, 防止有人重新加 /today)
+    - `app/tests/test_completion_toast_invariants.py` 删 `test_toast_has_achievement_count_message_in_today_page` + 改 `test_toast_message_text_consistent_across_entry_points` → `test_toast_message_contains_key_tokens` (不再比两边, 只测 MainBoard)
+  - 旧测试 `test_today_focusrow_has_NO_left_priority_bar` 删掉 (跟 /today 一起被合并到主页 FocusSection)
+  - 清 Next.js 类型缓存: `web/.next/types/app/today/` (删路由文件后 types 还引用)
+
+## #21. task 保留 (不删) — "我今天干的活不见了" 修复 (修于 2026-08-01)
+
+- **症状**: 用户反馈"已完成 task 划掉但还在"是 P1 改进点 — 旧版 complete_task 流程 `delete(task)`, 用户在看板列表找不到自己完成过的事。要去 /achievements 才能"看回"
+- **根因**:
+  - 后端 `storage.complete_task` 历史上为了"先写后删的崩溃恢复" 直接 `await session.delete(task)`, task 真的物理删除
+  - 旧版思考: "task 完成就不需要了, 沉淀到 achievement 就行" — 实际用户心智: "完成 = 划掉, 还在列表里 (像 Notion/滴答清单)"
+  - lesson #4 "TaskRow 状态机循环堵死完成路径" 是同源反思: 完成时刻 UX 没用户测试, 主观假设"删了更干净"
+- **教训**:
+  - **"完成即沉淀" ≠ "完成即删除"**: task 沉淀到 achievement 是数据流, task 本体是用户视觉对象, 两者生命周期独立
+  - **撤销体验**: 旧版删 task 后撤销用 `achievement.task_id` 重建 task, **priority/checklist/created_at/due/blocked 全部丢失** — 数据破坏不可逆
+  - **数据生命周期 = 用户生命周期**: task 跟 achievement 是 1:N 关系 (多次完成 → 多次 append), 撤销只删最新一条, 旧 achievement 留底
+  - **新路径 (`undo_by_task_id`)**:
+    1. 找该 task_id 的最新 achievement (按 date desc)
+    2. 调既有 `undo_completion(achievement_id)` 走"改 status 回去" 路径
+    3. 旧 achievement + 旧 task 全保留, 状态机干净
+  - **list_tasks 默认隐藏 + 加 `include_completed=True` 参数**: 主列表干净, "查看已完成 N" 折叠区 (DoneAllSection) 按需展开
+  - **Snapshot 加 `done_tasks: list[Task]` + ProjectSnapshot 加 `done_count: int`**: 前端 DoneAllSection 直接拿数据, 不用再调 list_tasks 端点
+- **修法位置**:
+  - 后端: `app/core/storage.py` `complete_task` 改 `task.status = TaskStatus.COMPLETED.value + task.completed_at = date.today()` (line 729-744)
+  - 后端: `app/core/storage.py` `undo_completion` 改"找 task 改 status 回去" (line 789-849) + 加 `undo_by_task_id` 函数 (line 851-868)
+  - 后端: `app/core/storage.py` `list_tasks` 加 `include_completed: bool = False` 参数 (line 595-610)
+  - 后端: `app/core/storage.py` `build_snapshot` 区分 `active_tasks` / `done_tasks` (line 1147-1210) + ProjectSnapshot 加 `done_count`
+  - 后端: `app/core/models.py` `Snapshot.done_tasks: list[Task] = []` + `ProjectSnapshot.done_count: int = 0` (line 337-345, 351-355)
+  - 后端: `app/api/tasks.py` 加 `POST /api/tasks/{tid}/undo` 端点 (line 132-140)
+  - 前端: `web/components/MainBoard.tsx` 新增 `DoneAllSection` 组件 (line 408-501 之后) — 跨 project 折叠区, 每条带 project emoji + 撤销按钮
+  - 前端: `web/lib/api.ts` 加 `api.undoTask(id)` 端点封装 (line 360-361)
+  - 前端: `web/lib/api.ts` `ProjectSnapshot.done_count: number` + `Snapshot.done_tasks: Task[]` 同步
+  - 旧测试更新: `app/tests/test_api_complete_task.py::test_api_complete_task_4fields_via_body` (line 52-58) + `app/tests/test_storage.py::test_complete_task_creates_achievement` (line 197-201) 改"task 保留" 断言
+
+## #22. 完成沉淀 LLM 追问 + 周月提醒 (修于 2026-08-01, 基础架构立, follow-up UI 后续)
+
+- **症状**: 用户原话 "完成一个任务了之后, 让他直接完成。然后我们会调用大语言模型来分析一下这个任务, 它是否有后续的一些数据支撑" — 旧版完成时 LLM 只润色 CV, 后续追问 (e.g. "上线后 DAU 涨了多少?") 没沉淀, 用户当下没动力回忆, 未来写周报时数据已忘
+- **根因**:
+  - lesson #15 已经立 "动作≠价值" — LLM 在 polish 阶段已经会主动追问 `follow_up_questions`, 但**前端没用上** (弹窗收到 questions, 提交时丢掉了)
+  - 后端 `Achievement` 表没 follow_up 字段, questions 不可沉淀
+  - 提醒机制完全缺失: 完成后当下不补, 未来没"提醒" 触发回忆
+- **教训**:
+  - **AI 追问的"完成时刻"是高价值窗口**: 多巴胺峰值, 回忆成本最低。错过 = 数据永远沉没
+  - **polish 端点的 follow_up_questions 不是装饰**: 旧版前端收了就丢, 等于"LLM 思考了但用户没看见"。lesson #2 "LLM CoT 暴露" 同源教训: 中间产物 = 决策依据, 不能吞
+  - **沉淀之后要有回收路径**: 字段有了还要有"什么时候提醒用户补全" — 否则就是"埋了不挖"
+  - **存储设计 (JSON 字段)**: `follow_up_questions_json: list[str]` + `follow_up_answers_json: dict[q_idx, answer]` — 比建 3 个 join 表轻, 适合"轻量补全" 场景
+- **修法位置 (基础架构立, follow-up UI 待补)**:
+  - 后端 ORM: `app/core/storage.py` `AchievementORM` 加 `follow_up_questions_json: Text` + `follow_up_answers_json: Text` (line 168-172)
+  - 后端 Pydantic: `app/core/models.py` `Achievement` 加 `follow_up_questions: List[str] = []` + `follow_up_answers: dict = {}` (line 285-298)
+  - 后端: `_achievement_to_pydantic` 解析 JSON 字段 (line 387-405)
+  - 后端: `storage.complete_task` 接受 `follow_up_questions: list[str] = None` 参数写入 (line 707-720)
+  - 后端: `storage.answer_follow_ups(aid, answers)` 写 answers + 自动升级 `cv_status=READY` (line 793-820)
+  - 后端: `app/api/tasks.py` `CompleteTaskRequest.follow_up_questions: list[str] = []` + 端点传 (line 109-123, 79-105)
+  - 后端: `app/api/achievements.py` `PATCH /{aid}/follow_ups` 端点 (line 47-66) + `AnswerFollowUpsRequest` schema
+  - 后端: `app/api/reminders.py` (新文件) `GET /api/reminders/pending` 扫 cv_status != ready 且有 questions 的成就 (按 days_since_complete desc 排)
+  - 后端: `app/main.py` 挂载 reminders router (line 67-68)
+  - 后端: `app/core/storage.py` migration `_migrate_add_column` 加 `follow_up_questions_json` / `follow_up_answers_json` / `tasks.completed_at` (line 266-272)
+  - 前端: `web/lib/api.ts` `Achievement.follow_up_questions` / `follow_up_answers` 字段 (line 112-128)
+  - 前端: `web/lib/api.ts` `api.listPendingFollowUps(params)` + `api.answerFollowUps(id, answers)` 端点封装 (line 363-377)
+  - 前端: `web/components/CompleteTaskModal.tsx` `onSave` type 扩展 `follow_up_questions?: string[]` + `submit` 传 followUpQuestions (line 41-50, 84-110)
+  - **TODO 后续**: 前端 `FollowUpReminder` 徽章 + `/achievements/follow-up` 补全页 (Reminders 端点已经立, 下一轮接 UI)
+
+## #24. "今日聚焦" 用户无控制权 → 承诺机制 (修于 2026-08-01)
+
+- **症状**: 旧版 FocusSection 是后端硬选 5 个最高优先级 task 显示 — 用户没有"我自己决定今天做啥" 的入口, 心智被系统强加
+- **根因**:
+  - sort_focus() 算分按 priority/due/blocked 硬选, 用户没干预点
+  - 早晨打开 cockpit 看到 5 个 P0/P1, 但用户心里想的是"今天我得先做某件不算 P0 的事" (e.g. 今天要开 3 小时会 / 写周报)
+  - lesson #9 哲学"看板 inline edit 适用高频轻量操作", 但**承诺** = 用户主动决策, 跟 inline edit 一样高频 — 应该走看板
+- **教训**:
+  - **系统建议 + 用户承诺 = 最佳心智分工**: 系统继续算 focus 推荐, 但用户能从 ProjectsSection 主动挑 N 个加入"今日承诺"清单
+  - **承诺感 = 完成动力**: 进度条 "承诺 N/M 已完成" 比单纯的 focus 列表更激励完成
+  - **承诺用 localStorage 不用后端**: 承诺是用户自我承诺, 不是数据 — 跨设备同步不必要, localStorage 跨刷新保留够用
+  - **承诺的 task 优先于 focus 推荐**: 不强制承诺, 也不忽略承诺 — 两者共存
+  - **空状态分场景**: 没项目(新用户) / focus 全完成 / 承诺 < 3 引导 — 之前全是同一句"所有任务都已收尾", 2026-08-01 lesson #19 立过反讽问题, 这里再细化
+- **修法位置**:
+  - 新增: `web/lib/commitments.ts` — listCommitments / addCommitment / removeCommitment / toggleCommitment / isCommitment / progress(doneIds), localStorage 持久化, SSR 安全
+  - 改造: `web/components/MainBoard.tsx` FocusSection — 接受 commitments / doneIds props, 区分承诺 vs focus 两段, 承诺优先显示, 顶部进度条 + 引导 (承诺 < 3 时)
+  - 改造: `web/components/MainBoard.tsx` FocusItem — 加 isCommitment prop, 承诺的 task 左侧 ⭐ 标记 + 软底色高亮
+  - 改造: `web/components/MainBoard.tsx` TaskRow — 加 ⭐ 按钮 (状态/due 之前), 已承诺的实心黄色 Star, 未承诺的透明 (hover 才显示), click 调 toggleCommitment + onChange
+  - 加 import: `useMemo` + `listCommitments` / `isCommitment` / `toggleCommitment` + `Star` (lucide-react)
+
+## #25. 成就二次加工 — PR 描述生成 (修于 2026-08-01)
+
+- **症状**: 沉淀的成就 (cv/outcome) 只用于周报/述职, 没横向扩展 — 用户原话"成就的二次加工路径太窄"
+- **根因**:
+  - /report 路径只能按时间维度 (周/季度) 输出
+  - 项目维度输出缺失 — 用户做完一个 PR 范围内的 N 个 task, 想生成 PR 描述时只能手动抄
+  - lesson #11 跟 lesson #12 同源: 沉淀哲学没兑现路径 = 用户感知不到价值
+- **教训**:
+  - **时间维度 vs 项目维度 是不同心智**: 周报 = 时间维 (上周干了啥), PR 描述 = 项目维 (这个 PR 干了啥), 两者不能合并
+  - **二次加工要有"立等可见" 效果**: PR 描述从 5 段 markdown 拼好到复制贴 GitHub, 必须 < 1 分钟 — 用户不需要等
+  - **LLM 失败 fallback 纯模板填空**: 跟 polish_cv 同款兜底 (lesson #14 衍生) — LLM 不可用时不阻塞, 至少给骨架
+  - **预选机制 (localStorage `cockpit_pr_candidates`)**: 用户在 /achievements 勾选"作为 PR 候选" 累积到 localStorage, 进 /pr 页预选 — 减少每页重复选
+  - **PR 描述长度控制 300-500 字 (上限 1500)**: PR review 体验 — 太长 reviewer 跳读
+- **修法位置**:
+  - 新增: `web/lib/pr.ts` — PR_TEMPLATES (Feature/Bugfix/Refactor) + generatePr 端点封装 + fallback 纯模板填空
+  - 新增: `web/app/pr/page.tsx` — 端到端流程: 选项目 → 选 ready 成就 (checkbox, localStorage 预选) → 选模板 → 调 LLM → 4 段 markdown (背景/改动/影响/测试) + 可编辑 textarea + 复制/下载 .md
+  - 新增: `app/api/llm.py` generate_pr 端点 + GeneratePrRequest/Response schema + PR_GENERATION_SYSTEM prompt + _fallback_pr + CoT strip (lesson #2 衍生)
+  - 改造: `web/lib/api.ts` `api.generatePr()` 端点封装
+  - 改造: `web/components/MainBoard.tsx` 顶栏加"PR 描述" 链接 (FileCode 图标, 跟"写周报" 同行)
+  - 新 import: `FileCode` (lucide-react)
+
+## #26. 新用户 Onboarding — 3 步引导 modal (修于 2026-08-01)
+
+- **症状**: 之前 FocusSection 空状态反讽文案修了, 但**新用户连"在右栏对话" 都不知道** — 冷启动除了"反讽 → 引导文案" 还需要"具体动作引导"
+- **根因**:
+  - 旧版 onboarding 缺失: 用户第一次打开 cockpit, 没有"3 步走完会用了" 的引导
+  - lesson #19 立了"反讽" 问题, 但**用户不知道下一步动作** — 引导文案只是文字, 不是 modal
+  - lesson #14 同源: 完成弹窗摩擦大 = 用户流失, onboarding 摩擦大 = 老用户都不会进
+- **教训**:
+  - **首次访问 1s 延迟弹**: 不抢页面加载注意力, 等主区渲染完才弹
+  - **3 步具体动作 (建项目 → 加任务 → 完成沉淀)**: 不抽象 (e.g. "熟悉产品") — 每步可验证, 用户能马上做
+  - **进度点 (1/2/3) + 跳过按钮**: 给用户控制感, 不强制走完
+  - **localStorage 标记** `cockpit_onboarded`: 第二次访问不显示 — 避免老用户被反复弹
+  - **"重看引导" 出口 (resetOnboarding)**: settings 页可调, 给"忘了怎么用" 的老用户
+  - **3 步够用, 4+ 步就太长**: 用户耐心曲线 — 超过 3 步流失率显著上升
+- **修法位置**:
+  - 新增: `web/components/OnboardingTooltip.tsx` — 3 步 modal (延迟 1s 弹), 进度点 + 下一步/跳过/开始使用 按钮, localStorage `cockpit_onboarded` 标记, resetOnboarding() 工具函数
+  - 挂载: `web/components/MainBoard.tsx` 在 return 顶层挂 `<OnboardingTooltip />` (在 completingTask 弹窗之前, z-50 覆盖)
+  - 新 import: `OnboardingTooltip` + `X / ArrowRight / Check / MessageSquare / Plus / Sparkles` (lucide-react)

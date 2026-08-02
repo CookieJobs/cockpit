@@ -122,6 +122,8 @@ class ProjectORM(StringPKMixin, CreatedDateMixin, Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # 2026-07-30: 拖动排序。间隔 10 存 (0/10/20/...), 跟 Task 同样策略。
+    sort_order: Mapped[int] = mapped_column(default=0, nullable=False)
 
 
 class TaskORM(StringPKMixin, CreatedDateMixin, Base):
@@ -139,6 +141,8 @@ class TaskORM(StringPKMixin, CreatedDateMixin, Base):
     draft: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     completed_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     checklist_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    # 2026-07-30: 项目内拖动排序。
+    sort_order: Mapped[int] = mapped_column(default=0, nullable=False)
 
 
 class AchievementORM(Base):
@@ -161,6 +165,10 @@ class AchievementORM(Base):
     cv: Mapped[str] = mapped_column(Text, default="", nullable=False)
     cv_status: Mapped[str] = mapped_column(String(20), nullable=False, default=CVStatus.READY.value)
     tags_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    # 2026-08-01: LLM 主动追问 (JSON 数组, 旧数据默认 [])
+    follow_up_questions_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    # 2026-08-01: 用户对追问的答案 (JSON dict {q_idx: answer})
+    follow_up_answers_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
 
 
 class SettingsORM(UpdatedDateTimeMixin, Base):
@@ -248,6 +256,20 @@ async def create_tables() -> None:
         #   P1 是新档, 旧数据没有 — 老 P0 不存在
         #   SQL UPDATE ... WHERE old IN (...) 幂等, 已经迁移过的行不会再次更新
         await _migrate_priority_values(conn)
+        # 2026-07-30: 拖动排序字段。老数据 sort_order 全 0, list 排序用 secondary
+        #   created_at ASC fallback, 创建顺序自然保留。新加 task/project 在 add_*
+        #   里主动取 max(sort_order)+10 保证排最后, 不需要"初始化" 步骤 (避免
+        #   覆盖用户已经拖动过的值)。
+        await _migrate_add_column(conn, "projects", "sort_order", "INTEGER NOT NULL DEFAULT 0")
+        await _migrate_add_column(conn, "tasks", "sort_order", "INTEGER NOT NULL DEFAULT 0")
+        # 2026-08-01: follow_up_questions / answers 字段 (LLM 主动追问 + 用户答案)
+        #   老 achievement 没这字段, 默认 '[]' / '{}', 加载走 _achievement_to_pydantic
+        #   的 json.loads(default) 兜底
+        await _migrate_add_column(conn, "achievements", "follow_up_questions_json", "TEXT NOT NULL DEFAULT '[]'")
+        await _migrate_add_column(conn, "achievements", "follow_up_answers_json", "TEXT NOT NULL DEFAULT '{}'")
+        # 2026-08-01: task.completed_at 字段 (task 保留后记录何时完成, list_tasks 排序用)
+        #   老 task 没这字段, 默认 NULL
+        await _migrate_add_column(conn, "tasks", "completed_at", "DATE")
 
 
 async def _migrate_priority_values(conn) -> None:
@@ -340,6 +362,7 @@ def _project_to_pydantic(p: ProjectORM) -> Project:
         description=p.description,
         created_at=p.created_at,
         archived=p.archived,
+        sort_order=p.sort_order,
     )
 
 
@@ -365,6 +388,7 @@ def _task_to_pydantic(t: TaskORM) -> Task:
         created_at=t.created_at,
         completed_at=t.completed_at,
         checklist=items,
+        sort_order=t.sort_order,
     )
 
 
@@ -381,6 +405,9 @@ def _achievement_to_pydantic(a: AchievementORM) -> Achievement:
         cv=a.cv,
         cv_status=CVStatus(a.cv_status),
         tags=json.loads(a.tags_json or "[]"),
+        # 2026-08-01: 解析 follow_up_questions / answers, 旧数据默认 []/{}
+        follow_up_questions=json.loads(a.follow_up_questions_json or "[]"),
+        follow_up_answers=json.loads(a.follow_up_answers_json or "{}"),
     )
 
 
@@ -411,12 +438,15 @@ def _message_to_pydantic(m: ChatMessageORM) -> ChatMessage:
 
 async def add_project(data: ProjectCreate) -> Project:
     async with get_session() as session:
+        # 2026-07-30: 新加项目 sort_order = max + 10, 排在最后
+        new_order = await _next_sort_order(session, ProjectORM)
         project = ProjectORM(
             id=_new_id("proj"),
             name=data.name,
             description=data.description,
             created_at=date.today(),
             archived=False,
+            sort_order=new_order,
         )
         session.add(project)
         await session.flush()
@@ -432,11 +462,42 @@ async def get_project(pid: str) -> Optional[Project]:
 
 async def list_projects(include_archived: bool = False) -> list[Project]:
     async with get_session() as session:
-        stmt = select(ProjectORM).order_by(ProjectORM.created_at)
+        # 2026-07-30: 拖动排序。sort_order ASC 主排序, created_at ASC 二级 fallback
+        #   (老数据 sort_order 全 0, 跟创建顺序一致; 用户拖过后 sort_order 拉开差异)
+        stmt = select(ProjectORM).order_by(ProjectORM.sort_order.asc(), ProjectORM.created_at.asc())
         if not include_archived:
             stmt = stmt.where(ProjectORM.archived.is_(False))
         result = await session.execute(stmt)
         return [_project_to_pydantic(p) for p in result.scalars()]
+
+
+async def _next_sort_order(session: AsyncSession, model) -> int:
+    """给新加 row 计算 sort_order = max(existing) + 10。
+
+    2026-07-30 立: 拖动排序配套。新加的 task/project 排在最后, 用户拖动产生
+    的 sort_order 间隔 (10) 不会被破坏。
+    - 表为空 (max=None) → 0 (第一个 row 从 0 开始, 跟 list 排序对齐)
+    - 表非空 → max + 10 (永远在最后)
+    """
+    result = await session.execute(select(func.max(model.sort_order)))
+    current_max = result.scalar()
+    if current_max is None:
+        return 0
+    return current_max + 10
+
+
+async def _next_sort_order_for_project(session: AsyncSession, project_id: str) -> int:
+    """项目内新加 task 计算 sort_order = max(project 内) + 10。
+
+    任务排序是项目内独立的, 不能跨项目取 max。空项目返回 0 (跟默认对齐)。
+    """
+    result = await session.execute(
+        select(func.max(TaskORM.sort_order)).where(TaskORM.project_id == project_id)
+    )
+    current_max = result.scalar()
+    if current_max is None:
+        return 0
+    return current_max + 10
 
 
 async def update_project(pid: str, data: ProjectUpdate) -> Optional[Project]:
@@ -467,6 +528,32 @@ async def delete_project(pid: str) -> bool:
         return True
 
 
+# 2026-07-30: 拖动 reorder
+async def reorder_projects(items: list[dict]) -> int:
+    """批量更新项目 sort_order。
+
+    入参 items = [{id: str, sort_order: int}, ...], 来自前端 ProjectReorderRequest.items。
+    存间隔 10 避免每改一项就更新全部行 — 一次拖动只发 1 项 sort_order, 这里
+    也只 UPDATE 1 行, 不是全表。
+
+    返回: 实际更新的行数。前端可用来判断哪些 id 不存在。
+    """
+    if not items:
+        return 0
+    async with get_session() as session:
+        updated = 0
+        for it in items:
+            result = await session.execute(
+                select(ProjectORM).where(ProjectORM.id == it["id"])
+            )
+            p = result.scalar_one_or_none()
+            if p:
+                p.sort_order = it["sort_order"]
+                updated += 1
+        await session.flush()
+        return updated
+
+
 # ===== CRUD: Tasks =====
 
 
@@ -479,6 +566,8 @@ async def add_task(data: TaskCreate) -> Task:
         # 序列化 checklist
         checklist_data = [item.model_dump() if hasattr(item, "model_dump") else item
                           for item in data.checklist]
+        # 2026-07-30: 新加任务 sort_order = max+10 (项目内), 排在项目任务列表最后
+        new_order = await _next_sort_order_for_project(session, data.project)
         task = TaskORM(
             id=_new_id("task"),
             project_id=data.project,
@@ -491,6 +580,7 @@ async def add_task(data: TaskCreate) -> Task:
             draft=False,  # 新建任务直接进入 todo，无需二次确认
             created_at=date.today(),
             checklist_json=json.dumps(checklist_data, ensure_ascii=False),
+            sort_order=new_order,
         )
         session.add(task)
         await session.flush()
@@ -504,11 +594,22 @@ async def get_task(tid: str) -> Optional[Task]:
         return _task_to_pydantic(t) if t else None
 
 
-async def list_tasks(project_id: Optional[str] = None) -> list[Task]:
+async def list_tasks(
+    project_id: Optional[str] = None,
+    include_completed: bool = False,
+) -> list[Task]:
+    """列项目下所有任务。
+
+    2026-08-01: 默认隐藏 status=COMPLETED (task 保留但不在主列表里)。
+    加 include_completed=True 拿全部 (前端"查看已完成 N" 折叠区用)。
+    """
     async with get_session() as session:
-        stmt = select(TaskORM).order_by(TaskORM.created_at)
+        # 2026-07-30: 拖动排序, 跟 Project 同样 secondary created_at fallback
+        stmt = select(TaskORM).order_by(TaskORM.sort_order.asc(), TaskORM.created_at.asc())
         if project_id:
             stmt = stmt.where(TaskORM.project_id == project_id)
+        if not include_completed:
+            stmt = stmt.where(TaskORM.status != TaskStatus.COMPLETED.value)
         result = await session.execute(stmt)
         return [_task_to_pydantic(t) for t in result.scalars()]
 
@@ -568,6 +669,49 @@ async def delete_task(tid: str) -> bool:
         return True
 
 
+# 2026-07-30: 拖动 reorder
+async def reorder_tasks(items: list[dict]) -> int:
+    """批量更新任务 sort_order。语义跟 reorder_projects 一样, 但**不能跨项目**。
+
+    任务绑死在 project_id 下, 跨项目 reorder 没意义 (task 的 sort_order 是
+    项目内局部顺序, 全局混排会让 list 排序乱套)。前端按项目分别 reorder, 这里
+    校验所有 id 的 project_id 一致, 不一致返回 0 (不更新任何行, 由前端定位问题)。
+
+    实际: 前端永远按项目分别 reorder, 这里校验是兜底, 防止 LLM 工具误调或脚本
+    bug 把跨项目的 task sort_order 搞乱。
+    """
+    if not items:
+        return 0
+    async with get_session() as session:
+        # 校验所有 id 的 project_id 一致
+        ids = [it["id"] for it in items]
+        result = await session.execute(
+            select(TaskORM.project_id, TaskORM.id).where(TaskORM.id.in_(ids))
+        )
+        found = {row.id: row.project_id for row in result}
+        project_ids = set(found.values())
+        if len(project_ids) > 1:
+            logger.warning(
+                f"reorder_tasks 跨项目拒绝: 包含多个 project_id {project_ids}"
+            )
+            return 0
+        # 批量更新
+        updated = 0
+        for it in items:
+            t_id = it["id"]
+            if t_id not in found:
+                continue
+            t_result = await session.execute(
+                select(TaskORM).where(TaskORM.id == t_id)
+            )
+            t = t_result.scalar_one_or_none()
+            if t:
+                t.sort_order = it["sort_order"]
+                updated += 1
+        await session.flush()
+        return updated
+
+
 # ===== CRUD: Achievements =====
 
 
@@ -577,10 +721,22 @@ async def complete_task(
     reflection: str = "",
     cv: str = "",
     cv_status: CVStatus = CVStatus.READY,
+    follow_up_questions: Optional[list[str]] = None,
 ) -> Optional[Achievement]:
     """完成任务并沉淀为成就。
 
-    继承自 skill 的设计：先写 achievement，再删 task。中途崩溃会留 duplicate 但不丢数据。
+    2026-08-01 改造:
+    1. task 不再删, 改 status=COMPLETED + completed_at=今天
+       - 旧版 (v1-v3): task 删掉, 用户在看板找不到自己完成过的事
+       - 新版 (v4): task 保留 (划掉 + 灰色), 用户能"看回"自己干的活
+       - list_tasks 默认隐藏 COMPLETED, 加 include_completed=True 参数显示
+       - 成就仍然 append (每次完成一条 task 写一行 Achievement, 多次完成同 task 多次 append)
+       - 撤销走 undo_completion: 改 task.status 回 IN_PROGRESS + 删对应 achievement
+    2. follow_up_questions (LLM 主动追问) 入库
+       - 2026-08-01 立: LLM 完成任务后根据任务类型生成 1-3 个追问
+         (e.g. "上线后 DAU 涨了多少?" / "用户反馈如何?")
+       - 用户在 follow-up 页 (web/app/achievements/follow-up) 补全答案
+       - 补全后 cv_status 升级 ready
     """
     async with get_session() as session:
         result = await session.execute(select(TaskORM).where(TaskORM.id == task_id))
@@ -594,7 +750,7 @@ async def complete_task(
         project = proj_result.scalar_one_or_none()
         if not project:
             raise ValueError(f"Project {task.project_id} not found")
-        # 先写 achievement（崩溃恢复点：这里写了 task 还没删，可以人工恢复）
+        # 写 achievement (append, 多次完成同 task 多次 append)
         achievement = AchievementORM(
             id=_new_id("done"),
             date=date.today(),
@@ -607,11 +763,14 @@ async def complete_task(
             cv=cv,
             cv_status=cv_status.value,
             tags_json="[]",
+            follow_up_questions_json=json.dumps(follow_up_questions or [], ensure_ascii=False),
+            follow_up_answers_json="{}",
         )
         session.add(achievement)
+        # 2026-08-01: 改 task 状态 (不删), 保留"看回" 体验
+        task.status = TaskStatus.COMPLETED.value
+        task.completed_at = date.today()
         await session.flush()
-        # 再删 task
-        await session.delete(task)
         return _achievement_to_pydantic(achievement)
 
 
@@ -625,6 +784,34 @@ async def update_achievement_cv(aid: str, data: AchievementUpdate) -> Optional[A
             a.cv = data.cv
         if data.cv_status is not None:
             a.cv_status = data.cv_status.value
+        await session.flush()
+        return _achievement_to_pydantic(a)
+
+
+async def answer_follow_ups(aid: str, answers: dict) -> Optional[Achievement]:
+    """补全追问 (2026-08-01 立)。
+
+    流程:
+    1. 写 follow_up_answers 到 achievement
+    2. cv_status 自动升级 ready (用户主动补全了 = 数据够用)
+
+    返回更新后的 Achievement。
+    """
+    async with get_session() as session:
+        result = await session.execute(select(AchievementORM).where(AchievementORM.id == aid))
+        a = result.scalar_one_or_none()
+        if not a:
+            return None
+        # 合并新答案 (旧答案 + 新答案, 新覆盖旧)
+        existing = json.loads(a.follow_up_answers_json or "{}")
+        existing.update(answers)
+        a.follow_up_answers_json = json.dumps(existing, ensure_ascii=False)
+        # 2026-08-02 (v0.3.3 修): 之前无脑升级 cv_status=ready, 但用户可能传空 answers.
+        #   现在: 至少 1 个非空答案才算"补全", 否则保持原状态 (用户没真补 = 数据还是不充分).
+        #   注释 (2026-08-01): 用户主动补全了 = 数据够用, 自动升级 ready
+        #   (未来允许用户保持 pending — 留个 option 字段给前端传, 现在简化默认升级)
+        if answers and any((v or "").strip() for v in answers.values()):
+            a.cv_status = CVStatus.READY.value
         await session.flush()
         return _achievement_to_pydantic(a)
 
@@ -652,40 +839,75 @@ async def list_achievements(
 
 
 async def undo_completion(aid: str) -> Optional[Task]:
-    """撤销完成：恢复 task，删除 achievement。
+    """撤销完成：恢复 task 状态，删除 achievement。
 
-    镜像 complete_task：先恢复 task，再删 achievement。中途崩溃会留 duplicate 但可恢复。
+    2026-08-01 改造: task 不删, 撤销改成"改 task.status 回去"。
+    - 旧版 (v1-v3): 删 task, 撤销时用 achievement.task_id 重建 task (priority/checklist 都丢)
+    - 新版 (v4): task 一直存在, 撤销只改 status (priority/checklist 保留)
+    - 多次完成同 task 多次 append achievement, 撤销只删最新一条
     """
     async with get_session() as session:
         result = await session.execute(select(AchievementORM).where(AchievementORM.id == aid))
         achievement = result.scalar_one_or_none()
         if not achievement:
             return None
-        # 拿项目验证
-        proj_result = await session.execute(
-            select(ProjectORM).where(ProjectORM.id == achievement.project_id)
+        # 找对应 task (新版: task 还在, 状态=COMPLETED)
+        task_result = await session.execute(
+            select(TaskORM).where(TaskORM.id == achievement.task_id)
         )
-        if not proj_result.scalar_one_or_none():
-            raise ValueError(f"Project {achievement.project_id} not found")
-        # 先恢复 task
-        task = TaskORM(
-            id=achievement.task_id,
-            project_id=achievement.project_id,
-            title=achievement.title,
-            status=TaskStatus.IN_PROGRESS.value,
-            priority=Priority.P2.value,
-            due=None,
-            blocked=False,
-            draft=False,
-            created_at=date.today(),
-            completed_at=None,
-            checklist_json="[]",
-        )
-        session.add(task)
+        task = task_result.scalar_one_or_none()
+        if not task:
+            # 旧数据兼容: task 已被删 (2026-08-01 之前的 achievement)
+            # 走旧路径重建 task
+            proj_result = await session.execute(
+                select(ProjectORM).where(ProjectORM.id == achievement.project_id)
+            )
+            if not proj_result.scalar_one_or_none():
+                raise ValueError(f"Project {achievement.project_id} not found")
+            task = TaskORM(
+                id=achievement.task_id,
+                project_id=achievement.project_id,
+                title=achievement.title,
+                status=TaskStatus.IN_PROGRESS.value,
+                priority=Priority.P2.value,
+                due=None,
+                blocked=False,
+                draft=False,
+                created_at=date.today(),
+                completed_at=None,
+                checklist_json="[]",
+            )
+            session.add(task)
+        else:
+            # 新路径: 改 status 回去 (保留 priority/checklist/created_at 等)
+            task.status = TaskStatus.IN_PROGRESS.value
+            task.completed_at = None
         await session.flush()
-        # 再删 achievement
+        # 删 achievement
         await session.delete(achievement)
         return _task_to_pydantic(task)
+
+
+async def undo_by_task_id(task_id: str) -> Optional[Task]:
+    """按 task_id 撤销最近一次完成（2026-08-01 立）。
+
+    用途: 主页"已完成 task" 折叠区的撤销按钮 — 用户看到 task (不是 achievement) 想撤销,
+    按 task_id 找该 task 对应的最新一条 achievement 调 undo_completion。
+
+    多次完成同 task 多次 append achievement, 撤销只删最新一条 (跟 undo_completion 一致)。
+    """
+    async with get_session() as session:
+        # 找该 task_id 对应的最新一条 achievement (按 date desc)
+        ach_result = await session.execute(
+            select(AchievementORM)
+            .where(AchievementORM.task_id == task_id)
+            .order_by(AchievementORM.date.desc())
+        )
+        latest = ach_result.scalars().first()
+        if not latest:
+            return None
+        # 用 id 调既有 undo_completion
+        return await undo_completion(latest.id)
 
 
 # ===== Checklist =====
@@ -983,10 +1205,16 @@ async def load_chat_history_for_llm(
 async def build_snapshot() -> Snapshot:
     """构建全局快照（dashboard / 问局势 用）。"""
     async with get_session() as session:
-        proj_result = await session.execute(select(ProjectORM))
+        # 2026-07-30: 拖动排序。snapshot 也按 sort_order ASC 排, 跟 list 端点对齐
+        proj_result = await session.execute(
+            select(ProjectORM).order_by(ProjectORM.sort_order.asc(), ProjectORM.created_at.asc())
+        )
         all_projects = proj_result.scalars().all()
 
-        task_result = await session.execute(select(TaskORM))
+        # task 全表扫, 下面按 project 分组时再按 sort_order 排
+        task_result = await session.execute(
+            select(TaskORM).order_by(TaskORM.sort_order.asc(), TaskORM.created_at.asc())
+        )
         all_tasks = [_task_to_pydantic(t) for t in task_result.scalars().all()]
 
         today = date.today()
@@ -1000,8 +1228,12 @@ async def build_snapshot() -> Snapshot:
         ready_count = sum(1 for a in all_achievements if a.cv_status == CVStatus.READY.value)
         pending_count = sum(1 for a in all_achievements if a.cv_status == CVStatus.PENDING.value)
 
-    # 算 focus
-    focus_tasks = sort_focus(all_tasks)[:5]
+    # 2026-08-01: 区分 active vs done, focus/projects_grouped 只放 active (任务流干净)
+    active_tasks = [t for t in all_tasks if t.status != TaskStatus.COMPLETED.value]
+    done_tasks = [t for t in all_tasks if t.status == TaskStatus.COMPLETED.value]
+
+    # 算 focus (只看 active, 用户最该被聚焦的是"还没完成的")
+    focus_tasks = sort_focus(active_tasks)[:5]
     focus = [
         FocusItem(
             id=t.id,
@@ -1014,26 +1246,33 @@ async def build_snapshot() -> Snapshot:
         for t in focus_tasks
     ]
 
-    # 按 project 分组
+    # 按 project 分组 (active only, 算 done_count 给前端"查看已完成 N" 折叠区)
     known_pids = {p.id for p in all_projects}
     projects_grouped: list[ProjectSnapshot] = []
     for p in all_projects:
         if p.archived:
             continue
-        p_tasks = [t for t in all_tasks if t.project == p.id]
+        p_active = [t for t in active_tasks if t.project == p.id]
+        p_done = sum(1 for t in done_tasks if t.project == p.id)
         projects_grouped.append(ProjectSnapshot(
-            id=p.id, name=p.name, description=p.description, tasks=p_tasks
+            id=p.id, name=p.name, description=p.description, tasks=p_active,
+            done_count=p_done,
+            sort_order=p.sort_order,  # 2026-07-30: 透传 sort_order 给前端
         ))
 
-    # 未分组的 task
-    orphans = [t for t in all_tasks if t.project not in known_pids]
+    # 未分组的 task (孤儿, project 已被删/不存在)。sort_order 用 0 兜底
+    orphans = [t for t in active_tasks if t.project not in known_pids]
     if orphans:
-        projects_grouped.append(ProjectSnapshot(id=None, name="未分组", tasks=orphans))
+        projects_grouped.append(ProjectSnapshot(
+            id=None, name="未分组", tasks=orphans, done_count=0, sort_order=0,
+        ))
 
     return Snapshot(
         focus=focus,
         projects=projects_grouped,
         done_today=done_today,
+        # 2026-08-01: 全局已完成 task 列表 (按 completed_at desc 排, 最近完成的在前)
+        done_tasks=sorted(done_tasks, key=lambda t: t.completed_at or date.min, reverse=True),
         counts={
             "achievementsReady": ready_count,
             "achievementsPending": pending_count,

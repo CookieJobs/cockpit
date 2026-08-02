@@ -1,13 +1,34 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import useSWR from "swr";
+import { listCommitments, isCommitment, toggleCommitment } from "@/lib/commitments";
 import { useRouter } from "next/navigation";
-import { api, type Snapshot, type Project, type Task, type Achievement, type TaskStatus, statusIcon, dueColor, dueLabel, taskAgeDays, projectEmoji, relativeDate, daysAgoISO, type Priority, PRIORITY_BADGE_STYLES } from "@/lib/api";
-import { Check, Trash2, ChevronRight, ChevronDown, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2, Archive, ArchiveRestore, Sparkles } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { api, type Snapshot, type Project, type Task, type Achievement, type TaskStatus, statusIcon, dueColor, dueLabel, projectEmoji, relativeDate, daysAgoISO, type Priority, PRIORITY_BADGE_STYLES } from "@/lib/api";
+import { Check, Trash2, ChevronRight, ChevronDown, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2, Archive, ArchiveRestore, Sparkles, GripVertical, Star, FileCode, FileText, Plug } from "lucide-react";
 import { ChatWindow } from "./ChatWindow";
 import { CompleteTaskModal } from "./CompleteTaskModal";
+import { ThemeToggle } from "./ThemeToggle";
+import { FollowUpReminder } from "./FollowUpReminder";
+import { OnboardingTooltip } from "./OnboardingTooltip";
 import { usePopover, usePopoverPosition } from "./Popover";
 import { useToast } from "./Toast";
 import Link from "next/link";
@@ -26,14 +47,38 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
   const toast = useToast();
   const router = useRouter();
 
-  // 对话栏默认展开;用户可收起,状态持久化到 localStorage
-  const [chatOpen, setChatOpen] = useState<boolean>(true);
+  // 2026-08-01 立: 今日承诺 — 从 localStorage 读 (commitments.ts), snapshot 变化时重新读
+  //   不用 useState 因为 useEffect 一次性读就够, snapshot 变化用 refresh 触发
+  const [commitments, setCommitments] = useState<string[]>([]);
+  useEffect(() => {
+    // SSR 安全: listCommitments() 内部 typeof window 兜底
+    setCommitments(listCommitments());
+  }, [snapshot]); // snapshot 变化时刷新 (完成/撤销时 doneIds 会变, 但 commitments 本身不变 — 简化)
+
+  // doneIds = snapshot.done_tasks 的 id 集合 (算承诺进度用)
+  const doneIds = useMemo(
+    () => new Set(snapshot?.done_tasks.map((t) => t.id) ?? []),
+    [snapshot?.done_tasks],
+  );
+
+  // 2026-08-02 改: 对话栏默认**折叠**, 主动展开才出现 ——
+  //   v0.2 上线时默认 true (展开), 老用户已经习惯"进 cockpit 就看到 AI 在右栏"
+  //   但 v0.4.4 之后的产品定位是 "沉淀成就 → 生成履历", AI 聊天是 secondary 入口,
+  //   主页应该是清爽的项目 + 成就视图。投资者 Round 2 挑刺 #1: "ChatWindow 占
+  //   1/3 屏, 用户进 cockpit 不想聊 AI, 就想看自己的项目"
+  //
+  //   行为:
+  //   - 新用户 (localStorage 没 cockpit_chat_collapsed 标记) → 默认折叠 (清爽主页)
+  //   - 老用户 (localStorage 存了 "0" 展开 / "1" 折叠) → 保留他们的选择
+  //   - 切换栏后立即写 localStorage, 老用户不感知变化, 新用户清爽
+  const [chatOpen, setChatOpen] = useState<boolean>(false);
   useEffect(() => {
     try {
       const stored = localStorage.getItem(CHAT_COLLAPSED_KEY);
+      if (stored === "0") setChatOpen(true);
       if (stored === "1") setChatOpen(false);
     } catch {
-      /* SSR / 隐私模式无 localStorage,忽略 */
+      /* SSR / 隐私模式无 localStorage, 走默认折叠 */
     }
   }, []);
   const toggleChat = () => {
@@ -46,6 +91,17 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
       }
       return next;
     });
+  };
+
+  // 聚焦对话输入框 (2026-08-01 立): FocusSection 空状态 CTA 用
+  //   - 如果对话栏折叠, 先展开
+  //   - 50ms 后 dispatch 'cockpit:focus-chat' event, ChatWindow 监听调 textarea.focus()
+  //   - 不用 forwardRef, 简单全局 event 模式
+  const handleFocusChat = () => {
+    if (!chatOpen) toggleChat();
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("cockpit:focus-chat"));
+    }, 80);
   };
 
   useEffect(() => {
@@ -68,6 +124,22 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
   const pendingCount = snapshot?.counts.achievementsPending ?? 0;
   const focusCount = snapshot?.focus.length ?? 0;
   const doneTodayCount = snapshot?.done_today.length ?? 0;
+
+  // 2026-08-02 立 (投资人 Round 1 优化): 成就数字增加时 highlight 1.5s
+  //   - 任务完成 → 沉淀成就 → readyCount +1 → 数字 + 背景 +1s 闪一下
+  //   - 撤销成就 → readyCount -1 → 不闪 (负向反馈不抢眼)
+  //   - 心理作用: "我刚刚干的事被记下来了, 数字看得见" — 完成 → 沉淀闭环可视化
+  const [readyFlash, setReadyFlash] = useState(false);
+  const prevReadyCountRef = useRef(readyCount);
+  useEffect(() => {
+    if (readyCount > prevReadyCountRef.current) {
+      setReadyFlash(true);
+      const t = setTimeout(() => setReadyFlash(false), 1500);
+      prevReadyCountRef.current = readyCount;
+      return () => clearTimeout(t);
+    }
+    prevReadyCountRef.current = readyCount;
+  }, [readyCount]);
 
   return (
     <div className="flex h-screen bg-bg">
@@ -93,13 +165,8 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
                   : "○ 关键词"}
               </span>
             )}
-            <Link
-              href="/today"
-              className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary"
-              title="晨间 ritual：聚焦今天要做的"
-            >
-              今天
-            </Link>
+            {/* 待补追问徽章 (2026-08-01 立) - 拉 /api/reminders/pending, total=0 不显示 */}
+            <FollowUpReminder />
             <Link
               href="/report"
               className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
@@ -108,6 +175,34 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
               <Sparkles size={11} />
               写周报
             </Link>
+            {/* 2026-08-01 立: PR 描述生成入口 (项目维度) */}
+            <Link
+              href="/pr"
+              className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
+              title="从 ready 成就生成 GitHub PR 描述"
+            >
+              <FileCode size={11} />
+              PR 描述
+            </Link>
+            {/* v0.4.2 立: 跨项目 CV 视图 (时间维度, 一次沉淀多次输出的"输出"端基础) */}
+            <Link
+              href="/cv"
+              className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
+              title="跨项目 CV 视图 (按时间倒序拉所有 ready 成就)"
+            >
+              <FileText size={11} />
+              CV 视图
+            </Link>
+            {/* 2026-08-02 v0.5a.1 强化: 接入中心是杀手功能 (Claude Code / Cursor / Trae 等 6 个
+             *   AI Agent 能直接读 cockpit 数据), 但之前 nav 只用小 Plug 图标 + "集成" 文字,
+             *   杀手功能埋没了。Round 4 强化:
+             *   - 文字 "集成" → "⚡ AI 直连" (强调价值, 不是技术)
+             *   - 颜色: text-fg-secondary → text-accent (亮起来, 跟其他 nav 区分)
+             *   - 加红点 dot: 当 installed_count < total_count, 提醒"还没接入"
+             *   - hover tooltip: 装上能干啥 (6 个 Agent 直接读 cockpit 数据)
+             *   - 心理作用: 用户每次进 cockpit 都看到 "⚡ AI 直连" + 红点, 知道这是关键能力
+             */}
+            <IntegrationNavLink />
             <Link
               href="/achievements"
               className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary"
@@ -121,61 +216,128 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
             >
               <Settings size={14} />
             </Link>
+            {/* 2026-08-01 立: 主题切换 (light/dark), 跟 Settings 同位置同尺寸 */}
+            <ThemeToggle />
           </div>
         </div>
 
-        {/* 累计计数 */}
-        <div className="px-5 py-3 border-b border-border flex items-center gap-4 text-[12px] text-fg-secondary">
-          <span>
-            本期已沉淀{" "}
-            <strong className="text-accent font-semibold tabular-nums">
-              {readyCount}
-            </strong>{" "}
-            条成就
-          </span>
-          {pendingCount > 0 && (
-            <span className="text-fg-muted">
-              ·{" "}
-              <strong className="text-warning font-semibold tabular-nums">
-                {pendingCount}
-              </strong>{" "}
-              条待补
-            </span>
-          )}
-          {snapshot && focusCount > 0 && (
-            <span className="text-fg-muted">
-              ·{" "}
-              <strong className="text-fg font-semibold tabular-nums">
-                {focusCount}
-              </strong>{" "}
-              项待办
-            </span>
+        {/* 2026-08-02 立: 本期成就卡片 (投资人 Round 1 优化 — 5 秒 Wow 时刻)
+         *
+         * 升级: 原来是一条窄 counter text, 现在改成有视觉重量的卡片。
+         * 目的: 用户进入 cockpit 第一眼看到 "我这段时间沉淀了 X 条成就" +
+         *   "今日 +N" + "查看全部 →" — 把心理重心从"待办焦虑"切到"已有积累"。
+         *
+         * 设计决定:
+         * - 大数字 readyCount (text-accent 28px) — 跟 "12 条成就" 文案对比明显
+         * - 右侧 stack: 今日 +N (fg) + 待补 N (warning) + 待办 N (fg-muted)
+         * - 底部: "查看全部 →" 链接到 /achievements — 闭环
+         * - highlight 动画: readyCount +1 时 readyFlash=true, 数字 + 卡片背景闪
+         *   accent 色 1.5s, 让用户看到 "我刚做的事被记下来了"
+         * - 不动 FocusSection 顺序: 本卡片在 counter 条位置, 不进 overflow 滚动区
+         */}
+        <div
+          data-testid="achievement-spotlight"
+          className={`mx-4 mt-3 mb-2 px-4 py-3 rounded-lg border transition-colors duration-500 ${
+            readyFlash
+              ? "bg-accent/10 border-accent/30"
+              : "bg-bg-tertiary border-border"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-baseline gap-2 min-w-0">
+              <strong
+                className={`text-[28px] font-bold tabular-nums leading-none transition-colors duration-500 ${
+                  readyFlash ? "text-accent" : "text-fg"
+                }`}
+              >
+                {readyCount}
+              </strong>
+              <span className="text-[12px] text-fg-secondary">条已沉淀成就</span>
+              {readyFlash && (
+                <span
+                  className="text-[10px] text-accent font-medium px-1.5 py-0.5 rounded bg-accent/15 animate-pulse"
+                  data-testid="achievement-spotlight-flash"
+                >
+                  +1
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-3 text-[11px] text-fg-muted shrink-0">
+              {doneTodayCount > 0 && (
+                <span className="flex items-center gap-1">
+                  <span className="text-fg-secondary">今日</span>
+                  <strong className="text-fg tabular-nums">+{doneTodayCount}</strong>
+                </span>
+              )}
+              {pendingCount > 0 && (
+                <span className="flex items-center gap-1">
+                  <span className="text-fg-secondary">待补</span>
+                  <strong className="text-warning tabular-nums">{pendingCount}</strong>
+                </span>
+              )}
+              {focusCount > 0 && (
+                <span className="flex items-center gap-1">
+                  <span className="text-fg-secondary">待办</span>
+                  <strong className="text-fg tabular-nums">{focusCount}</strong>
+                </span>
+              )}
+            </div>
+          </div>
+          {readyCount > 0 && (
+            <Link
+              href="/achievements"
+              className="mt-2 inline-flex items-center gap-1 text-[11px] text-fg-secondary hover:text-accent transition group"
+            >
+              查看全部 {readyCount} 条成就
+              <ChevronRight
+                size={11}
+                className="transition-transform group-hover:translate-x-0.5"
+              />
+            </Link>
           )}
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-5 space-y-6">
           {snapshot && (
             <>
-              <FocusSection
-                snapshot={snapshot}
-                onChange={refresh}
-                onRequestComplete={(t) => setCompletingTask(t)}
-              />
-              <ProjectsSection
-                snapshot={snapshot}
-                onChange={refresh}
-                onRequestComplete={(t) => setCompletingTask(t)}
-              />
+              {/* 2026-08-02 立: 今日已完成区移到 spotlight 卡片正下方, 跟"今日 +N" 指示器联动
+               *   - 之前: DoneTodaySection 在 ProjectsSection + DoneAllSection 之后, 用户得滚到底
+               *   - 现在: 紧跟 spotlight 卡片, 主页第一屏就能看到今天干了啥
+               *   - 配合: spotlight 卡片副 stack 里的"今日 +N" 直接链接到这块
+               *   - 折叠默认展开 (跟 lesson #14 4 字段摩擦同源: 已经积攒成就不藏, 直接给用户看)
+               *   - 心理钩子: "我今天已经干了 N 件事" 比 "我还有 5 项没干" 强 10 倍
+               */}
               <DoneTodaySection
                 items={snapshot.done_today}
                 expanded={doneExpanded}
                 onToggle={() => setDoneExpanded((e) => !e)}
                 onChange={refresh}
               />
+              <FocusSection
+                snapshot={snapshot}
+                onChange={refresh}
+                onRequestComplete={(t) => setCompletingTask(t)}
+                onRequestFocusChat={handleFocusChat}
+                commitments={commitments}
+                doneIds={doneIds}
+              />
+              <ProjectsSection
+                snapshot={snapshot}
+                onChange={refresh}
+                onRequestComplete={(t) => setCompletingTask(t)}
+                onRequestFocusChat={handleFocusChat}
+              />
+              <DoneAllSection
+                items={snapshot.done_tasks}
+                onChange={refresh}
+              />
             </>
           )}
         </div>
       </div>
+
+      {/* 新用户引导 (2026-08-01 立) - 首次访问弹 3 步引导, localStorage 标记 */}
+      <OnboardingTooltip />
 
       {/* 完成任务弹窗 - 2026-07-28 v3 砍到 1 必填 (outcome) + CV 智能预填 + ✨ 润色按钮 */}
       {completingTask && (
@@ -222,6 +384,47 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
   );
 }
 
+// 2026-08-02 v0.5a.1 立 + Round 4 强化: 主页 nav "⚡ AI 直连" 入口
+//   - 拉 /api/integrations/status 拿 installed_count / total_count
+//   - 红点: installed < total 提醒用户"还没接入"
+//   - 装好所有: 不显示红点, 变 fg 颜色
+//   - SWR refresh 30s, 用户去 /integrations 装好后回主页, dot 自动消失
+//   - 单独组件是为了不被 MainBoard 重渲连累 (有 SWR 独立订阅)
+function IntegrationNavLink() {
+  const { data: status } = useSWR(
+    "/api/integrations/status",
+    () => api.integrationStatus(),
+    { refreshInterval: 30000 },
+  );
+
+  const installed = status?.installed_count ?? 0;
+  const total = status?.total_count ?? 6;  // fallback 6 (Claude Code / Cursor / Trae / Cline / Continue / WorkBuddy)
+  const allInstalled = installed >= total && total > 0;
+  const showDot = !allInstalled;  // 有 1 个没装就亮红点
+
+  return (
+    <Link
+      href="/integrations"
+      className="text-[12px] text-accent hover:text-accent-hover transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1 relative"
+      title={
+        allInstalled
+          ? `已接入 ${installed}/${total} 个 AI Agent (Claude Code / Cursor / Trae / Cline / Continue / WorkBuddy)`
+          : `把 cockpit 注册到 Claude Code / Cursor / Trae 等 ${total} 个 AI Agent, 让它们直接读你的项目 + 任务 + 成就 (当前 ${installed}/${total})`
+      }
+    >
+      <Plug size={11} />
+      <span>⚡ AI 直连</span>
+      {showDot && (
+        <span
+          data-testid="integration-red-dot"
+          className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-danger animate-pulse"
+          aria-label={`${total - installed} 个 AI Agent 未接入`}
+        />
+      )}
+    </Link>
+  );
+}
+
 function SectionHeader({
   title,
   count,
@@ -248,33 +451,133 @@ function FocusSection({
   snapshot,
   onChange,
   onRequestComplete,
+  onRequestFocusChat,
+  commitments,
+  doneIds,
 }: {
   snapshot: Snapshot;
   onChange: () => void;
   onRequestComplete: (task: Pick<Task, "id" | "title">) => void;
+  onRequestFocusChat: () => void;
+  // 2026-08-01 立: 今日承诺 (localStorage 持久化, 用户主动挑 N 个 task)
+  commitments: string[];
+  doneIds: Set<string>;
 }) {
-  if (snapshot.focus.length === 0) {
+  // 找承诺的 Task 对象 (从 snapshot.projects[].tasks 里搜)
+  const allActiveTasks: Task[] = useMemo(
+    () => snapshot.projects.flatMap((p) => p.tasks),
+    [snapshot.projects],
+  );
+  const taskById = useMemo(() => {
+    const m = new Map<string, Task>();
+    for (const t of allActiveTasks) m.set(t.id, t);
+    return m;
+  }, [allActiveTasks]);
+  const committedTasks: Task[] = useMemo(
+    () => commitments
+      .map((id) => taskById.get(id))
+      .filter((t): t is Task => !!t), // 过滤掉已删/已完成的
+    [commitments, taskById],
+  );
+  const committedDone = committedTasks.filter((t) => doneIds.has(t.id)).length;
+  const showProgress = commitments.length >= 1; // 有承诺就显示进度, 不用 >= 3 (避免空引导区)
+
+  // 空状态判断
+  if (snapshot.focus.length === 0 && committedTasks.length === 0) {
+    // 2026-08-01: 删掉"所有任务都已收尾"反讽文案。
+    //   区分两种空状态 — 新用户(没项目) vs 老用户(都完成了), 引导文案 + CTA 不同。
+    const isNewUser = snapshot.projects.length === 0;
     return (
       <div>
         <SectionHeader title="今日聚焦" count={0} />
-        <div className="px-1 py-6 text-center text-[13px] text-fg-muted">
-          所有任务都已收尾
+        <div className="px-1 py-6 text-center space-y-2">
+          <div className="text-[20px]">{isNewUser ? "👋" : "🎉"}</div>
+          <div className="text-[14px] text-fg-secondary font-medium">
+            {isNewUser ? "还没有任务" : "今日聚焦都完成了"}
+          </div>
+          <div className="text-[12px] text-fg-muted">
+            {isNewUser
+              ? "在右栏对话试试「加个任务：完成 XX」"
+              : "加新任务继续 — 在右栏对话里说「加个任务」"}
+          </div>
+          <button
+            onClick={onRequestFocusChat}
+            className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 transition"
+          >
+            {isNewUser ? "去对话建项目" : "加新任务"}
+          </button>
         </div>
       </div>
     );
   }
+
+  // 区分承诺 vs focus: 承诺的优先显示
+  const focusSet = new Set(snapshot.focus.map((f) => f.id));
+  const focusNotCommitted = snapshot.focus.filter((f) => !commitments.includes(f.id));
+
   return (
     <div>
-      <SectionHeader title="今日聚焦" count={snapshot.focus.length} />
-      <div className="space-y-0.5">
-        {snapshot.focus.map((item) => (
-          <FocusItem
-            key={item.id}
-            item={item}
-            onRequestComplete={() => onRequestComplete(item)}
-          />
-        ))}
-      </div>
+      <SectionHeader
+        title="今日聚焦"
+        count={commitments.length + focusNotCommitted.length}
+        right={
+          showProgress ? (
+            <span className="text-[11px] text-fg-muted tabular-nums">
+              承诺 {committedDone}/{commitments.length}
+            </span>
+          ) : undefined
+        }
+      />
+      {/* 承诺进度条 */}
+      {showProgress && (
+        <div className="px-1 mb-2">
+          <div className="h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
+            <div
+              className="h-full bg-accent transition-all"
+              style={{
+                width: `${commitments.length > 0 ? Math.round((committedDone / commitments.length) * 100) : 0}%`,
+              }}
+            />
+          </div>
+          {commitments.length < 3 && (
+            <div className="text-[11px] text-fg-muted mt-1">
+              挑 3 个任务加入今日承诺 — 在任务行的 ⋯ 菜单 / hover 时点 ⭐ 按钮
+            </div>
+          )}
+        </div>
+      )}
+      {/* 承诺的任务 (优先) */}
+      {committedTasks.length > 0 && (
+        <div className="space-y-0.5 mb-1">
+          {committedTasks.map((task) => (
+            <FocusItem
+              key={task.id}
+              item={{
+                id: task.id,
+                project: task.project,
+                title: task.title,
+                priority: task.priority,
+                due: task.due,
+                blocked: task.blocked,
+              }}
+              isCommitment
+              onRequestComplete={() => onRequestComplete({ id: task.id, title: task.title })}
+            />
+          ))}
+        </div>
+      )}
+      {/* 系统 focus (未承诺的) */}
+      {focusNotCommitted.length > 0 && (
+        <div className="space-y-0.5">
+          {focusNotCommitted.map((item) => (
+            <FocusItem
+              key={item.id}
+              item={item}
+              onRequestComplete={() => onRequestComplete(item)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -282,9 +585,12 @@ function FocusSection({
 function FocusItem({
   item,
   onRequestComplete,
+  isCommitment,
 }: {
   item: Snapshot["focus"][number];
   onRequestComplete: () => void;
+  // 2026-08-01 立: 该 task 是不是今日承诺 (高亮 + 左侧 ⭐ 标记)
+  isCommitment?: boolean;
 }) {
   const [hover, setHover] = useState(false);
 
@@ -309,12 +615,22 @@ function FocusItem({
     <div
       className={`group flex flex-col gap-0.5 rounded-lg pl-3 pr-3 py-2.5 cursor-pointer hover:bg-bg-tertiary/60 transition ${
         item.blocked ? "opacity-70" : ""
-      }`}
+      } ${isCommitment ? "bg-accent/5 border-l-2 border-accent" : ""}`}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       onClick={onRequestComplete}
     >
       <div className="flex items-center gap-3">
+        {/* 承诺标记 (2026-08-01 立) - 左侧 ⭐ 视觉锚点 */}
+        {isCommitment && (
+          <span
+            className="flex-shrink-0 text-accent text-[12px]"
+            title="今日承诺"
+          >
+            ⭐
+          </span>
+        )}
+
         {/* P0/P1/P2/P3 badge - 跟 TaskRow / FocusRow 三处统一, 软底色 + 同色描边 + font-mono */}
         <span
           className={`inline-flex items-center justify-center h-5 px-1.5 rounded
@@ -450,14 +766,112 @@ function DoneTodaySection({
   );
 }
 
+function DoneAllSection({
+  items,
+  onChange,
+}: {
+  items: NonNullable<Snapshot["done_tasks"]>;
+  onChange: () => void;
+}) {
+  // 2026-08-01 立: 全局"已完成 task" 折叠区 (跨 project, 不只是今天)
+  //   旧版 task 完成即删, 用户"看回" 自己干的活要去 /achievements 才能找到
+  //   新版 task 保留 (status=已完成), 主页底部加这个折叠区, 立刻看回所有 done
+  //   - 默认收起 (done 多了不打扰主页)
+  //   - 展开后按 completed_at desc 排 (最近完成的在前)
+  //   - 每条带项目 emoji + 标题 + 撤销按钮
+  const [expanded, setExpanded] = useState(false);
+  if (!items || items.length === 0) return null;
+
+  // 拿每个 task 对应的 achievement (task_id + date 是关键) — 简化: 调后端
+  // 撤销走原 achievement 路径, 不用 task_id
+  // 实际: 我们展示 task 但撤销是按 task_id 找最新 achievement, 简化展示
+  return (
+    <div className="rounded-lg border border-border bg-bg-secondary/50 overflow-hidden">
+      <div
+        className="px-3 py-2.5 flex items-center justify-between cursor-pointer hover:bg-bg-tertiary/40 transition select-none"
+        onClick={() => setExpanded((e) => !e)}
+      >
+        <div className="flex items-center gap-2">
+          <ChevronRight
+            size={12}
+            strokeWidth={2}
+            className={`text-fg-muted transition-transform flex-shrink-0 ${
+              expanded ? "rotate-90" : ""
+            }`}
+          />
+          <span className="text-[11px] uppercase tracking-[0.1em] text-fg-muted font-semibold">
+            📦 已完成任务
+          </span>
+          <span className="text-[11px] text-fg-secondary tabular-nums">
+            {items.length}
+          </span>
+        </div>
+        <span className="text-[10px] text-fg-muted/60">
+          {expanded ? "收起" : "展开"}
+        </span>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-border/40 divide-y divide-border/30">
+          {items.map((t) => (
+            <div key={t.id} className="px-3 py-2.5 group/item">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Check size={12} className="text-success flex-shrink-0" strokeWidth={2.5} />
+                    {/* 项目 emoji — 跟 projectCard 头部一致 (复用 projectEmoji) */}
+                    <span className="text-[12px] flex-shrink-0 opacity-70">
+                      {projectEmoji(t.project)}
+                    </span>
+                    <span className="text-[13px] text-fg-muted line-through truncate">
+                      {t.title}
+                    </span>
+                  </div>
+                  {t.completed_at && (
+                    <div className="text-[10px] text-fg-muted mt-1">
+                      完成于 {t.completed_at}
+                    </div>
+                  )}
+                </div>
+                {/* 撤销按钮 (2026-08-01: 按 task.id 调后端, 后端找最近一条 achievement 撤销) */}
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (!confirm(`撤销「${t.title}」的完成状态？任务会恢复到进行中。`)) return;
+                    // 后端需要新端点: POST /api/tasks/{id}/undo 找最新 achievement 撤销
+                    // 简化: 调 list_achievements 找该 task_id 对应的最新 achievement, 再 undo
+                    // 实际: 我加新端点 /api/tasks/{id}/undo 走 storage.undo_by_task_id
+                    try {
+                      await api.undoTask(t.id);
+                      onChange();
+                    } catch (err) {
+                      alert("撤销失败: " + (err instanceof Error ? err.message : err));
+                    }
+                  }}
+                  className="opacity-0 group-hover/item:opacity-100 text-fg-muted hover:text-danger transition p-1 rounded hover:bg-bg-tertiary flex-shrink-0"
+                  title="撤销（恢复任务到进行中）"
+                >
+                  <Undo2 size={12} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProjectsSection({
   snapshot,
   onChange,
   onRequestComplete,
+  onRequestFocusChat,
 }: {
   snapshot: Snapshot;
   onChange: () => void;
   onRequestComplete: (task: Task) => void;
+  onRequestFocusChat: () => void;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [newProjectName, setNewProjectName] = useState("");
@@ -484,6 +898,44 @@ function ProjectsSection({
     await api.updateProject(id, { archived: false });
     refreshArchived();
     onChange();
+  };
+
+  // ===== 拖动排序 (2026-07-30 立) =====
+  // 项目拖动是项目级, 跟 task 拖动互不干扰 (task 拖动在 ProjectCard 内部 DndContext)。
+  // 策略: 乐观更新本地 snapshot.projects 立即重排, 调 api.reorderProjects, 失败回滚 + toast。
+  // 间隔 10 存 sortOrder: 拖到中间 = (prev + next) / 2; 拖到首/尾 = 邻居 ±10。
+  // 间隔耗尽 (diff < 1) 时批量重写, 但 N=10 项内的项目基本不会触发。
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleProjectDragEnd = async (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const projects = snapshot.projects;
+    const oldIndex = projects.findIndex((p) => p.id === active.id);
+    const newIndex = projects.findIndex((p) => p.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    // 计算新 sortOrder — 邻居中间值, 边缘 ±10
+    const sortedArr = arrayMove(projects, oldIndex, newIndex);
+    const prev = newIndex > 0 ? sortedArr[newIndex - 1].sort_order : null;
+    const next = newIndex < sortedArr.length - 1 ? sortedArr[newIndex + 1].sort_order : null;
+    let newOrder: number;
+    if (prev === null && next === null) newOrder = 0;
+    else if (prev === null) newOrder = (next as number) - 10;
+    else if (next === null) newOrder = prev + 10;
+    else newOrder = (prev + next) / 2;
+    // 触发 onChange 让 snapshot 重新拉 (乐观更新也可以, 这里走最简: 让 SWR 拉新数据)
+    try {
+      await api.reorderProjects([{ id: active.id as string, sort_order: newOrder }]);
+      onChange();
+    } catch (err) {
+      console.error("Failed to reorder project:", err);
+      onChange(); // 拉回原状态
+    }
+    // 抑制 lint 警告: sortedArr 数组用于计算 newOrder, 不需要再 use
+    void sortedArr;
   };
 
   return (
@@ -531,25 +983,42 @@ function ProjectsSection({
           />
         </form>
       )}
-      <div className="space-y-1.5">
-        {snapshot.projects.map((p) => (
-          <ProjectCard
-            key={p.id || p.name}
-            project={p}
-            expanded={expanded[p.id || p.name] || false}
-            onToggle={() =>
-              setExpanded((e) => ({ ...e, [p.id || p.name]: !e[p.id || p.name] }))
-            }
-            onChange={onChange}
-            onRequestComplete={onRequestComplete}
-          />
-        ))}
-        {snapshot.projects.length === 0 && (
-          <div className="text-[13px] text-fg-muted px-3 py-4 text-center">
-            还没有项目。点上面的"新建"开始一个。
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleProjectDragEnd}>
+        <SortableContext
+          items={snapshot.projects.map((p) => p.id).filter((id): id is string => !!id)}
+          strategy={verticalListSortingStrategy}
+        >
+          <div className="space-y-1.5">
+            {snapshot.projects.map((p) => (
+              <SortableProjectCard
+                key={p.id || p.name}
+                project={p}
+                expanded={expanded[p.id || p.name] || false}
+                onToggle={() =>
+                  setExpanded((e) => ({ ...e, [p.id || p.name]: !e[p.id || p.name] }))
+                }
+                onChange={onChange}
+                onRequestComplete={onRequestComplete}
+              />
+            ))}
+            {snapshot.projects.length === 0 && (
+              <div className="text-[13px] text-fg-muted px-3 py-4 text-center space-y-2">
+                <div className="text-[20px]">📁</div>
+                <div className="text-fg-secondary font-medium">还没有项目</div>
+                <div className="text-[12px]">
+                  在右栏对话试试「建一个项目：XX」
+                </div>
+                <button
+                  onClick={onRequestFocusChat}
+                  className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 transition"
+                >
+                  去对话建项目
+                </button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </SortableContext>
+      </DndContext>
 
       {/* 已归档项目（默认折叠，2026-07-20 立）*/}
       {showArchived && archivedProjects.length > 0 && (
@@ -586,18 +1055,79 @@ function ProjectsSection({
   );
 }
 
+// ===== Sortable Wrappers (2026-07-30 拖动排序立) =====
+//
+// SortableProjectCard / SortableTaskRow 是拖动 wrapper, 内部 useSortable 拿 transform +
+// handle props。ProjectCard / TaskRow 主体保持纯展示, 通过 dragHandle 接收 button 渲染。
+//
+// 设计: handle 在卡片内渲染, 不用 absolute 外挂, 避免 overflow-hidden 裁切。
+// 触发区域: 整行 hover 时 opacity-0 → opacity-100 显示 handle, 平时不打扰。
+// PointerSensor 5px activation distance: 防止 click 跟 drag 撞车 (用户想点但手抖一下)。
+
+function SortableProjectCard(props: {
+  project: Snapshot["projects"][number];
+  expanded: boolean;
+  onToggle: () => void;
+  onChange: () => void;
+  onRequestComplete: (task: Task) => void;
+}) {
+  const { project, expanded, onChange, ...rest } = props;
+  const id = project.id || project.name;
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`relative ${isDragging ? "z-10 opacity-50" : ""}`}
+    >
+      <ProjectCard
+        project={project}
+        expanded={expanded}
+        onChange={onChange}
+        dragHandle={
+          <button
+            {...attributes}
+            {...listeners}
+            className="opacity-0 group-hover:opacity-60 hover:!opacity-100 w-5 h-5 flex items-center justify-center flex-shrink-0 text-fg-muted hover:text-fg rounded cursor-grab active:cursor-grabbing touch-none transition-opacity"
+            title="拖动改顺序"
+            aria-label="拖动项目"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GripVertical size={12} />
+          </button>
+        }
+        {...rest}
+      />
+    </div>
+  );
+}
+
 function ProjectCard({
   project,
   expanded,
   onToggle,
   onChange,
   onRequestComplete,
+  dragHandle,
 }: {
   project: Snapshot["projects"][number];
   expanded: boolean;
   onToggle: () => void;
   onChange: () => void;
   onRequestComplete: (task: Task) => void;
+  // 2026-07-30: 拖动句柄 (GripVertical button) 从 SortableProjectCard 注入
+  dragHandle?: React.ReactNode;
 }) {
   const taskCount = project.tasks.length;
   const [editingName, setEditingName] = useState(false);
@@ -702,12 +1232,54 @@ function ProjectCard({
     onChange();
   };
 
+  // ===== 任务拖动 (2026-07-30 立) =====
+  // 项目内嵌独立 DndContext, 跟 ProjectsSection 外层互不干扰 (嵌套 DndContext
+  // 各自独立 sensors, 拖 task 不会触发 project 拖动)。
+  // sensors 在 ProjectCard 局部创建 (不能跟外层共享)。
+  const taskSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleTaskDragEnd = async (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const tasks = project.tasks;
+    const oldIndex = tasks.findIndex((t) => t.id === active.id);
+    const newIndex = tasks.findIndex((t) => t.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const sortedArr = arrayMove(tasks, oldIndex, newIndex);
+    const prev = newIndex > 0 ? sortedArr[newIndex - 1].sort_order : null;
+    const next = newIndex < sortedArr.length - 1 ? sortedArr[newIndex + 1].sort_order : null;
+    let newOrder: number;
+    if (prev === null && next === null) newOrder = 0;
+    else if (prev === null) newOrder = (next as number) - 10;
+    else if (next === null) newOrder = prev + 10;
+    else newOrder = (prev + next) / 2;
+    try {
+      await api.reorderTasks([{ id: active.id as string, sort_order: newOrder }]);
+      onChange();
+    } catch (err) {
+      console.error("Failed to reorder task:", err);
+      onChange();
+    }
+    void sortedArr;
+  };
+
   return (
+    // 2026-08-01 v2 改: light/dark 双模式视觉层次
+    //   light 模式: bg-bg (#ffffff 纯白) + 显式 border, 跟主区 wrapper
+    //     (#f8fafc slate-50) 对比, 卡片"立"出来 (light 模式卡片**比主区亮**)
+    //   dark 模式: dark:bg-bg-tertiary (#1e1e1e) + border, 跟主区 wrapper
+    //     (#141414) 对比, 卡片也"立"出来 (dark 模式卡片**比主区亮**)
+    //   关键: light/dark 模式里卡片都比主区 wrapper 亮, 视觉"凸"的方向一致,
+    //     但实现上不能简单用 bg-bg (dark 模式 bg = #0a0a0a 跟 body 同色,
+    //     卡片"沉"回去), 必须 conditional class。
     <div
       className={`rounded-xl overflow-hidden transition-all ${
         expanded
-          ? "bg-bg-tertiary/40 ring-1 ring-accent/50 border border-accent/30"
-          : "bg-bg-tertiary/30 border border-transparent"
+          ? "bg-bg dark:bg-bg-tertiary ring-1 ring-accent/60 border border-accent/40"
+          : "bg-bg dark:bg-bg-tertiary border border-border hover:border-border-hover"
       }`}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
@@ -715,6 +1287,10 @@ function ProjectCard({
       <div className="group px-3 pt-2.5 pb-1.5 hover:bg-bg-tertiary/60 transition">
         {/* 标题行:chevron + name + count + 操作按钮 */}
         <div className="flex items-center gap-2.5">
+          {/* 拖动句柄 (2026-07-30 立) — 平时 opacity-0 不打扰, group hover 时
+              opacity-60 提示可拖, 自身 hover 时 opacity-100 强调。整行 click
+              走 onToggle (展开/收起), 句柄 stopPropagation 阻止冒泡。 */}
+          {dragHandle}
           <button
             onClick={onToggle}
             className="flex items-center gap-2.5 flex-1 min-w-0"
@@ -848,16 +1424,28 @@ function ProjectCard({
       </div>
       {expanded && (
         <div className="px-2 pb-2 pt-1 bg-bg-tertiary/20 border-t border-border/40">
-          <div className="space-y-0.5">
-            {project.tasks.map((t) => (
-              <TaskRow key={t.id} task={t} onChange={onChange} onRequestComplete={onRequestComplete} />
-            ))}
-            {project.tasks.length === 0 && !addingTask && (
-              <div className="px-3 py-3 text-[13px] text-fg-muted text-center">
-                项目下还没有任务 — 在下面加一个
+          <DndContext sensors={taskSensors} collisionDetection={closestCenter} onDragEnd={handleTaskDragEnd}>
+            <SortableContext
+              items={project.tasks.map((t) => t.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-0.5">
+                {project.tasks.map((t) => (
+                  <SortableTaskRow
+                    key={t.id}
+                    task={t}
+                    onChange={onChange}
+                    onRequestComplete={onRequestComplete}
+                  />
+                ))}
+                {project.tasks.length === 0 && !addingTask && (
+                  <div className="px-3 py-3 text-[13px] text-fg-muted text-center">
+                    项目下还没有任务 — 在下面加一个
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </SortableContext>
+          </DndContext>
           {/* 添加任务 - 默认占位按钮,点击展开 input */}
           <div className="mt-1.5 px-1.5">
             {addingTask ? (
@@ -980,14 +1568,65 @@ function ProjectCard({
   );
 }
 
+// 任务拖动 wrapper (2026-07-30 立), 跟 SortableProjectCard 同款思路。
+// 跟 project 拖动的区别: task 排序是项目内局部的, 所以用 arrayMove 算
+// 的 newOrder 也在项目内取 prev/next, 不需要额外上下文。
+function SortableTaskRow(props: {
+  task: Task;
+  onChange: () => void;
+  onRequestComplete: (task: Task) => void;
+}) {
+  const { task, onChange, onRequestComplete } = props;
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: task.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={isDragging ? "z-10 opacity-50" : ""}
+    >
+      <TaskRow
+        task={task}
+        onChange={onChange}
+        onRequestComplete={onRequestComplete}
+        dragHandle={
+          <button
+            {...attributes}
+            {...listeners}
+            className="opacity-0 group-hover/row:opacity-60 hover:!opacity-100 w-5 h-5 flex items-center justify-center flex-shrink-0 text-fg-muted hover:text-fg rounded cursor-grab active:cursor-grabbing touch-none transition-opacity"
+            title="拖动改顺序"
+            aria-label="拖动任务"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GripVertical size={12} />
+          </button>
+        }
+      />
+    </div>
+  );
+}
+
 function TaskRow({
   task,
   onChange,
   onRequestComplete,
+  dragHandle,
 }: {
   task: Task;
   onChange: () => void;
   onRequestComplete: (task: Task) => void;
+  // 2026-07-30: 拖动句柄 (GripVertical button) 从 SortableTaskRow 注入
+  dragHandle?: React.ReactNode;
 }) {
   const [hover, setHover] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -1105,6 +1744,11 @@ function TaskRow({
           toggleExpand(e);
         }}
       >
+        {/* 拖动句柄 (2026-07-30 立) — 放第一行最左, group hover 才显示
+            (跟 StatusMenu / ✅ / 删除按钮一致的 "平时不打扰" 哲学)。
+            click stopPropagation 防止冒泡到整行 click (展开/收起)。 */}
+        {dragHandle}
+
         {/* 优先级色点 button (纯色点, click 弹下拉切换) — 2026-07-22 移到最左,
             之前状态/优先级两个色点都堆在标题左边, 跟标题间隔明显不够。
             现在优先级独占最左位置, 标题左对齐, 视觉上更"工整"。 */}
@@ -1169,6 +1813,26 @@ function TaskRow({
           />
         </div>
 
+        {/* 今日承诺 ⭐ 按钮 (2026-08-01 立)
+            - 已有承诺 → 实心黄色 Star, 点击移除承诺
+            - 没承诺 → 透明 Star, hover 整行才显示, 点击加入承诺
+            - 在状态 / due 之前 (承诺是"我今天要做" 的标记, 视觉权重要高) */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleCommitment(task.id);
+            onChange(); // 触发 snapshot refresh 让 FocusSection 重新算承诺清单
+          }}
+          className={`w-5 h-5 flex items-center justify-center flex-shrink-0 transition rounded ${
+            isCommitment(task.id)
+              ? "text-warning opacity-100"
+              : "text-fg-muted/30 opacity-0 group-hover/row:opacity-100 hover:text-warning"
+          }`}
+          title={isCommitment(task.id) ? "已在今日承诺 — 点击移除" : "加入今日承诺"}
+        >
+          <Star size={13} fill={isCommitment(task.id) ? "currentColor" : "none"} />
+        </button>
+
         {/* due 编辑器 - 永远右对齐 */}
         <div onClick={(e) => e.stopPropagation()}>
           <DueEditor due={task.due} dueCls={dueCls} onChange={updateDue} />
@@ -1214,27 +1878,19 @@ function TaskRow({
         </button>
       </div>
 
-      {/* 第二行:meta — 只显示离散事件标签, 不再放 PriorityMenu 文字版
+      {/* 第二行:meta — 只显示 checklist 进度 (2026-08-01: 删掉"挂了N天" 提示, 信息密度过高)
           2026-07-21 重构: priority 已经在第一行色点表示, 不需要第二行再写"高/中/低"
           2026-07-22 v3: 删掉「草稿/阻塞」徽章 — 它们已经从第二行上移到第一行右侧
           的状态融合指示器表达 (StatusMenu trigger 根据 blocked/draft 切换 🚧/📝/横条),
           跟第一行右侧的 due 一起形成「状态 + 截止 + 展开 + 按钮」紧凑右栏。
-          第二行只剩 checklist 进度 + "挂了N天" 提示, 纯事件性 meta。 */}
-      {(totalCount > 0 || taskAgeDays(task.created_at) >= 2) && (
+          2026-08-01: 删掉"挂了 N 天" 提示, 减少第二行 meta 噪音, "年龄" 视觉信息在
+          card 层级用项目内的 task 排序隐式表达。 */}
+      {totalCount > 0 && (
         <div className="flex items-center gap-3 pl-3 pr-3 pb-1.5 text-[12px] text-fg-muted">
           {/* checklist 进度 */}
-          {totalCount > 0 && (
-            <span className="tabular-nums">
-              ☑ {doneCount}/{totalCount}
-            </span>
-          )}
-
-          {/* 任务"挂起 N 天" 提示 (继承自 task-cockpit taskAge) */}
-          {task.status !== "已完成" && taskAgeDays(task.created_at) >= 2 && (
-            <span className="text-fg-muted/70" title={`创建于 ${task.created_at}`}>
-              挂了 {taskAgeDays(task.created_at)} 天
-            </span>
-          )}
+          <span className="tabular-nums">
+            ☑ {doneCount}/{totalCount}
+          </span>
         </div>
       )}
 

@@ -12,6 +12,8 @@
 | [02-llm-pitfalls.md](./02-llm-pitfalls.md) | LLM 集成坑 | #2 CoT 暴露 + markdown fallback 误执行 |
 | [03-fastapi-and-tooling.md](./03-fastapi-and-tooling.md) | 后端 / 工具链 | #3 FastAPI simple type 参数 body 丢失 · #7 `make setup` 引导歧义 · #8 Python 3.11 + greenlet 双重坑 · #9 NEXT_PUBLIC_API_BASE 静默错端口 · #10 `build_snapshot` 漏传 description · #16 `next build` 污染 dev server `.next/` 样式全丢 |
 | [04-testing-strategy.md](./04-testing-strategy.md) | 测试方法论 | #6 端到端 UX 路径静态分析测试 |
+| [05-theme-system.md](./05-theme-system.md) | 主题系统 (light/dark) 架构 | #17 主题切换架构 (CSS variables 双套 + 早期同步脚本防 FOUC) · #18 light 模式不能照搬 dark 色阶 (slate 蓝调浅灰 + 显式 border, 不用半透明叠加) · #27 Tailwind 3 字符串形式 colors 被解析, CSS 变量失效 (主题切不动) |
+| [06-timezone.md](./06-timezone.md) | 时区 / 日期解析 | #19 `new Date("YYYY-MM-DD")` 在东半时区把"今天" 显示成"明天" (parseLocalDate 工具修复) |
 
 ## 使用方式
 
@@ -19,8 +21,9 @@
 2. 改相关模块前, 点开对应文件, 看 lessons 里的"修法位置"定位代码
 3. 修法要 commit 完顺手在对应文件追加"踩坑记录" — 这是这份 AGENTS.md 系统的复利
 
-## 与 AGENTS.md 主文件的关系
+## 与 AGENTS.md / Changelog 目录的关系
 
-- **AGENTS.md**（项目根）保留：项目一句话、核心路径、LLM 后端约定、测试入口、设计哲学、Changelog
+- **AGENTS.md**（项目根）保留：项目一句话、核心路径、LLM 后端约定、测试入口、设计哲学、Lesson 索引 + Changelog 速查表
+- **[`docs/changelog/`](../changelog/README.md)** 保留：每个变更的完整决策记录 (变更 + 设计理由 A/B/C/D + 推翻关系)
 - **本目录**保留：每个具体 bug 的完整复盘 (症状/根因/教训/修法位置)
-- 拆分动机：AGENTS.md 涨到 20KB+ 时, 入口可读性下降, lessons 细节按主题下沉更易维护
+- 拆分动机：AGENTS.md 涨到 1300+ 行时入口不可读，2026-08-01 立 Changelog 拆分原则（Lessons 拆分原则 2026-07-20 立的扩展）

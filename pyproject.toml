@@ -51,6 +51,7 @@ dev = [
     "pytest-cov>=4.1",
     "ruff>=0.3",
     "mypy>=1.8",
+    "mcp>=2.0",  # v0.5a 立: MCP server 依赖 (让 Claude Code/Cursor 调 cockpit)
 ]
 llm-anthropic = [
     "anthropic>=0.39",

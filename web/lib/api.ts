@@ -88,6 +88,8 @@ export interface Project {
   description: string;
   created_at: string;
   archived: boolean;
+  // 2026-07-30: 拖动排序。间隔 10 存, 给插入留空间。
+  sort_order: number;
 }
 
 export interface Task {
@@ -103,6 +105,8 @@ export interface Task {
   created_at: string;
   completed_at: string | null;
   checklist: ChecklistItem[];
+  // 2026-07-30: 项目内拖动排序。
+  sort_order: number;
 }
 
 export interface Achievement {
@@ -117,6 +121,10 @@ export interface Achievement {
   cv: string;
   cv_status: CVStatus;
   tags: string[];
+  // 2026-08-01: LLM 主动追问 (任务完成时根据任务类型生成), 旧 achievement 默认 []
+  follow_up_questions: string[];
+  // 2026-08-01: 用户对每条追问的答案 {q_idx: answer_str}, 补全后 cv_status 升级 ready
+  follow_up_answers: Record<string, string>;
 }
 
 export interface FocusItem {
@@ -133,6 +141,10 @@ export interface ProjectSnapshot {
   name: string;
   description: string;
   tasks: Task[];
+  // 2026-07-30: 拖动排序字段同步到 snapshot (后端 build_snapshot 已经透传)
+  sort_order: number;
+  // 2026-08-01: 项目内已完成 task 数 (后端 build_snapshot 算, 前端"查看已完成 N" 折叠区用)
+  done_count: number;
 }
 
 export interface Snapshot {
@@ -140,6 +152,8 @@ export interface Snapshot {
   projects: ProjectSnapshot[];
   done_today: Achievement[];
   counts: { achievementsReady: number; achievementsPending: number };
+  // 2026-08-01: 全局已完成 task 列表 (跨 project, 按 completed_at desc)
+  done_tasks: Task[];
 }
 
 export interface ChatMessage {
@@ -213,6 +227,65 @@ export interface ChatHistoryMessage {
   created_at: string;
 }
 
+// ===== Integrations (v0.5a.1) =====
+// 接入中心 — 描述一个 agent 的元信息 + 当前是否已注册 cockpit MCP server
+
+export interface IntegrationAgent {
+  id: string;            // "claude_code" / "cursor" / "trae" / ...
+  name: string;          // "Claude Code"
+  type: "json" | "command";  // json = 写配置文件; command = 返对话命令 (WorkBuddy)
+  scope?: "user" | "project";
+  note: string;
+  docs_url?: string | null;
+  post_install: string;
+  // json 类型才有
+  config_paths?: Record<string, string>;   // 各 OS 模板路径
+  current_os_path?: string | null;         // 当前 OS 展开后的实际路径
+  is_installed: boolean;
+  // command 类型才有
+  install_command?: string;
+  manual_command?: string;
+}
+
+export interface IntegrationsResponse {
+  cockpit_path: string;
+  current_os: string;
+  agents: IntegrationAgent[];
+}
+
+export interface InstallIntegrationResult {
+  success: boolean;
+  agent_id: string;
+  config_path: string;
+  was_already_installed: boolean;
+  post_install: string;
+}
+
+export interface UninstallIntegrationResult {
+  success: boolean;
+  agent_id: string;
+  removed: boolean;
+  config_path?: string;
+  note?: string;
+}
+
+export interface IntegrationStatusItem {
+  id: string;
+  name: string;
+  type: "json" | "command";
+  is_installed: boolean;
+  config_path?: string;
+}
+
+export interface IntegrationStatus {
+  cockpit_path: string;
+  current_os: string;
+  installed_count: number;
+  total_count: number;
+  installed: IntegrationStatusItem[];
+  not_installed: IntegrationStatusItem[];
+}
+
 // ===== Projects =====
 
 export const api = {
@@ -235,6 +308,13 @@ export const api = {
 
   deleteProject: (id: string) =>
     request<{ ok: boolean }>(`/api/projects/${id}`, { method: "DELETE" }),
+
+  // 2026-07-30: 拖动 reorder
+  reorderProjects: (items: { id: string; sort_order: number }[]) =>
+    request<{ updated: number }>("/api/projects/reorder", {
+      method: "POST",
+      body: JSON.stringify({ items }),
+    }),
 
   // ===== Tasks =====
 
@@ -259,7 +339,14 @@ export const api = {
   deleteTask: (id: string) =>
     request<{ ok: boolean }>(`/api/tasks/${id}`, { method: "DELETE" }),
 
-  completeTask: (id: string, data: { outcome?: string; reflection?: string; cv?: string; cv_status?: CVStatus }) =>
+  // 2026-07-30: 拖动 reorder (项目内)
+  reorderTasks: (items: { id: string; sort_order: number }[]) =>
+    request<{ updated: number }>("/api/tasks/reorder", {
+      method: "POST",
+      body: JSON.stringify({ items }),
+    }),
+
+  completeTask: (id: string, data: { outcome?: string; reflection?: string; cv?: string; cv_status?: CVStatus; follow_up_questions?: string[] }) =>
     request<Achievement>(`/api/tasks/${id}/complete`, {
       method: "POST",
       body: JSON.stringify({
@@ -319,6 +406,17 @@ export const api = {
       body: JSON.stringify({ task_title: taskTitle, outcome }),
     }),
 
+  // 2026-08-01 立: PR 描述生成 — 从 ready 成就生成 4 段 markdown
+  generatePr: (data: {
+    project_name: string;
+    achievements: Array<{ title: string; cv?: string; outcome?: string }>;
+    template_kind: "PR_Feature" | "PR_Bugfix" | "PR_Refactor";
+  }) =>
+    request<{ markdown: string; polished: boolean }>("/api/llm/generate_pr", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
   updateAchievement: (id: string, data: { cv?: string; cv_status?: CVStatus }) =>
     request<Achievement>(`/api/achievements/${id}`, {
       method: "PATCH",
@@ -327,6 +425,28 @@ export const api = {
 
   undoAchievement: (id: string) =>
     request<Task>(`/api/achievements/${id}/undo`, { method: "POST" }),
+
+  // 2026-08-01 立: 按 task_id 撤销最近一次完成 (主页"已完成 task" 折叠区用)
+  undoTask: (id: string) =>
+    request<Task>(`/api/tasks/${id}/undo`, { method: "POST" }),
+
+  // 2026-08-01 立: 补全追问提醒端点 (扫 cv_status != ready 且有 follow_up_questions 的成就)
+  listPendingFollowUps: (params?: { cv_status?: CVStatus; limit?: number }) => {
+    const search = new URLSearchParams();
+    if (params?.cv_status) search.set("cv_status", params.cv_status);
+    if (params?.limit) search.set("limit", String(params.limit));
+    const q = search.toString();
+    return request<{ items: Achievement[]; total: number }>(
+      `/api/reminders/pending${q ? `?${q}` : ""}`
+    );
+  },
+
+  // 2026-08-01 立: 补全追问 (PATCH achievement 写 follow_up_answers + 升级 cv_status)
+  answerFollowUps: (id: string, answers: Record<string, string>) =>
+    request<Achievement>(`/api/achievements/${id}/follow_ups`, {
+      method: "PATCH",
+      body: JSON.stringify({ answers }),
+    }),
 
   // ===== Snapshot =====
 
@@ -477,15 +597,55 @@ export const api = {
         body: JSON.stringify(data),
       }
     ),
+
+  // ===== Integrations (v0.5a.1 — 一键注册 cockpit MCP 到 Claude Code / Cursor / ...) =====
+
+  listSupportedIntegrations: () =>
+    request<IntegrationsResponse>("/api/integrations/supported"),
+
+  installIntegration: (agentId: string, cockpitPath?: string) =>
+    request<InstallIntegrationResult>("/api/integrations/install", {
+      method: "POST",
+      body: JSON.stringify({ agent_id: agentId, cockpit_path: cockpitPath ?? null }),
+    }),
+
+  uninstallIntegration: (agentId: string) =>
+    request<UninstallIntegrationResult>("/api/integrations/uninstall", {
+      method: "POST",
+      body: JSON.stringify({ agent_id: agentId }),
+    }),
+
+  integrationStatus: () =>
+    request<IntegrationStatus>("/api/integrations/status"),
 };
 
 // ===== Utility =====
 
+/**
+ * 把 "YYYY-MM-DD" 字符串按 **本地时区** 解析成 Date。
+ *
+ * ⚠️ 不要直接用 `new Date("2026-08-01")`!
+ * ISO date-only 字符串在 JS 规范里被固定解析为 **UTC 午夜 00:00**。
+ * 跟 `new Date()`(本地当前时刻) 比较时, 会被时区偏移(中国 UTC+8 = 8 小时)
+ * 污染, Math.ceil(0.33) 进位到 1 → "今天" 显示成"明天" (2026-08-01 用户报)。
+ *
+ * 正确做法: 拆字段构造, 显式走本地时区。
+ * lesson #18: 时区 bug 永远是 JS 的锅, 不是用户/数据库的锅。
+ */
+export function parseLocalDate(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
 export function dueColor(due: string | null): "danger" | "warning" | "accent" | "muted" {
   if (!due) return "muted";
-  const dueDate = new Date(due);
+  // 跟 now 必须在同一个时区参考系下比较。parseLocalDate 走本地,
+  // new Date() 默认也是本地 — 两个本地时刻相减, 0 时区偏移污染。
+  const dueDate = parseLocalDate(due);
   const now = new Date();
-  const diffDays = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  // 归零到本地 0 点, 跟"日历日" 粒度匹配 (不再计算小时/分/秒的 0.5 天差)
+  now.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   if (diffDays < 0) return "danger";       // overdue
   if (diffDays === 0) return "warning";    // today
   if (diffDays <= 3) return "accent";      // soon
@@ -494,10 +654,15 @@ export function dueColor(due: string | null): "danger" | "warning" | "accent" | 
 
 export function dueLabel(due: string | null): string {
   if (!due) return "";
-  const dueDate = new Date(due);
+  // 跟 dueColor 同样的修复: parseLocalDate 走本地, now 归零到本地 0 点
+  const dueDate = parseLocalDate(due);
   const now = new Date();
   now.setHours(0, 0, 0, 0);
-  const diffDays = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  // 用 Math.round 而不是 Math.ceil: 修法之前用 ceil 会把"今天 早上 8 点"当成 0.33 天
+  // 然后进位到 1 天 = "明天"。round 后 0.33 → 0, 0.5 边界 (本地 12:00 之前) 也归 0,
+  // 12:00 之后归 1。但因为 now.setHours(0,0,0,0) 后 now 是 0:00:00, dueDate 也是 0:00:00,
+  // 差永远是整数 N * 24h, round/ceil/floor 都给相同结果 — 安全。
+  const diffDays = Math.round((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   if (diffDays < 0) return `${-diffDays}天前`;
   if (diffDays === 0) return "今天";
   if (diffDays === 1) return "明天";
@@ -511,21 +676,6 @@ export function statusIcon(status: TaskStatus): string {
     case "进行中": return "◐";
     case "已完成": return "●";
   }
-}
-
-/**
- * 任务"挂起 N 天"显示（继承自 task-cockpit dashboard.html 的 taskAge 逻辑）。
- *
- * 阈值：2 天以下不显示（任务刚建就是 0/1 天，不值得挤一行）。
- * 2 天及以上：显示"挂了 N 天"灰色小字，提示用户任务长期没动。
- */
-export function taskAgeDays(createdAt: string | null | undefined): number {
-  if (!createdAt) return 0;
-  const a = new Date(createdAt);
-  a.setHours(0, 0, 0, 0);
-  const b = new Date();
-  b.setHours(0, 0, 0, 0);
-  return Math.round((b.getTime() - a.getTime()) / 86400000);
 }
 
 /**

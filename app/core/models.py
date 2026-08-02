@@ -215,6 +215,9 @@ class Project(ProjectBase):
     id: str = Field(default_factory=lambda: _new_id("proj"))
     created_at: DateField
     archived: bool = Field(default=False)
+    # 2026-07-30: 拖动排序字段。间隔 10 存 (0, 10, 20, ...), 给前端留插入空间,
+    # 避免每次拖动都更新全部行。冲突时 (相同 sort_order) 走 secondary created_at。
+    sort_order: int = Field(default=0, description="拖动排序顺序, ASC")
 
 
 # ===== Task =====
@@ -254,6 +257,8 @@ class Task(TaskBase):
     draft: bool = Field(default=False, description="待用户确认（默认 False，新任务直接进 todo）")
     created_at: DateField
     completed_at: Optional[date] = None
+    # 2026-07-30: 拖动排序字段。间隔 10 存, 跟 Project 同款策略。
+    sort_order: int = Field(default=0, description="项目内拖动排序顺序, ASC")
 
 
 # ===== Achievement =====
@@ -286,6 +291,39 @@ class Achievement(AchievementBase):
     project: str = Field(..., description="项目名称快照")
     title: str = Field(..., description="任务标题快照")
     tags: List[str] = Field(default_factory=list)
+    # 2026-08-01: LLM 主动追问 (任务完成时根据任务类型生成, 用户可在 follow-up 页补全)
+    # 旧 achievement 默认 [] (后端 ORM 有 default 兜底)
+    follow_up_questions: List[str] = Field(default_factory=list)
+    # 2026-08-01: 用户对每条追问的答案 (dict[q_idx, answer_str]), 补全后 cv_status 升级 ready
+    follow_up_answers: dict = Field(default_factory=dict)
+
+
+# ===== Reorder（2026-07-30 立）=====
+
+
+class ReorderItem(CockpitModel):
+    """单条 reorder 记录。"""
+    id: str
+    sort_order: int
+
+
+class ProjectReorderRequest(CockpitModel):
+    """批量更新项目排序。前端拖完一次性 PATCH, 减少 N 次请求。
+
+    存间隔 10 避免每改一项就更新全部 (前端正常用法):
+    - 拖一项到中间 → 只发该项的 sort_order = 邻居中间值
+    - 撞间隔极限 (1000 条项目 × 10) 时, 整表 reindex 一次
+    """
+    items: list[ReorderItem]
+
+
+class TaskReorderRequest(ProjectReorderRequest):
+    """任务 reorder 入参跟项目同 schema, 复用 ReorderItem list。
+
+    注: 任务 reorder 不能跨项目 (任务绑死在 project_id),
+    后端会校验所有 task.id 都属于同一个 project_id。
+    """
+    pass
 
 
 # ===== Snapshot（用于 dashboard / 问局势）=====
@@ -307,6 +345,8 @@ class ProjectSnapshot(CockpitModel):
     name: str
     description: str = ""
     tasks: list[Task]
+    # 2026-08-01: 项目内已完成 task 数 (默认 0), 看板"查看已完成 N" 折叠区用
+    done_count: int = 0
 
 
 class Snapshot(CockpitModel):
@@ -315,6 +355,8 @@ class Snapshot(CockpitModel):
     projects: list[ProjectSnapshot]
     done_today: list[Achievement]
     counts: dict[str, int]
+    # 2026-08-01: 全局已完成 task 列表 (跨 project), 主页"已完成 N 项" 折叠区用
+    done_tasks: list[Task] = []
 
 
 # ===== Chat Sessions =====

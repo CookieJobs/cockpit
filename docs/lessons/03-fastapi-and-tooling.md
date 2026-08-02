@@ -154,3 +154,44 @@
   - [ ] 如果必须 build 验证，用 `--distDir` 隔离 — `next build --distDir .next-build`
   - [ ] build 完清理 build 产物 — `mavis-trash .next out` (但注意不能清 dev 用的 .next)
 - **修法位置**：根因不在项目代码，在**我的工作流程**。需要的是流程纪律，不是修代码。
+
+## #16 第二案: 2026-07-31 拖动排序交付时再次踩中
+
+**事故**: 交付拖动排序功能后, 我跑 `npm run build` 验证 (project 是 `output: 'export'`), 用户 30 分钟后报"样式丢失"。
+
+**跟首案的差别**:
+- 首案 (2026-07-30): 修 popup 完成后跑 build, dev server PID 1627 在跑
+- 复案 (2026-07-31): 交付拖动排序后跑 build, dev server PID 7725/7726/7729 在跑 (3002 端口)
+- **根因完全一样, 我又忘了 lesson #16 的存在**
+
+**症状 (跟首案一致)**:
+- 浏览器页面 Tailwind 类全没生效 (按钮/输入框是浏览器默认样式)
+- 功能逻辑 (React 状态) 正常
+- 进程没死, 端口在 LISTEN
+
+**修法 (跟首案一致)**:
+```bash
+# 1. 找到 dev server 进程
+ps aux | grep "next dev"
+# → PID 7725 (bash) / 7726 (node) / 7729 (next-server)
+# 2. Kill
+kill 7725 7726 7729
+# 3. 删污染的 .next/
+cd web && mavis-trash .next
+# 4. 重启 dev server
+nohup ./node_modules/next/dist/bin/next dev -p 3002 > /tmp/cockpit-web.log 2>&1 &
+# 5. 验证
+curl -sS -o /dev/null -w "%{http_code}\n" http://localhost:3002/
+# → 200
+```
+
+**第二案暴露的更深问题**:
+- 写完 AGENTS.md lesson 后, 自己在同一个项目里又踩, 间隔 < 24h
+- 提示: **写下来的教训 ≠ 自动化执行** — 必须在 "跑 build 之前" 主动 check
+- 真正的解法是**流程纪律 + 自动化**: 跑 `npm run build` 这种命令前, agent 自己 check 一下 "dev server 在跑吗? 跑了就改用 tsc"
+
+**给后面 agent 的执行 check-list (每次准备跑 build 前必看)**:
+1. `pgrep -f "next dev"` — 如果有结果, 不能跑 `next build`, 改用 `tsc --noEmit`
+2. 真的需要 build 验证? — 大多数情况不需要, tsc + 端点级 pytest 够
+3. 必须 build 时用 `--distDir .next-build` 隔离 — `next build --distDir .next-build`
+4. 修完样式丢失按首案 5 步走, 不要尝试只删 `.next/` 不杀进程

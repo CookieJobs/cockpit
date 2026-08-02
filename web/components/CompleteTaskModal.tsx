@@ -43,6 +43,8 @@ export function CompleteTaskModal({
     cv: string;
     reflection: string;
     cv_status: CVStatus;
+    // 2026-08-01: LLM 主动追问 (polish 拿到的), 落库到 follow_up_questions
+    follow_up_questions?: string[];
   }) => Promise<void>;
 }) {
   // 任务分类 + 引导文案 (按 task.title 静态决定, 弹窗打开一次后不变)
@@ -81,6 +83,48 @@ export function CompleteTaskModal({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose, polishing]);
 
+  // ===== v0.3.1 主动建议机制（2026-08-02 立）=====
+  // 痛点: outcome 写完后, 用户经常忘记点"润色"按钮, cv 就停在 `完成「${title}」` 兜底,
+  //       沉淀质量肉眼可见低. → outcome 停笔 1.5s 后自动调 polishCv, 给 ghost 建议.
+  // 关键: 不直接替换 cv, 用户可"采纳" / "忽略", 保留控制权.
+  // 触发条件: outcome >= 30 字 + 用户没主动忽略 + 没在手动润色
+  const [autoSuggestedCv, setAutoSuggestedCv] = useState<string | null>(null);
+  const [autoPolishing, setAutoPolishing] = useState(false);
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
+
+  useEffect(() => {
+    const o = outcome.trim();
+    if (o.length < 30 || suggestionDismissed || polishing) {
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        setAutoPolishing(true);
+        const res = await api.polishCv(task.title, o);
+        if (res.polished && res.cv && res.cv !== cv) {
+          setAutoSuggestedCv(res.cv);
+        }
+      } catch {
+        // 静默失败 — 手动润色按钮有 toast 提示
+      } finally {
+        setAutoPolishing(false);
+      }
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [outcome, task.title, suggestionDismissed, polishing, cv]);
+
+  const acceptSuggestion = () => {
+    if (autoSuggestedCv) {
+      setCv(autoSuggestedCv);
+      setAutoSuggestedCv(null);
+      setSuggestionDismissed(true);
+    }
+  };
+  const dismissSuggestion = () => {
+    setAutoSuggestedCv(null);
+    setSuggestionDismissed(true);
+  };
+
   const submit = async () => {
     const o = outcome.trim();
     const c = cv.trim();
@@ -91,7 +135,16 @@ export function CompleteTaskModal({
     if (!c) return; // 理论上不会触发 (cv 有默认值), 留个保险
     setSubmitting(true);
     try {
-      await onSave({ outcome: o, cv: c, reflection: reflection.trim(), cv_status: cvStatus });
+      // 2026-08-01: 把 LLM 主动追问 (polish 拿到的) 传给后端, 落库到 follow_up_questions
+      //   - 用户在 /achievements/follow-up 页可以补全
+      //   - 补全后 cv_status 升级 ready (Reminders 端点用来扫描待补全)
+      await onSave({
+        outcome: o,
+        cv: c,
+        reflection: reflection.trim(),
+        cv_status: cvStatus,
+        follow_up_questions: followUpQuestions,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -99,6 +152,7 @@ export function CompleteTaskModal({
 
   // ✨ AI 润色: 把 outcome 转成 CV 风格的成就陈述
   // 2026-07-30 增强: 同时接收 LLM 主动追问的 follow_up_questions
+  // 2026-08-02 协调 (v0.3.1): 手动润色时, 清空自动建议 (用户在管了, 别再打扰)
   const polish = async () => {
     if (!outcome.trim()) {
       outcomeRef.current?.focus();
@@ -109,6 +163,9 @@ export function CompleteTaskModal({
     try {
       const res = await api.polishCv(task.title, outcome);
       setCv(res.cv);
+      // 手动润色 = 用户在管了, 关掉自动建议避免双源冲突
+      setAutoSuggestedCv(null);
+      setSuggestionDismissed(true);
       // 保留 LLM 的追问 (覆盖之前的, 因为是基于新 outcome 重新判断的)
       setFollowUpQuestions(res.follow_up_questions ?? []);
     } catch (e) {
@@ -307,6 +364,56 @@ export function CompleteTaskModal({
                     {q}
                   </button>
                 ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* v0.3.1 主动建议区 (2026-08-02 立):
+            outcome 停笔 1.5s 后自动调 polishCv, 建议以 ghost 形式展示, 用户采纳或忽略.
+            位置: 放在 CV 框**上方** (不是 outcome 旁) — 用户视线从 outcome 移到 CV 框时看到建议,
+            跟原"✨ 润色"按钮形成"主动建议 + 手动精修"双轨. */}
+        {autoSuggestedCv && (
+          <div className="px-5 pt-3">
+            <div className="rounded-md bg-accent/8 border border-accent/25 px-3 py-2.5">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="text-[11px] text-accent font-medium flex items-center gap-1.5">
+                  <Sparkles size={12} />
+                  AI 建议 (试用)
+                  {autoPolishing && <Loader2 size={10} className="animate-spin" />}
+                  <span className="font-normal text-fg-muted/80 tracking-normal">· 不用你点润色按钮了</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={dismissSuggestion}
+                  className="text-fg-muted hover:text-fg p-0.5 rounded transition"
+                  title="关闭建议"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+              <div className="text-[12.5px] text-fg-secondary italic mb-2 leading-relaxed">
+                {autoSuggestedCv}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={acceptSuggestion}
+                  className="text-[11px] px-2.5 py-1 rounded bg-accent/20 text-accent hover:bg-accent/30 transition flex items-center gap-1"
+                >
+                  <Check size={10} />
+                  采纳
+                </button>
+                <button
+                  type="button"
+                  onClick={dismissSuggestion}
+                  className="text-[11px] px-2.5 py-1 rounded text-fg-muted hover:text-fg-secondary hover:bg-bg-tertiary transition"
+                >
+                  忽略
+                </button>
+                <span className="text-[10px] text-fg-muted/70 ml-auto">
+                  也可手动改 CV 框, 建议会自动消失
+                </span>
               </div>
             </div>
           </div>

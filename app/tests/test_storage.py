@@ -194,9 +194,12 @@ async def test_complete_task_creates_achievement(temp_db):
     assert achievement.cv == "修复高优先级登录鉴权 bug"
     assert achievement.cv_status == CVStatus.READY
 
-    # task 已被删
+    # 2026-08-01: task 不再删, 改 status=COMPLETED + completed_at=今天
+    #   旧版 (v1-v3) 期待 None, 新版 (v4) 期待 task 在 + status=已完成
     got = await storage.get_task(t.id)
-    assert got is None
+    assert got is not None, "task 应该在 complete 后保留 (改 status=已完成, 不删)"
+    assert got.status == TaskStatus.COMPLETED, f"task.status 应该是 COMPLETED, 实际 {got.status!r}"
+    assert got.completed_at is not None, "task.completed_at 应该是今天"
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,69 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===========================================================================
+ * 2026-08-01 立: 主题 token 系统 (light / dark 双套 CSS variables)
+ *
+ * 全部颜色存 "R G B" 三元组 (无 rgb() 包装), 引用时用
+ *   rgb(var(--color-X) / <alpha-value>)
+ * Tailwind 自动展开 alpha 变体 (bg-danger/15 → rgb(239 68 68 / 0.15)),
+ * 切 html class 即可换主题。
+ *
+ * light 模式是默认 (:root), .dark 覆盖。light accent 用 amber-600 (#d97706)
+ * 而不是 dark 的 amber-400 — 在白底上 amber-400 对比度不够,
+ * amber-600 (深一档) 跟白底对比度 4.5:1+ 满足 WCAG AA。
+ * ========================================================================= */
+:root {
+  /* 2026-08-01 v2 改: light 模式色阶重新设计。
+   *
+   * 旧版: bg=#f5f5f5 / bg-secondary=#e8e8e8 (差 13) — 看着"灰扑扑" 的根因。
+   *   半透明叠加 (bg-tertiary/30) 后实际差值只剩 4, 卡片在主背景上分不出。
+   * 新版: 用 slate 蓝调浅灰 (#f8fafc / #f1f5f9), 看着"冷干净" 不"灰" ,
+   *   卡片改用纯白 + 显式 border (不靠半透明叠加)。Stripe / Linear /
+   *   Notion 浅色仪表盘都这套路 — 主区浅灰, 卡片纯白。
+   *
+   * 关键对比:
+   *   主区 bg-secondary #f8fafc (slate-50, 蓝调极浅灰)
+   *   卡片 bg          #ffffff (纯白, 最亮, 跟主区对比 7 个色值以上)
+   *   input    bg-tertiary #f1f5f9 (slate-100, 跟主区差 13, input 框可识别)
+   *   border         #cbd5e1 (slate-300, light 模式需要更明显, 旧 #d4d4d4 太淡)
+   *   border-hover   #94a3b8 (slate-400, 跟 border 跨度 ~20, hover 反馈明显)
+   */
+  --color-bg: 255 255 255;
+  --color-bg-secondary: 248 250 252;
+  --color-bg-tertiary: 241 245 249;
+  --color-border: 203 213 225;
+  --color-border-hover: 148 163 184;
+  --color-fg: 10 10 10;
+  --color-fg-secondary: 71 85 105;
+  --color-fg-muted: 100 116 139;
+  --color-accent: 217 119 6;
+  --color-accent-hover: 180 83 9;
+  --color-success: 22 163 74;
+  --color-warning: 217 119 6;
+  --color-danger: 220 38 38;
+  --color-info: 37 99 235;
+  color-scheme: light;
+}
+
+.dark {
+  --color-bg: 10 10 10;
+  --color-bg-secondary: 20 20 20;
+  --color-bg-tertiary: 30 30 30;
+  --color-border: 42 42 42;
+  --color-border-hover: 58 58 58;
+  --color-fg: 229 229 229;
+  --color-fg-secondary: 160 160 160;
+  --color-fg-muted: 102 102 102;
+  --color-accent: 251 191 36;
+  --color-accent-hover: 245 158 11;
+  --color-success: 34 197 74;
+  --color-warning: 245 158 11;
+  --color-danger: 239 68 68;
+  --color-info: 59 130 246;
+  color-scheme: dark;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -9,11 +72,13 @@
 html,
 body {
   height: 100%;
-  background: #0a0a0a;
-  color: #e5e5e5;
+  background: rgb(var(--color-bg));
+  color: rgb(var(--color-fg));
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* 2026-08-01 立: 切主题时平滑过渡 (避免闪) */
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 ::-webkit-scrollbar {
@@ -24,19 +89,19 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a2a2a;
+  background: rgb(var(--color-border));
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a3a3a;
+  background: rgb(var(--color-border-hover));
 }
 
-/* 打字机光标（流式 chat 用） */
+/* 打字机光标（流式 chat 用）— 2026-08-01 改 var: 跟 accent 同色 */
 .cursor-blink {
   display: inline-block;
   margin-left: 1px;
   animation: cursor-blink 1s steps(2) infinite;
-  color: #facc15;
+  color: rgb(var(--color-accent));
   font-weight: 400;
 }
 @keyframes cursor-blink {
@@ -79,19 +144,19 @@ body {
 }
 .markdown strong {
   font-weight: 600;
-  color: #fbbf24;
+  color: rgb(var(--color-accent));
 }
 .markdown code {
-  background: #1e1e1e;
+  background: rgb(var(--color-bg-tertiary));
   padding: 0.1em 0.3em;
   border-radius: 3px;
   font-size: 0.9em;
   font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
 }
-/* 代码块 (GFM / rehype-highlight, 2026-07-22 立) */
+/* 代码块 (GFM / rehype-highlight, 2026-07-22 立) — 2026-08-01 改 var */
 .markdown pre {
-  background: #0d0d0d;
-  border: 1px solid #2a2a2a;
+  background: rgb(var(--color-bg-secondary));
+  border: 1px solid rgb(var(--color-border));
   border-radius: 6px;
   padding: 12px;
   overflow-x: auto;
@@ -106,17 +171,17 @@ body {
   color: inherit;
   border-radius: 0;
 }
-/* 引用块 */
+/* 引用块 — 2026-08-01 改 var */
 .markdown blockquote {
-  border-left: 3px solid #fbbf24;
+  border-left: 3px solid rgb(var(--color-accent));
   padding: 0.25em 0 0.25em 1em;
-  color: #a0a0a0;
+  color: rgb(var(--color-fg-secondary));
   margin: 0.75em 0;
   font-style: italic;
 }
 .markdown blockquote > :first-child { margin-top: 0; }
 .markdown blockquote > :last-child { margin-bottom: 0; }
-/* 表格 (GFM) */
+/* 表格 (GFM) — 2026-08-01 改 var */
 .markdown table {
   border-collapse: collapse;
   margin: 0.75em 0;
@@ -125,34 +190,34 @@ body {
 }
 .markdown th,
 .markdown td {
-  border: 1px solid #2a2a2a;
+  border: 1px solid rgb(var(--color-border));
   padding: 6px 10px;
   text-align: left;
 }
 .markdown th {
-  background: #141414;
+  background: rgb(var(--color-bg-secondary));
   font-weight: 600;
 }
-/* 链接 */
+/* 链接 — 2026-08-01 改 var */
 .markdown a {
-  color: #fbbf24;
+  color: rgb(var(--color-accent));
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 .markdown a:hover {
-  color: #f59e0b;
+  color: rgb(var(--color-accent-hover));
 }
-/* 分割线 */
+/* 分割线 — 2026-08-01 改 var */
 .markdown hr {
   border: none;
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid rgb(var(--color-border));
   margin: 1em 0;
 }
-/* GFM 任务清单 */
+/* GFM 任务清单 — 2026-08-01 改 var */
 .markdown input[type="checkbox"] {
   margin-right: 0.4em;
   vertical-align: middle;
-  accent-color: #fbbf24;
+  accent-color: rgb(var(--color-accent));
 }
 
 @keyframes fade-in {

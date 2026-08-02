@@ -49,9 +49,13 @@ async def test_api_complete_task_4fields_via_body(client: TestClient):
     assert body["title"] == "测试任务"
     assert body["project_id"] == p.id
 
-    # task 应该被删除了
+    # 2026-08-01: task 不再删, 改 status=COMPLETED + completed_at=今天
+    #   旧版 (v1-v3) 期待 404, 新版 (v4) 期待 200 + status=已完成
     res2 = client.get(f"/api/tasks/{t.id}")
-    assert res2.status_code == 404, "task 应该在 complete 后被删除"
+    assert res2.status_code == 200, "task 应该在 complete 后保留 (改 status=已完成, 不删)"
+    task_after = res2.json()
+    assert task_after["status"] == "已完成", f"task.status 应该是 '已完成', 实际 {task_after['status']!r}"
+    assert task_after.get("completed_at") is not None, "task.completed_at 应该是今天"
 
 
 @pytest.mark.asyncio
