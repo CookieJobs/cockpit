@@ -8,6 +8,17 @@ Cockpit 是一个给互联网产品/运营/技术人员的"工作流记忆外挂
 
 > 📦 GitHub: [CookieJobs/cockpit](https://github.com/CookieJobs/cockpit)
 
+## 设计文档
+
+Cockpit 走"设计驱动"路线，所有 AI 相关决策都有最高准则 → 架构 → 契约三层落档：
+
+| 层级 | 文件 | 性质 |
+|---|---|---|
+| 🏛️ **宪法** | [`.ai/AI_CTO.md`](./.ai/AI_CTO.md) | AI 在 Cockpit 中的角色、边界、不可妥协的原则 |
+| 🎯 **产品目标** | [`docs/GOAL.md`](./docs/GOAL.md) | "AI 工作流记忆 → 履历生成 OS"主目标、阶段路线 |
+| 🏗️ **AI 架构** | [`docs/architecture/ai-native-architecture-v1.md`](./docs/architecture/ai-native-architecture-v1.md) | AI 子系统的操作系统层 — 抽象层、接口契约、不变量 |
+| 📐 **首份 Harness** | [`docs/harness/achievement-distillation-harness-v1.md`](./docs/harness/achievement-distillation-harness-v1.md) | Achievement Distillation 能力的评估契约 |
+
 ## 核心特性
 
 - **完成即沉淀** — 任务做完不是消失了，而是沉淀成成就资产，越用越值钱
