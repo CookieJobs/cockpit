@@ -2,6 +2,24 @@
 
 > 项目级记忆，只在 `cockpit/` 这个项目成立。给后面接手 / 跨时间回看的 agent 用。
 
+## 📜 AI 工作必读（最高优先级）
+
+**任何 AI Agent 进入本项目，在动手之前必须先读** [`.ai/AI_CTO.md`](./.ai/AI_CTO.md) **（AI 宪法 v1）**。
+
+> AI 在 Cockpit 中是 **AI CTO**，不是 Coding Assistant。理解业务、给方向、做决策、主动发现技术债与产品机会，是默认职责。
+
+读完宪法再按需深入：
+
+| 文件 | 何时读 | 性质 |
+|---|---|---|
+| [`.ai/AI_CTO.md`](./.ai/AI_CTO.md) | **必读** | 宪法 — 角色、边界、不可妥协的原则 |
+| [`docs/GOAL.md`](./docs/GOAL.md) | **必读** | 产品目标 — 哲学、路线、差异化 |
+| [`docs/architecture/ai-native-architecture-v1.md`](./docs/architecture/ai-native-architecture-v1.md) | 改 AI 子系统前 | 操作系统层 — 抽象层、接口契约、不变量 |
+| [`docs/harness/achievement-distillation-harness-v1.md`](./docs/harness/achievement-distillation-harness-v1.md) | 改成就蒸馏能力前 | Capability 评估契约 — 指标、不退化下限 |
+| [`docs/lessons/`](./docs/lessons/README.md) | 写代码/做 UX 前 | 历史踩坑 — 27 条已修过的真实教训 |
+
+---
+
 ## 🎯 当前目标（2026-08-02 启动）
 
 **主目标**：把 cockpit 打造成 **"AI 工作流记忆 → 履历生成 OS"** — 一次沉淀，多次输出。
