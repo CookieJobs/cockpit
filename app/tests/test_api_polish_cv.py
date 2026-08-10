@@ -110,7 +110,7 @@ async def test_polish_cv_strips_quotes(client: TestClient):
     with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
         res = client.post(
             "/api/llm/polish_cv",
-            json={"task_title": "登录 bug", "outcome": "用户反馈登录 bug 已修复"},
+            json={"task_title": "登录 bug", "outcome": "用户反馈登录 bug 已修复，DAU 提升 5%"},
         )
     assert res.status_code == 200
     body = res.json()
@@ -140,7 +140,7 @@ async def test_polish_cv_truncates_long_output(client: TestClient):
     with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
         res = client.post(
             "/api/llm/polish_cv",
-            json={"task_title": "鉴权重构", "outcome": "鉴权重构"},
+            json={"task_title": "鉴权重构", "outcome": long_cv},
         )
     assert res.status_code == 200
     body = res.json()
@@ -210,7 +210,7 @@ async def test_polish_cv_llm_returns_json_with_questions(client: TestClient):
     with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
         res = client.post(
             "/api/llm/polish_cv",
-            json={"task_title": "完成 PRD", "outcome": "完成 PRD"},
+            json={"task_title": "完成 PRD", "outcome": "完成 PRD，覆盖 18 个核心场景"},
         )
     assert res.status_code == 200
     body = res.json()
@@ -253,7 +253,7 @@ async def test_polish_cv_llm_json_codeblock_wrapper_parsed(client: TestClient):
     with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
         res = client.post(
             "/api/llm/polish_cv",
-            json={"task_title": "完成 PRD", "outcome": "做完了"},
+            json={"task_title": "完成 PRD", "outcome": "完成 PRD，覆盖 18 个核心场景"},
         )
     assert res.status_code == 200
     body = res.json()
@@ -275,7 +275,7 @@ async def test_polish_cv_llm_plain_text_falls_back_to_legacy_path(client: TestCl
     with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
         res = client.post(
             "/api/llm/polish_cv",
-            json={"task_title": "登录 bug", "outcome": "修了"},
+            json={"task_title": "登录 bug", "outcome": "修了登录 bug，DAU 提升 5%"},
         )
     assert res.status_code == 200
     body = res.json()
@@ -303,10 +303,9 @@ async def test_polish_cv_llm_json_with_empty_cv_falls_back_to_legacy(client: Tes
         )
     assert res.status_code == 200
     body = res.json()
-    # cv 解析失败 (空字符串) → 走老路径: 整段当 cv, polished=True
-    assert body["polished"] is True
-    # 老路径不返 questions
-    assert body["follow_up_questions"] == []
+    # 不完整 JSON 里的无依据数字不能穿透运行时防护。
+    assert body["polished"] is False
+    assert body["cv"] == "完成「X」"
 
 
 @pytest.mark.asyncio
@@ -496,7 +495,7 @@ async def test_polish_cv_natural_language_only_no_json_legacy_path(client: TestC
     with patch("app.api.llm.get_verified_client", AsyncMock(return_value=mock_client)):
         res = client.post(
             "/api/llm/polish_cv",
-            json={"task_title": "登录 bug", "outcome": "修了"},
+            json={"task_title": "登录 bug", "outcome": "修了登录 bug，DAU 提升 5%"},
         )
     assert res.status_code == 200
     body = res.json()

@@ -101,6 +101,7 @@ async def complete_task(tid: str, data: CompleteTaskRequest):
         cv=data.cv,
         cv_status=status,
         follow_up_questions=data.follow_up_questions,
+        distillation_trace_id=data.distillation_trace_id,
     )
     if not achievement:
         raise HTTPException(404, "Task not found")
@@ -118,6 +119,7 @@ class CompleteTaskRequest(BaseModel):
     cv: str = ""
     cv_status: str = "ready"
     follow_up_questions: list[str] = []
+    distillation_trace_id: Optional[str] = None
 
 
 # ===== Checklist 子端点 =====

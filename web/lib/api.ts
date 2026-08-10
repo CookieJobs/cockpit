@@ -125,6 +125,7 @@ export interface Achievement {
   follow_up_questions: string[];
   // 2026-08-01: 用户对每条追问的答案 {q_idx: answer_str}, 补全后 cv_status 升级 ready
   follow_up_answers: Record<string, string>;
+  distillation_trace_id?: string | null;
 }
 
 export interface FocusItem {
@@ -346,7 +347,7 @@ export const api = {
       body: JSON.stringify({ items }),
     }),
 
-  completeTask: (id: string, data: { outcome?: string; reflection?: string; cv?: string; cv_status?: CVStatus; follow_up_questions?: string[] }) =>
+  completeTask: (id: string, data: { outcome?: string; reflection?: string; cv?: string; cv_status?: CVStatus; follow_up_questions?: string[]; distillation_trace_id?: string }) =>
     request<Achievement>(`/api/tasks/${id}/complete`, {
       method: "POST",
       body: JSON.stringify({
@@ -354,6 +355,8 @@ export const api = {
         reflection: data.reflection || "",
         cv: data.cv || "",
         cv_status: data.cv_status || "ready",
+        follow_up_questions: data.follow_up_questions || [],
+        distillation_trace_id: data.distillation_trace_id,
       }),
     }),
 
@@ -401,6 +404,7 @@ export const api = {
       cv: string;
       polished: boolean;
       follow_up_questions?: string[];
+      trace_id?: string;
     }>("/api/llm/polish_cv", {
       method: "POST",
       body: JSON.stringify({ task_title: taskTitle, outcome }),

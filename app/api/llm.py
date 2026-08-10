@@ -10,13 +10,21 @@
 import json
 import logging
 import re
+import time
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.harness.l1 import evaluate_l1
+from app.harness.models import (
+    AchievementDistillationCase,
+    AchievementDistillationInput,
+    AchievementDistillationOutput,
+)
 from app.llm.base import text_message
 from app.llm.router import get_verified_client, get_client, reset_client
+from app.harness.trace import DistillationTrace, record_trace
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +103,73 @@ class PolishCvResponse(BaseModel):
     follow_up_questions: list[str] = Field(
         default_factory=list,
         max_length=3,  # 最多 3 个, 防止 LLM 啰嗦
+    )
+    trace_id: str | None = None
+
+
+async def _with_distillation_trace(
+    req: PolishCvRequest,
+    response: PolishCvResponse,
+    *,
+    started_at: float,
+    raw_output: str = "",
+    error: str | None = None,
+    guardrail_results: dict[str, object] | None = None,
+) -> PolishCvResponse:
+    """Persist observability without letting audit failure break completion flow."""
+    generator_status = "polished" if response.polished else "fallback"
+    final_quality_status = "ready" if response.polished and not response.follow_up_questions else "needs_data"
+    try:
+        trace = DistillationTrace.new(
+            task_title=req.task_title,
+            outcome=req.outcome,
+            raw_output=raw_output,
+            parsed_output={
+                "cv": response.cv,
+                "follow_up_questions": response.follow_up_questions,
+                "polished": response.polished,
+            },
+            generator_status=generator_status,
+            guardrail_results=guardrail_results or _runtime_guardrail_results(req, response),
+            final_quality_status=final_quality_status,
+            model_version="configured-client" if response.polished else "unavailable",
+            prompt_version="polish_cv_v0.3.4",
+            dataset_version="achievement_distillation_v1",
+            harness_version="v1",
+            latency_ms=round((time.perf_counter() - started_at) * 1000),
+            error=error,
+        )
+        await record_trace(trace)
+        response.trace_id = trace.id
+    except Exception as trace_error:
+        logger.warning("polish_cv trace persistence failed: %s", trace_error)
+    return response
+
+
+def _runtime_guardrail_results(req: PolishCvRequest, response: PolishCvResponse) -> dict[str, object]:
+    """Evaluate P0 provenance checks against the exact runtime context."""
+    case = AchievementDistillationCase(
+        id="runtime",
+        category="boundary",
+        input=AchievementDistillationInput(task_title=req.task_title, outcome=req.outcome, language="zh-CN"),
+        severity="p0",
+    )
+    checks = evaluate_l1(
+        case,
+        AchievementDistillationOutput(
+            cv=response.cv,
+            follow_up_questions=response.follow_up_questions,
+            generator_status="polished" if response.polished else "fallback",
+        ),
+    )
+    return checks.model_dump()
+
+
+def _has_p0_runtime_violation(guardrails: dict[str, object]) -> bool:
+    return bool(
+        guardrails["has_unsupported_number"]
+        or guardrails["has_unsupported_entity"]
+        or guardrails["ownership_violation"]
     )
 
 
@@ -216,10 +291,16 @@ async def polish_cv(req: PolishCvRequest):
     - LLM 不可用时静默 fallback，不抛 500（避免润色失败把整个完成流程堵死）
     - 信息不够具体时 LLM 主动追问 1-2 个关键问题, 形成"outcome → 追问 → 补全 → 再润色" 对话闭环
     """
+    started_at = time.perf_counter()
     fallback = _fallback_cv(req.task_title)
     client = await get_verified_client()
     if client is None:
-        return PolishCvResponse(cv=fallback, polished=False, follow_up_questions=[])
+        return await _with_distillation_trace(
+            req,
+            PolishCvResponse(cv=fallback, polished=False, follow_up_questions=[]),
+            started_at=started_at,
+            error="llm_unavailable",
+        )
 
     try:
         resp = await client.chat(
@@ -234,11 +315,21 @@ async def polish_cv(req: PolishCvRequest):
         )
     except Exception as e:
         logger.warning(f"polish_cv: LLM call failed, falling back: {e}")
-        return PolishCvResponse(cv=fallback, polished=False, follow_up_questions=[])
+        return await _with_distillation_trace(
+            req,
+            PolishCvResponse(cv=fallback, polished=False, follow_up_questions=[]),
+            started_at=started_at,
+            error=type(e).__name__,
+        )
 
     if resp.stop_reason == "error" or not resp.text:
         logger.warning(f"polish_cv: LLM returned error/empty, falling back: {resp.error}")
-        return PolishCvResponse(cv=fallback, polished=False, follow_up_questions=[])
+        return await _with_distillation_trace(
+            req,
+            PolishCvResponse(cv=fallback, polished=False, follow_up_questions=[]),
+            started_at=started_at,
+            error=resp.error or "llm_error",
+        )
 
     # 优先尝试 JSON 解析 (含 follow_up_questions)
     parsed_cv, questions = _parse_llm_json_output(resp.text)
@@ -253,13 +344,42 @@ async def polish_cv(req: PolishCvRequest):
             cv = cv.split("</think>", 1)[-1].strip()
         cv = cv.strip().strip('"\'""''').strip()
         if not cv:
-            return PolishCvResponse(cv=fallback, polished=False, follow_up_questions=[])
+            return await _with_distillation_trace(
+                req,
+                PolishCvResponse(cv=fallback, polished=False, follow_up_questions=[]),
+                started_at=started_at,
+                raw_output=resp.text,
+                error="empty_after_parse",
+            )
 
     # 兜底：截断超长输出（避免 LLM 啰嗦）
     if len(cv) > 200:
         cv = cv[:200].rstrip("，。,. ") + "..."
 
-    return PolishCvResponse(cv=cv, polished=True, follow_up_questions=questions)
+    response = PolishCvResponse(cv=cv, polished=True, follow_up_questions=questions)
+    guardrails = _runtime_guardrail_results(req, response)
+    if _has_p0_runtime_violation(guardrails):
+        logger.warning("polish_cv runtime guardrail rejected unsupported claim")
+        response = PolishCvResponse(
+            cv=fallback,
+            polished=False,
+            follow_up_questions=questions or ["这项工作的实际影响、范围或量化结果是什么？"],
+        )
+        return await _with_distillation_trace(
+            req,
+            response,
+            started_at=started_at,
+            raw_output=resp.text,
+            error="runtime_guardrail_rejected",
+            guardrail_results=guardrails,
+        )
+
+    return await _with_distillation_trace(
+        req,
+        response,
+        started_at=started_at,
+        raw_output=resp.text,
+    )
 
 
 # ===== generate_pr (2026-08-01 立) =====

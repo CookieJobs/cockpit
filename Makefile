@@ -1,4 +1,4 @@
-.PHONY: help setup dev web all stop clean seed-demo
+.PHONY: help setup dev web all stop clean seed-demo harness
 
 # 默认 target：显示用法
 help:
@@ -11,6 +11,7 @@ help:
 	@echo "  make stop       停掉所有 dev 进程"
 	@echo "  make clean      清 Python 缓存"
 	@echo "  make seed-demo  播种演示数据（清空项目/任务/成就后重置）"
+	@echo "  make harness    运行 Achievement Distillation Harness 离线回归"
 	@echo ""
 	@echo "日常：'make dev'（终端 1）+ 'make web'（终端 2）"
 	@echo "嫌开两个终端麻烦：'make all'"
@@ -43,3 +44,6 @@ clean:
 seed-demo:
 	@.venv/bin/python scripts/seed_demo.py $(filter-out $@,$(MAKECMDGOALS))
 	@echo "==> 演示数据就绪"
+
+harness:
+	@.venv312/bin/python app/scripts/run_achievement_harness.py --fake-fixture

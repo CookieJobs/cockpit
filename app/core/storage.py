@@ -169,6 +169,7 @@ class AchievementORM(Base):
     follow_up_questions_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     # 2026-08-01: 用户对追问的答案 (JSON dict {q_idx: answer})
     follow_up_answers_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    distillation_trace_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
 
 
 class SettingsORM(UpdatedDateTimeMixin, Base):
@@ -213,6 +214,38 @@ class ChatMessageORM(StringPKMixin, CreatedDateTimeMixin, Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, default="", nullable=False)
     tool_calls_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class DistillationTraceORM(StringPKMixin, CreatedDateTimeMixin, Base):
+    """Append-only audit trace for a single achievement-distillation call."""
+    __tablename__ = "distillation_traces"
+
+    task_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    task_title: Mapped[str] = mapped_column(String(500), nullable=False)
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    input_json: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_output: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    parsed_output_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    generator_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    guardrail_results_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    final_quality_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    model_version: Mapped[str] = mapped_column(String(200), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    dataset_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    harness_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    latency_ms: Mapped[int] = mapped_column(nullable=False)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class DistillationFeedbackORM(StringPKMixin, CreatedDateTimeMixin, Base):
+    """Append-only record of a human edit to a generated CV statement."""
+    __tablename__ = "distillation_feedback"
+
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    original_cv: Mapped[str] = mapped_column(Text, nullable=False)
+    final_cv: Mapped[str] = mapped_column(Text, nullable=False)
+    edit_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    diff_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 # ===== Engine & Session =====
@@ -267,6 +300,7 @@ async def create_tables() -> None:
         #   的 json.loads(default) 兜底
         await _migrate_add_column(conn, "achievements", "follow_up_questions_json", "TEXT NOT NULL DEFAULT '[]'")
         await _migrate_add_column(conn, "achievements", "follow_up_answers_json", "TEXT NOT NULL DEFAULT '{}'")
+        await _migrate_add_column(conn, "achievements", "distillation_trace_id", "TEXT")
         # 2026-08-01: task.completed_at 字段 (task 保留后记录何时完成, list_tasks 排序用)
         #   老 task 没这字段, 默认 NULL
         await _migrate_add_column(conn, "tasks", "completed_at", "DATE")
@@ -408,6 +442,7 @@ def _achievement_to_pydantic(a: AchievementORM) -> Achievement:
         # 2026-08-01: 解析 follow_up_questions / answers, 旧数据默认 []/{}
         follow_up_questions=json.loads(a.follow_up_questions_json or "[]"),
         follow_up_answers=json.loads(a.follow_up_answers_json or "{}"),
+        distillation_trace_id=a.distillation_trace_id,
     )
 
 
@@ -722,6 +757,7 @@ async def complete_task(
     cv: str = "",
     cv_status: CVStatus = CVStatus.READY,
     follow_up_questions: Optional[list[str]] = None,
+    distillation_trace_id: Optional[str] = None,
 ) -> Optional[Achievement]:
     """完成任务并沉淀为成就。
 
@@ -765,6 +801,7 @@ async def complete_task(
             tags_json="[]",
             follow_up_questions_json=json.dumps(follow_up_questions or [], ensure_ascii=False),
             follow_up_answers_json="{}",
+            distillation_trace_id=distillation_trace_id,
         )
         session.add(achievement)
         # 2026-08-01: 改 task 状态 (不删), 保留"看回" 体验
@@ -781,7 +818,15 @@ async def update_achievement_cv(aid: str, data: AchievementUpdate) -> Optional[A
         if not a:
             return None
         if data.cv is not None:
+            original_cv = a.cv
             a.cv = data.cv
+            if a.distillation_trace_id and data.cv != original_cv:
+                try:
+                    from app.harness.feedback import record_feedback
+
+                    await record_feedback(a.distillation_trace_id, original_cv, data.cv)
+                except Exception as feedback_error:
+                    logger.warning("achievement feedback persistence failed: %s", feedback_error)
         if data.cv_status is not None:
             a.cv_status = data.cv_status.value
         await session.flush()

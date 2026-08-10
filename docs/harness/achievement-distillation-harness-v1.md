@@ -1295,3 +1295,11 @@ Step 5: 决定 full rollout / partial rollout / rollback
 > **本 Harness 的最高原则**（继承自宪法 §七）：
 >
 > **如果一个 AI 蒸馏的成就在用户半年后被面试官质疑"这个数字你真有做过吗"——那个成就就是失败的，无论它看起来多漂亮。**
+
+## Implementation Status — 2026-08-10
+
+已落地 v1 最小闭环：`app/harness/` 定义 Capability Contract、30 条版本化数据集（10 Golden / 12 Boundary / 8 Adversarial）、确定性 L1、可替换 adapter、JSON report、release gate 与 CLI。`app/harness/judge.py` 提供严格 JSON 的可替换 Judge 接口；未配置 Judge 时不会伪造语义分数，gate 会阻止发布。
+
+运行时 `POST /api/llm/polish_cv` 复用 L1 的 P0 溯源检查。发现无依据数字、实体或归属升级时会回退到待补充文案，并把原始输出、检查结果、版本、耗时和错误原因写入 append-only `distillation_traces`。完成任务会关联 trace；后续 CV 编辑会写入 `distillation_feedback`，用于衡量用户采纳、微调、重写或拒绝。
+
+本仓库当前没有既有 CI workflow，因此没有擅自引入特定平台配置。PR/发布前的本地回归入口为 `make harness`；接入 CI 时应运行同一命令，并对真实 Judge 报告加 `--gate`。

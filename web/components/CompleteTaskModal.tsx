@@ -45,6 +45,7 @@ export function CompleteTaskModal({
     cv_status: CVStatus;
     // 2026-08-01: LLM 主动追问 (polish 拿到的), 落库到 follow_up_questions
     follow_up_questions?: string[];
+    distillation_trace_id?: string;
   }) => Promise<void>;
 }) {
   // 任务分类 + 引导文案 (按 task.title 静态决定, 弹窗打开一次后不变)
@@ -65,6 +66,7 @@ export function CompleteTaskModal({
   const [polishError, setPolishError] = useState<string | null>(null);
   // LLM 主动追问 (2026-07-30 立): 信息不够具体时, LLM 返 1-2 个 follow_up_questions
   const [followUpQuestions, setFollowUpQuestions] = useState<string[]>([]);
+  const [distillationTraceId, setDistillationTraceId] = useState<string | undefined>();
   // outcome 框高亮 (2026-07-30 立, v4.1): 追问 chip 追加后让 outcome 框闪一下, 用户知道追加到了
   const [outcomeHighlight, setOutcomeHighlight] = useState(false);
   const outcomeRef = useRef<HTMLTextAreaElement>(null);
@@ -103,6 +105,7 @@ export function CompleteTaskModal({
         const res = await api.polishCv(task.title, o);
         if (res.polished && res.cv && res.cv !== cv) {
           setAutoSuggestedCv(res.cv);
+          setDistillationTraceId(res.trace_id);
         }
       } catch {
         // 静默失败 — 手动润色按钮有 toast 提示
@@ -144,6 +147,7 @@ export function CompleteTaskModal({
         reflection: reflection.trim(),
         cv_status: cvStatus,
         follow_up_questions: followUpQuestions,
+        distillation_trace_id: distillationTraceId,
       });
     } finally {
       setSubmitting(false);
@@ -168,6 +172,7 @@ export function CompleteTaskModal({
       setSuggestionDismissed(true);
       // 保留 LLM 的追问 (覆盖之前的, 因为是基于新 outcome 重新判断的)
       setFollowUpQuestions(res.follow_up_questions ?? []);
+      setDistillationTraceId(res.trace_id);
     } catch (e) {
       // 失败: 保留当前 cv (兜底), 给个轻量提示
       setPolishError(e instanceof Error ? e.message : "润色失败, 保留原文");
