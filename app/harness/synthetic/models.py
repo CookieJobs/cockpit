@@ -31,6 +31,7 @@ class WorkEvent(SyntheticModel):
     cv: str = Field(min_length=1, max_length=5000)
     reflection: str | None = Field(default=None, max_length=5000)
     evidence: list[str] = Field(min_length=1, max_length=20)
+    follow_up_questions: list[str] = Field(default_factory=list, max_length=3)
     follow_up_answers: list[str] = Field(default_factory=list, max_length=10)
     expected_readiness: Literal["ready", "needs_data"]
 

@@ -25,6 +25,11 @@ def test_v1_fixture_has_four_distinct_personas_and_four_weeks_of_events() -> Non
     assert {event.week for event in dataset.events} == {1, 2, 3, 4}
     assert all(event.evidence for event in dataset.events)
     assert {event.expected_readiness for event in dataset.events} == {"ready", "needs_data"}
+    assert all(
+        event.follow_up_questions
+        for event in dataset.events
+        if event.expected_readiness == "needs_data"
+    )
 
 
 def test_work_event_rejects_cv_number_that_has_no_evidence_anchor() -> None:
