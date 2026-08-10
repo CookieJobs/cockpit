@@ -1,4 +1,4 @@
-.PHONY: help setup dev web all stop clean seed-demo harness
+.PHONY: help setup dev web all stop clean seed-demo harness project-gate
 
 # 默认 target：显示用法
 help:
@@ -12,6 +12,7 @@ help:
 	@echo "  make clean      清 Python 缓存"
 	@echo "  make seed-demo  播种演示数据（清空项目/任务/成就后重置）"
 	@echo "  make harness    运行 Achievement Distillation Harness 离线回归"
+	@echo "  make project-gate 运行项目级本地质量门"
 	@echo ""
 	@echo "日常：'make dev'（终端 1）+ 'make web'（终端 2）"
 	@echo "嫌开两个终端麻烦：'make all'"
@@ -47,3 +48,6 @@ seed-demo:
 
 harness:
 	@.venv312/bin/python app/scripts/run_achievement_harness.py --fake-fixture
+
+project-gate:
+	@.venv312/bin/python app/scripts/run_project_gate.py
