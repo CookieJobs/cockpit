@@ -439,12 +439,13 @@ function AchievementItem({
             )}
             <h3 className="font-semibold text-fg text-[14px] truncate">{a.title}</h3>
             {a.cv_status === "needs_data" && (
-              <span
+              <Link
+                href={`/achievements/follow-up?focus=${a.id}`}
                 className="text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning font-medium"
                 title="补全追问后会自动进入 ready"
               >
                 📊 还差数据 · 去补全
-              </span>
+              </Link>
             )}
             {a.cv_status === "pending" && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-fg-muted/15 text-fg-muted font-medium">

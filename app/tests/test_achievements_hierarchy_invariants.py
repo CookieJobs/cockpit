@@ -123,7 +123,8 @@ def test_achievement_edit_and_undo_still_works():
     assert "updateAchievement" in src, "编辑 CV 必须调 updateAchievement"
     assert "undoAchievement" in src, "撤销必须调 undoAchievement"
     # needs_data → ready 的升级入口
-    assert "cv_status.*ready" in src or 'cv_status: "ready"' in src, "needs_data 必须有升级到 ready 的入口"
+    assert "/achievements/follow-up" in src, "needs_data 必须有补全证据的入口"
+    assert 'cv_status: "ready"' not in src, "成就库不能绕过质量门直接升 ready"
 
 
 # ===== 顶层 UI =====

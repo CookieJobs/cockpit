@@ -18,6 +18,9 @@ Cockpit 走"设计驱动"路线，所有 AI 相关决策都有最高准则 → �
 | 🎯 **产品目标** | [`docs/GOAL.md`](./docs/GOAL.md) | "AI 工作流记忆 → 履历生成 OS"主目标、阶段路线 |
 | 🏗️ **AI 架构** | [`docs/architecture/ai-native-architecture-v1.md`](./docs/architecture/ai-native-architecture-v1.md) | AI 子系统的操作系统层 — 抽象层、接口契约、不变量 |
 | 📐 **首份 Harness** | [`docs/harness/achievement-distillation-harness-v1.md`](./docs/harness/achievement-distillation-harness-v1.md) | Achievement Distillation 能力的评估契约 |
+| 🛡️ **项目级 Harness** | [`docs/harness/capabilities-v1.yaml`](./docs/harness/capabilities-v1.yaml) | 已实现能力、宪法边界与本地 release gate 的注册表 |
+
+发布前运行：`make project-gate`。它不会把未来能力当失败，但会阻止已承诺能力的依赖缺失、测试失败或宪法边界回退。涉及 LLM provider / model / prompt 变更时，另运行 `.venv312/bin/python app/scripts/run_achievement_harness.py --suite current_baseline --semantic-judge --gate`。
 
 ## 核心特性
 
