@@ -415,12 +415,8 @@ function AchievementItem({
     setEditing(true);
   };
   const saveEdit = async () => {
-    await api.updateAchievement(a.id, { cv: editCv, cv_status: "ready" });
+    await api.updateAchievement(a.id, { cv: editCv });
     setEditing(false);
-    onMutate();
-  };
-  const upgrade = async () => {
-    await api.updateAchievement(a.id, { cv_status: "ready" });
     onMutate();
   };
   const undo = async () => {
@@ -443,13 +439,12 @@ function AchievementItem({
             )}
             <h3 className="font-semibold text-fg text-[14px] truncate">{a.title}</h3>
             {a.cv_status === "needs_data" && (
-              <button
-                onClick={upgrade}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning hover:bg-warning/25 font-medium transition"
-                title="补全数据后升级为 ready"
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning font-medium"
+                title="补全追问后会自动进入 ready"
               >
-                📊 还差数据 · 升级
-              </button>
+                📊 还差数据 · 去补全
+              </span>
             )}
             {a.cv_status === "pending" && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-fg-muted/15 text-fg-muted font-medium">

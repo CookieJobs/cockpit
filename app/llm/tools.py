@@ -274,16 +274,11 @@ async def tool_list_achievements(
     return {"items": [a.model_dump(mode="json") for a in items], "count": len(items)}
 
 
-async def tool_update_achievement(id: str, cv: str | None = None, cv_status: str | None = None) -> dict:
-    """更新成就的 CV 字段（用于 pending → ready 升级）。"""
+async def tool_update_achievement(id: str, cv: str | None = None) -> dict:
+    """更新成就的 CV 文本；状态由证据补全路径统一推导。"""
     kwargs: dict[str, Any] = {}
     if cv is not None:
         kwargs["cv"] = cv
-    if cv_status is not None:
-        try:
-            kwargs["cv_status"] = CVStatus(cv_status)
-        except ValueError:
-            return {"error": f"Invalid cv_status: {cv_status}"}
     a = await storage.update_achievement_cv(id, AchievementUpdate(**kwargs))
     if not a:
         return {"error": f"Achievement {id} not found"}
@@ -503,13 +498,12 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "update_achievement",
-        "description": "更新成就的 CV 字段（典型场景：pending → ready 升级）。",
+        "description": "更新成就的 CV 文字；就绪状态必须通过补全证据自动推导。",
         "input_schema": {
             "type": "object",
             "properties": {
                 "id": {"type": "string", "description": "成就 ID"},
                 "cv": {"type": "string", "description": "新的 CV 描述"},
-                "cv_status": {"type": "string", "enum": ["ready", "needs_data", "pending"]},
             },
             "required": ["id"],
         },

@@ -421,7 +421,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  updateAchievement: (id: string, data: { cv?: string; cv_status?: CVStatus }) =>
+  updateAchievement: (id: string, data: { cv?: string }) =>
     request<Achievement>(`/api/achievements/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),

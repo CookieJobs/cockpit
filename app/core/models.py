@@ -277,9 +277,9 @@ class AchievementCreate(AchievementBase):
 
 
 class AchievementUpdate(CockpitModel):
-    """更新成就的入参（只允许更新 cv 相关字段，符合 append-only 原则）。"""
+    """更新成就文字；就绪状态只能由完成/补全证据路径推导。"""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     cv: Optional[str] = None
-    cv_status: Optional[CVStatus] = None
 
 
 class Achievement(AchievementBase):

@@ -859,8 +859,6 @@ async def update_achievement_cv(aid: str, data: AchievementUpdate) -> Optional[A
                     await record_feedback(a.distillation_trace_id, original_cv, data.cv)
                 except Exception as feedback_error:
                     logger.warning("achievement feedback persistence failed: %s", feedback_error)
-        if data.cv_status is not None:
-            a.cv_status = data.cv_status.value
         await session.flush()
         return _achievement_to_pydantic(a)
 

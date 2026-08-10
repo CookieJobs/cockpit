@@ -3,7 +3,7 @@
 锁住:
 1. POST /api/tasks/{tid}/complete 接 cv_status="needs_data" 也能正常入库
 2. GET /api/achievements?cv_status=needs_data 精确过滤
-3. PATCH /api/achievements/{aid} 接 cv_status=needs_data / ready
+3. PATCH /api/achievements/{aid} 不得绕过统一质量门直接写 cv_status
 """
 import pytest
 from fastapi.testclient import TestClient
@@ -67,8 +67,8 @@ async def test_api_list_achievements_filter_by_cv_status(client: TestClient):
 
 
 @pytest.mark.asyncio
-async def test_api_update_achievement_to_needs_data(client: TestClient):
-    """PATCH 端点必须能升级 / 降级 cv_status。"""
+async def test_api_update_achievement_rejects_direct_cv_status(client: TestClient):
+    """报告与 API 都不能绕过证据门直接把成就标为 ready。"""
     p = await storage.add_project(ProjectCreate(name="测试项目"))
     t = await storage.add_task(TaskCreate(project=p.id, title="t"))
     complete_res = client.post(
@@ -77,18 +77,8 @@ async def test_api_update_achievement_to_needs_data(client: TestClient):
     )
     aid = complete_res.json()["id"]
 
-    # pending → needs_data
-    res = client.patch(
-        f"/api/achievements/{aid}",
-        json={"cv_status": "needs_data"},
-    )
-    assert res.status_code == 200, res.text
-    assert res.json()["cv_status"] == "needs_data"
-
-    # needs_data → ready
     res = client.patch(
         f"/api/achievements/{aid}",
         json={"cv_status": "ready"},
     )
-    assert res.status_code == 200, res.text
-    assert res.json()["cv_status"] == "ready"
+    assert res.status_code == 422, res.text

@@ -315,19 +315,18 @@ async def test_list_achievements_filter_by_cv_status(temp_db):
 
 
 @pytest.mark.asyncio
-async def test_needs_data_to_ready_upgrade(temp_db):
-    """needs_data → ready 升级路径（典型场景：3 个月后补全数据）。"""
+async def test_cv_edit_cannot_promote_needs_data_without_evidence(temp_db):
+    """编辑 CV 不得绕过追问/完成时的证据质量门。"""
     p = await storage.add_project(ProjectCreate(name="x"))
     t = await storage.add_task(TaskCreate(project=p.id, title="x"))
     a = await storage.complete_task(
         t.id, outcome="o", cv="主导改版", cv_status=CVStatus.NEEDS_DATA
     )
-    # 升级
     upgraded = await storage.update_achievement_cv(
-        a.id, AchievementUpdate(cv="主导 App 改版，DAU +5%", cv_status=CVStatus.READY)
+        a.id, AchievementUpdate(cv="主导 App 改版，DAU +5%")
     )
     assert upgraded.cv == "主导 App 改版，DAU +5%"
-    assert upgraded.cv_status == CVStatus.READY
+    assert upgraded.cv_status == CVStatus.NEEDS_DATA
 
 
 @pytest.mark.asyncio
@@ -343,10 +342,10 @@ async def test_update_achievement_cv(temp_db):
     a = await storage.complete_task(t.id, outcome="o", cv="old cv", cv_status=CVStatus.PENDING)
 
     updated = await storage.update_achievement_cv(
-        a.id, AchievementUpdate(cv="new cv with metrics", cv_status=CVStatus.READY)
+        a.id, AchievementUpdate(cv="new cv with metrics")
     )
     assert updated.cv == "new cv with metrics"
-    assert updated.cv_status == CVStatus.READY
+    assert updated.cv_status == CVStatus.PENDING
 
 
 @pytest.mark.asyncio
