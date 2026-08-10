@@ -105,6 +105,14 @@ def test_modal_submit_disabled_only_when_outcome_and_cv_empty():
     assert "cv.trim()" in disabled_expr, "disabled 必须检查 cv (兜底, 理论不会空)"
 
 
+def test_modal_explains_that_incomplete_evidence_is_not_report_ready():
+    """完成不应被阻塞，但用户必须知道待补数据不会提前进入报告。"""
+    src = read_modal()
+    assert "将保存为待补数据，不会进入报告；补全后自动可用" in src, (
+        "完成弹窗必须解释质量门的结果，避免用户误以为默认 CV 或未答追问会进入周报/CV"
+    )
+
+
 def test_modal_outcome_autofocus_on_open():
     """打开弹窗时必须自动 focus outcome, 减少点击。"""
     src = read_modal()

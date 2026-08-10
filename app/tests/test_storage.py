@@ -180,7 +180,7 @@ async def test_complete_task_creates_achievement(temp_db):
 
     achievement = await storage.complete_task(
         t.id,
-        outcome="bug 修好了",
+        outcome="定位登录鉴权问题并完成修复，线上验证已通过",
         reflection="定位花了 1 小时",
         cv="修复高优先级登录鉴权 bug",
         cv_status=CVStatus.READY,
@@ -234,13 +234,71 @@ async def test_complete_task_needs_data_status(temp_db):
 
 
 @pytest.mark.asyncio
+async def test_completion_readiness_gate_defers_incomplete_evidence(temp_db):
+    """调用方请求 ready 不能越过完成证据的确定性质量门。"""
+    p = await storage.add_project(ProjectCreate(name="质量门"))
+    fallback_task = await storage.add_task(TaskCreate(project=p.id, title="登录优化"))
+    short_outcome_task = await storage.add_task(TaskCreate(project=p.id, title="发布页面"))
+    follow_up_task = await storage.add_task(TaskCreate(project=p.id, title="完成 PRD"))
+
+    fallback = await storage.complete_task(
+        fallback_task.id,
+        outcome="修复了登录问题并完成上线验证",
+        cv="完成「登录优化」",
+        cv_status=CVStatus.READY,
+    )
+    short_outcome = await storage.complete_task(
+        short_outcome_task.id,
+        outcome="已上线",
+        cv="完成发布页面并完成线上验证",
+        cv_status=CVStatus.READY,
+    )
+    unanswered = await storage.complete_task(
+        follow_up_task.id,
+        outcome="完成 PRD 撰写并组织评审，确认后续研发范围",
+        cv="撰写并评审 PRD，明确产品需求和研发范围",
+        cv_status=CVStatus.READY,
+        follow_up_questions=["影响了哪些核心模块？"],
+    )
+
+    assert fallback.cv_status == CVStatus.NEEDS_DATA
+    assert short_outcome.cv_status == CVStatus.NEEDS_DATA
+    assert unanswered.cv_status == CVStatus.NEEDS_DATA
+
+
+@pytest.mark.asyncio
+async def test_follow_up_readiness_requires_every_question_answered(temp_db):
+    """部分答案仍需留在补全队列，避免不完整成就提前进入输出池。"""
+    p = await storage.add_project(ProjectCreate(name="质量门"))
+    t = await storage.add_task(TaskCreate(project=p.id, title="完成 PRD"))
+    achievement = await storage.complete_task(
+        t.id,
+        outcome="完成 PRD 撰写并组织评审，确认研发范围和交付节奏",
+        cv="撰写并评审 PRD，明确研发范围和交付节奏",
+        cv_status=CVStatus.NEEDS_DATA,
+        follow_up_questions=["影响了哪些模块？", "评审结论是什么？"],
+    )
+
+    partial = await storage.answer_follow_ups(achievement.id, {"0": "登录和首页"})
+    assert partial.cv_status == CVStatus.NEEDS_DATA
+
+    complete = await storage.answer_follow_ups(achievement.id, {"1": "评审通过，进入研发排期"})
+    assert complete.cv_status == CVStatus.READY
+
+
+@pytest.mark.asyncio
 async def test_list_achievements_filter_by_cv_status(temp_db):
     """list_achievements 的 cv_status 精确过滤（2026-07-20 立）。"""
     p = await storage.add_project(ProjectCreate(name="x"))
     t1 = await storage.add_task(TaskCreate(project=p.id, title="t1"))
     t2 = await storage.add_task(TaskCreate(project=p.id, title="t2"))
     t3 = await storage.add_task(TaskCreate(project=p.id, title="t3"))
-    await storage.complete_task(t1.id, outcome="o", cv="c", cv_status=CVStatus.READY)
+    await storage.complete_task(
+        t1.id,
+        outcome="完成第一项关键交付并通过线上验收",
+        cv="完成第一项关键交付并通过线上验收",
+        cv_status=CVStatus.READY,
+    )
     await storage.complete_task(t2.id, outcome="o", cv="c", cv_status=CVStatus.NEEDS_DATA)
     await storage.complete_task(t3.id, outcome="o", cv="c", cv_status=CVStatus.PENDING)
 
@@ -321,7 +379,12 @@ async def test_list_achievements_filter(temp_db):
     t1 = await storage.add_task(TaskCreate(project=p1.id, title="t1"))
     t2 = await storage.add_task(TaskCreate(project=p2.id, title="t2"))
 
-    a1 = await storage.complete_task(t1.id, outcome="o1", cv="cv1", cv_status=CVStatus.READY)
+    a1 = await storage.complete_task(
+        t1.id,
+        outcome="完成第一项目标交付并通过线上验收",
+        cv="完成第一项目标交付并通过线上验收",
+        cv_status=CVStatus.READY,
+    )
     a2 = await storage.complete_task(t2.id, outcome="o2", cv="cv2", cv_status=CVStatus.PENDING)
 
     # 按项目名过滤
@@ -382,7 +445,12 @@ async def test_build_snapshot_counts(temp_db):
     t1 = await storage.add_task(TaskCreate(project=p.id, title="t1"))
     t2 = await storage.add_task(TaskCreate(project=p.id, title="t2"))
 
-    await storage.complete_task(t1.id, outcome="o", cv="cv1", cv_status=CVStatus.READY)
+    await storage.complete_task(
+        t1.id,
+        outcome="完成第一项目标交付并通过线上验收",
+        cv="完成第一项目标交付并通过线上验收",
+        cv_status=CVStatus.READY,
+    )
     await storage.complete_task(t2.id, outcome="o", cv="cv2", cv_status=CVStatus.PENDING)
 
     snapshot = await storage.build_snapshot()

@@ -487,3 +487,17 @@ v4 → v4.1 这 4 轮用户反馈暴露 **3 类"单测过但真实数据失败" 
   - 新增: `web/components/OnboardingTooltip.tsx` — 3 步 modal (延迟 1s 弹), 进度点 + 下一步/跳过/开始使用 按钮, localStorage `cockpit_onboarded` 标记, resetOnboarding() 工具函数
   - 挂载: `web/components/MainBoard.tsx` 在 return 顶层挂 `<OnboardingTooltip />` (在 completingTask 弹窗之前, z-50 覆盖)
   - 新 import: `OnboardingTooltip` + `X / ArrowRight / Check / MessageSquare / Plus / Sparkles` (lucide-react)
+
+## #29. `ready` 被 UI 默认值污染，待补成就同时失去回收入口 (修于 2026-08-10)
+
+- **症状**：用户完成任务时，即使 CV 仍是 `完成「任务标题」`、outcome 过短，或 LLM 留下未答追问，弹窗仍默认保存 `ready`。报告只取 `ready`，而补全页只取非 `ready`，导致低质量成就一边进入周报/CV，一边从补全队列消失。
+- **根因**：`cv_status` 被当作前端可选字段直接透传；真正决定证据是否充分的信息分散在 CV、outcome 与 follow-up 中，却没有在 Web / MCP / 对话共用的写入边界统一判定。旧版 `answer_follow_ups` 又以“任一非空答案”升级 `ready`，把两问只答一问也当成完整。
+- **教训**：
+  - **`ready` 是输出资格，不是默认 UI 状态**：只要某个状态决定周报、述职、CV 的数据集，就必须由确定性、可审计的业务规则在共享写入边界生成。
+  - **完成与可输出必须分开**：任务可以立刻完成并保存记忆；证据不足时走 `needs_data`，既不打断 90 秒沉淀，也不污染多次输出。
+  - **回收链是状态机的一部分**：追问存在时，部分回答不能结束补全流程；“全部问题已答”才是升级 `ready` 的后置条件。
+  - **跨入口的不变量只放一处**：Web、Chat Tool、MCP 都经 `storage.complete_task`，避免在各 UI/API 复制同一质量判断后逐渐漂移。
+- **修法位置**：
+  - 后端：`app/core/storage.py` 的 `_derive_completion_cv_status()` 拦截标题兜底、短 outcome、未答追问；`answer_follow_ups()` 仅在所有问题均非空后升级。
+  - 前端：`web/components/CompleteTaskModal.tsx` 在质量门将延后输出资格时明确说明“将保存为待补数据，不会进入报告；补全后自动可用”。
+  - 回归：`app/tests/test_storage.py`、`app/tests/test_api_complete_task.py` 与 `app/tests/test_complete_modal_minimal_invariants.py` 锁住该闭环。

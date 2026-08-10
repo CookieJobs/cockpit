@@ -203,6 +203,9 @@ export function CompleteTaskModal({
 
   // CV 是否已经不是默认值 (决定是否显示重置按钮)
   const isCvModified = cv !== `完成「${task.title}」`;
+  const isDeferredByQualityGate =
+    cvStatus !== "pending" &&
+    (followUpQuestions.length > 0 || !isCvModified || outcome.trim().length < 10);
 
   return (
     <div
@@ -461,6 +464,11 @@ export function CompleteTaskModal({
             <div className="mt-1.5 text-[11px] text-warning flex items-center gap-1">
               <AlertCircle size={11} />
               {polishError}（已保留原文）
+            </div>
+          )}
+          {isDeferredByQualityGate && (
+            <div className="mt-1.5 text-[11px] text-warning">
+              将保存为待补数据，不会进入报告；补全后自动可用
             </div>
           )}
         </div>

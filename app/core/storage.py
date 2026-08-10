@@ -750,6 +750,31 @@ async def reorder_tasks(items: list[dict]) -> int:
 # ===== CRUD: Achievements =====
 
 
+def _derive_completion_cv_status(
+    *,
+    task_title: str,
+    outcome: str,
+    cv: str,
+    requested_status: CVStatus,
+    follow_up_questions: Optional[list[str]],
+) -> CVStatus:
+    """Derive report eligibility from completion evidence at the shared write boundary.
+
+    ``ready`` is an output-eligibility claim, not a UI default. An explicit
+    ``pending`` remains a user choice to save a draft; otherwise incomplete
+    evidence must enter the recoverable ``needs_data`` path.
+    """
+    if requested_status == CVStatus.PENDING:
+        return CVStatus.PENDING
+
+    has_follow_ups = any(question.strip() for question in follow_up_questions or [])
+    is_title_fallback = cv.strip() == f"完成「{task_title}」"
+    has_short_outcome = len(outcome.strip()) < 10
+    if has_follow_ups or is_title_fallback or has_short_outcome:
+        return CVStatus.NEEDS_DATA
+    return requested_status
+
+
 async def complete_task(
     task_id: str,
     outcome: str = "",
@@ -786,6 +811,13 @@ async def complete_task(
         project = proj_result.scalar_one_or_none()
         if not project:
             raise ValueError(f"Project {task.project_id} not found")
+        persisted_cv_status = _derive_completion_cv_status(
+            task_title=task.title,
+            outcome=outcome,
+            cv=cv,
+            requested_status=cv_status,
+            follow_up_questions=follow_up_questions,
+        )
         # 写 achievement (append, 多次完成同 task 多次 append)
         achievement = AchievementORM(
             id=_new_id("done"),
@@ -797,7 +829,7 @@ async def complete_task(
             outcome=outcome,
             reflection=reflection,
             cv=cv,
-            cv_status=cv_status.value,
+            cv_status=persisted_cv_status.value,
             tags_json="[]",
             follow_up_questions_json=json.dumps(follow_up_questions or [], ensure_ascii=False),
             follow_up_answers_json="{}",
@@ -851,11 +883,13 @@ async def answer_follow_ups(aid: str, answers: dict) -> Optional[Achievement]:
         existing = json.loads(a.follow_up_answers_json or "{}")
         existing.update(answers)
         a.follow_up_answers_json = json.dumps(existing, ensure_ascii=False)
-        # 2026-08-02 (v0.3.3 修): 之前无脑升级 cv_status=ready, 但用户可能传空 answers.
-        #   现在: 至少 1 个非空答案才算"补全", 否则保持原状态 (用户没真补 = 数据还是不充分).
-        #   注释 (2026-08-01): 用户主动补全了 = 数据够用, 自动升级 ready
-        #   (未来允许用户保持 pending — 留个 option 字段给前端传, 现在简化默认升级)
-        if answers and any((v or "").strip() for v in answers.values()):
+        questions = json.loads(a.follow_up_questions_json or "[]")
+        all_questions_answered = bool(questions) and all(
+            (existing.get(str(index)) or "").strip()
+            for index, question in enumerate(questions)
+            if question.strip()
+        )
+        if all_questions_answered:
             a.cv_status = CVStatus.READY.value
         await session.flush()
         return _achievement_to_pydantic(a)

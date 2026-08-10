@@ -47,14 +47,14 @@ async def test_api_list_achievements_filter_by_cv_status(client: TestClient):
     t2 = await storage.add_task(TaskCreate(project=p.id, title="t2"))
     t3 = await storage.add_task(TaskCreate(project=p.id, title="t3"))
 
-    for tid, status in [
-        (t1.id, "ready"),
-        (t2.id, "needs_data"),
-        (t3.id, "pending"),
+    for tid, status, outcome, cv in [
+        (t1.id, "ready", "完成第一项目标交付并通过线上验收", "完成第一项目标交付并通过线上验收"),
+        (t2.id, "needs_data", "o", "c"),
+        (t3.id, "pending", "o", "c"),
     ]:
         client.post(
             f"/api/tasks/{tid}/complete",
-            json={"outcome": "o", "cv": "c", "cv_status": status},
+            json={"outcome": outcome, "cv": cv, "cv_status": status},
         )
 
     # 三个状态分别过滤

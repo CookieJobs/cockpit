@@ -93,14 +93,37 @@ async def test_api_complete_task_invalid_cv_status_returns_400(client: TestClien
 
 @pytest.mark.asyncio
 async def test_api_complete_task_default_cv_status_is_ready(client: TestClient):
-    """不传 cv_status 应该默认 ready (向后兼容)。"""
+    """不传 cv_status 时，证据充分的成就仍默认 ready。"""
     p = await storage.add_project(ProjectCreate(name="P4"))
     t = await storage.add_task(TaskCreate(project=p.id, title="Y"))
 
     res = client.post(
         f"/api/tasks/{t.id}/complete",
-        json={"outcome": "x", "cv": "y"},
+        json={
+            "outcome": "完成任务并通过线上验收，确认结果符合预期",
+            "cv": "完成任务交付并完成线上验收",
+        },
     )
     assert res.status_code == 200
     body = res.json()
     assert body["cv_status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_api_complete_task_defers_ready_until_follow_ups_are_answered(client: TestClient):
+    """HTTP 调用也不能把带未答追问的成就写进 ready 输出池。"""
+    p = await storage.add_project(ProjectCreate(name="质量门 API"))
+    t = await storage.add_task(TaskCreate(project=p.id, title="完成 PRD"))
+
+    res = client.post(
+        f"/api/tasks/{t.id}/complete",
+        json={
+            "outcome": "完成 PRD 撰写并组织评审，确认研发范围和交付节奏",
+            "cv": "撰写并评审 PRD，明确研发范围和交付节奏",
+            "cv_status": "ready",
+            "follow_up_questions": ["影响了哪些核心模块？"],
+        },
+    )
+
+    assert res.status_code == 200, res.text
+    assert res.json()["cv_status"] == "needs_data"
