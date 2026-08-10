@@ -24,7 +24,6 @@ import {
   Sparkles,
   Copy,
   Download,
-  ArrowUpCircle,
   Check,
   Edit3,
   Eye,
@@ -32,7 +31,7 @@ import {
   Calendar,
   AlertCircle,
 } from "lucide-react";
-import { api, type Achievement, type CVStatus } from "@/lib/api";
+import { api, type Achievement } from "@/lib/api";
 import { TIME_RANGES, TEMPLATES, generateReport, type TemplateKind } from "@/lib/templates";
 
 export default function ReportPage() {
@@ -54,12 +53,6 @@ export default function ReportPage() {
     ["/api/achievements", range.since()],
     () => api.listAchievements({ since: range.since() })
   );
-
-  // 升级 needs_data/pending → ready
-  const upgrade = async (a: Achievement) => {
-    await api.updateAchievement(a.id, { cv_status: "ready" });
-    mutate();
-  };
 
   // 生成报告
   const report = useMemo(() => {
@@ -248,17 +241,15 @@ export default function ReportPage() {
           <div className="col-span-5 space-y-3">
             <PendingCard
               title="📊 还差数据"
-              hint="cv 已写但承认不全 — 写述职前一键升级"
+              hint="cv 已写但证据不全 — 补充数据后才会进入报告"
               items={needsDataItems}
-              onUpgrade={upgrade}
               emptyText="没有还差数据的成就 ✨"
               accent="warning"
             />
             <PendingCard
               title="⏳ 草稿"
-              hint="当时没写完 — 建议先补 cv 再升 ready"
+              hint="当时没写完 — 先补全再进入报告"
               items={pendingOnly}
-              onUpgrade={upgrade}
               emptyText="没有草稿项"
               accent="muted"
             />
@@ -365,14 +356,12 @@ function PendingCard({
   title,
   hint,
   items,
-  onUpgrade,
   emptyText,
   accent,
 }: {
   title: string;
   hint: string;
   items: Achievement[];
-  onUpgrade: (a: Achievement) => void;
   emptyText: string;
   accent: "warning" | "muted";
 }) {
@@ -417,14 +406,13 @@ function PendingCard({
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={() => onUpgrade(a)}
-                  className="text-[10px] px-1.5 py-0.5 bg-success/10 text-success rounded hover:bg-success/20 transition flex items-center gap-0.5 flex-shrink-0 opacity-60 group-hover:opacity-100"
-                  title="升级为 ready"
+                <Link
+                  href={`/achievements/follow-up?focus=${a.id}`}
+                  className="text-[10px] px-1.5 py-0.5 bg-info/10 text-info rounded hover:bg-info/20 transition flex-shrink-0"
+                  title="补全证据"
                 >
-                  <ArrowUpCircle size={10} />
-                  升 ready
-                </button>
+                  去补全
+                </Link>
               </div>
             </div>
           ))}

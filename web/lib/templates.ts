@@ -128,17 +128,12 @@ export const TEMPLATES: Template[] = [
         key: "progress",
         title: "本周进展",
         hint: "已完成的事, 配 cv/数据佐证",
-        // 默认所有 ready + 显眼的 needs_data 都进
-        match: (a) => a.cv_status === "ready" || a.cv_status === "needs_data",
+        match: (a) => a.cv_status === "ready",
       },
     ],
     // 评分: ready 优先, 然后按 cv 长度 (长的更详细) 排
     scoreBullet: (a) => {
-      let s = 0;
-      if (a.cv_status === "ready") s += 100;
-      else if (a.cv_status === "needs_data") s += 50;
-      s += Math.min(50, a.cv.length);
-      return s;
+      return 100 + Math.min(50, a.cv.length);
     },
   },
   {
@@ -152,15 +147,11 @@ export const TEMPLATES: Template[] = [
         key: "tech_progress",
         title: "技术进展",
         hint: "代码 / 架构 / 性能 / 工具 等",
-        match: (a) => a.cv_status === "ready" || a.cv_status === "needs_data",
+        match: (a) => a.cv_status === "ready",
       },
     ],
     scoreBullet: (a) => {
-      let s = 0;
-      if (a.cv_status === "ready") s += 100;
-      else if (a.cv_status === "needs_data") s += 50;
-      s += Math.min(50, a.cv.length);
-      return s;
+      return 100 + Math.min(50, a.cv.length);
     },
   },
   {
@@ -241,8 +232,7 @@ export function generateReport(
       for (const a of items) {
         const bullet = a.cv || a.outcome || a.title;
         // needs_data 加 [差数据] 标记, 提示用户
-        const tag = a.cv_status === "needs_data" ? " `[📊 差数据]`" : "";
-        lines.push(`- ${bullet}${tag}`);
+        lines.push(`- ${bullet}`);
       }
       lines.push("");
     }
