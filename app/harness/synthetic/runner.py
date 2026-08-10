@@ -183,4 +183,7 @@ def run_synthetic_dogfooding(*, output_dir: Path) -> SyntheticReplay:
         json.dumps(asdict(replay), ensure_ascii=False, indent=2), encoding="utf-8"
     )
     _write_report_artefacts(resolved_output, replay)
+    from app.harness.synthetic.review import review_synthetic_replay
+
+    review_synthetic_replay(output_dir=resolved_output, replay=replay)
     return replay

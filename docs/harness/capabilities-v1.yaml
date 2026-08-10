@@ -23,6 +23,12 @@ capabilities:
     release_suite: true
     command: [".venv312/bin/pytest", "app/tests/constitution", "-q"]
     required_dependencies: []
+  - id: synthetic_dogfooding
+    status: implemented
+    risk_level: write
+    release_suite: true
+    command: [".venv312/bin/pytest", "app/tests/harness/test_synthetic_fixtures.py", "app/tests/harness/test_synthetic_runner.py", "app/tests/harness/test_synthetic_reports.py", "app/tests/harness/test_synthetic_review.py", "-q"]
+    required_dependencies: []
   - id: refiner
     status: future
     risk_level: read

@@ -13,6 +13,7 @@ def test_default_registry_has_unique_capability_ids() -> None:
         "report_composition",
         "mcp_write_path",
         "constitution",
+        "synthetic_dogfooding",
         "refiner",
         "git_candidate",
         "composer",
