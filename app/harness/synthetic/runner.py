@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 import tempfile
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -17,6 +18,10 @@ from app.core import storage
 from app.harness.synthetic.fixtures import load_synthetic_dataset
 from app.harness.synthetic.models import Persona, WorkEvent
 from app.main import app
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+REPORT_ADAPTER = PROJECT_ROOT / "web" / "scripts" / "generate-synthetic-report.mjs"
 
 
 @dataclass(frozen=True)
@@ -101,6 +106,62 @@ def _replay_persona(persona: Persona, events: list[WorkEvent]) -> PersonaReplay:
             storage.reset_engine()
 
 
+def _write_report(
+    *,
+    snapshot_path: Path,
+    output_path: Path,
+    since: date,
+    until: date,
+    label: str,
+) -> None:
+    command = [
+        "node",
+        "--experimental-strip-types",
+        str(REPORT_ADAPTER),
+        "--input",
+        str(snapshot_path),
+        "--since",
+        since.isoformat(),
+        "--until",
+        until.isoformat(),
+        "--label",
+        label,
+    ]
+    completed = subprocess.run(command, cwd=PROJECT_ROOT, text=True, capture_output=True, check=False)
+    if completed.returncode != 0:
+        raise RuntimeError(f"report adapter failed: {completed.stderr.strip()}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(completed.stdout, encoding="utf-8")
+
+
+def _write_report_artefacts(output_dir: Path, replay: SyntheticReplay) -> None:
+    dataset = load_synthetic_dataset()
+    for persona_replay in replay.personas:
+        events = [event for event in dataset.events if event.persona_id == persona_replay.persona_id]
+        snapshot_path = output_dir / "snapshots" / f"{persona_replay.persona_id}.json"
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        snapshot_path.write_text(
+            json.dumps({"achievements": persona_replay.achievements}, ensure_ascii=False), encoding="utf-8"
+        )
+        report_dir = output_dir / "reports" / persona_replay.persona_id
+        for week in range(1, 5):
+            week_dates = [event.completed_on for event in events if event.week == week]
+            _write_report(
+                snapshot_path=snapshot_path,
+                output_path=report_dir / f"week-{week}.json",
+                since=min(week_dates),
+                until=max(week_dates),
+                label=f"第 {week} 周",
+            )
+        _write_report(
+            snapshot_path=snapshot_path,
+            output_path=report_dir / "full-window.json",
+            since=min(event.completed_on for event in events),
+            until=max(event.completed_on for event in events),
+            label="完整模拟周期",
+        )
+
+
 def run_synthetic_dogfooding(*, output_dir: Path) -> SyntheticReplay:
     """Replay every v1 persona without ever opening the live Cockpit database."""
     resolved_output = output_dir.resolve()
@@ -121,4 +182,5 @@ def run_synthetic_dogfooding(*, output_dir: Path) -> SyntheticReplay:
     (resolved_output / "replay.json").write_text(
         json.dumps(asdict(replay), ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    _write_report_artefacts(resolved_output, replay)
     return replay
