@@ -139,7 +139,8 @@ Cockpit 跟 task-cockpit skill 是同源项目，但**产品形态不同**。tas
 - `outcome` 必填（用户描述的结果）
 - `cv` 必填（agent 生成的简历级成就陈述，**默认预填 `完成「${title}」` 兜底，但用户必填 outcome 后必须改**）
 - `reflection` 可选（不强迫 — task-cockpit SKILL.md 第 ② 步明确 "复盘可选"）
-- `cv_status` ready / pending 二选一（ready 立刻能用，pending 挂起后续在成就库补全后升级）
+- `cv_status` 三态：`ready`（证据充分，可进入所有输出）/ `needs_data`（已有 CV，但缺关键数据、对比或方法论）/ `pending`（只记了大概，待补充）
+- 状态由 `storage.complete_task` 这个统一写入边界按 outcome、CV 与追问答案的证据完整性决定；Web、对话和 MCP 入口都不能靠传入 `cv_status` 绕过质量门槛
 
 **所有完成入口都走 modal**（看板 status 按钮、FocusItem 单击、TaskRow 整行、状态下拉"完成 ✨"、对话 complete_task 工具）— 不要让凑数 cv 绕过去。
 
