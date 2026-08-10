@@ -75,6 +75,9 @@ tmp/
 temp/
 .cache/
 
+# Isolated Git worktrees created by development agents
+.worktrees/
+
 # Node / Next.js（前端项目）
 node_modules/
 .next/
