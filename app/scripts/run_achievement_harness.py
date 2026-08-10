@@ -16,6 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.harness.adapter import DistillationAdapter, FakeAdapter, PolishCvAdapter  # noqa: E402
 from app.harness.datasets import load_cases  # noqa: E402
 from app.harness.gate import evaluate_gate  # noqa: E402
+from app.harness.judge import build_current_judge  # noqa: E402
 from app.harness.models import (  # noqa: E402
     AchievementDistillationCase,
     AchievementDistillationOutput,
@@ -23,6 +24,7 @@ from app.harness.models import (  # noqa: E402
 )
 from app.harness.report import summarize  # noqa: E402
 from app.harness.runner import run_cases  # noqa: E402
+from app.llm.router import get_verified_client  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,11 +33,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", help="Write report JSON to this path instead of stdout")
     parser.add_argument("--category", choices=("golden", "boundary", "adversarial"))
     parser.add_argument(
+        "--suite",
+        choices=("current_baseline", "target_capability"),
+        help="Run only cases assigned to one capability suite",
+    )
+    parser.add_argument(
         "--fake-fixture",
         action="store_true",
         help="Use deterministic fixture outputs and never call an LLM",
     )
     parser.add_argument("--gate", action="store_true", help="Apply v1 release thresholds and use its exit code")
+    parser.add_argument(
+        "--semantic-judge",
+        action="store_true",
+        help="Run the minimal offline semantic judge when an LLM client is configured",
+    )
     return parser.parse_args()
 
 
@@ -52,13 +64,21 @@ async def main_async(args: argparse.Namespace) -> dict[str, object]:
     cases = load_cases(args.dataset)
     if args.category:
         cases = [case for case in cases if case.category == args.category]
+    if args.suite:
+        cases = [case for case in cases if args.suite in case.suites]
 
     if args.fake_fixture:
         adapter: DistillationAdapter = FakeAdapter({case.id: fake_output(case) for case in cases})
     else:
         adapter = PolishCvAdapter()
 
-    report = summarize(await run_cases(cases, adapter))
+    judge = None
+    judge_status = "disabled"
+    if args.semantic_judge:
+        judge = build_current_judge(await get_verified_client())
+        judge_status = "enabled" if judge is not None else "skipped_unavailable"
+    report = summarize(await run_cases(cases, adapter, judge=judge))
+    report.semantic_judge_status = judge_status
     return cast(dict[str, object], report.model_dump(mode="json"))
 
 

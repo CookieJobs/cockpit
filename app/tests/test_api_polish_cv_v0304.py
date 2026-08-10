@@ -40,34 +40,37 @@ def test_polish_prompt_contains_strong_verbs():
     )
 
 
-def test_polish_prompt_prohibits_weak_verbs():
-    """v0.3.4: prompt 必含弱动词禁止清单 (严禁)."""
+def test_polish_prompt_prevents_weak_ownership_from_being_upgraded():
+    """事实优先：弱 ownership 表述不能被 prompt 鼓励升级。"""
     weak_verbs = ["负责", "参与", "协助", "处理"]
     # 至少含 3 个, 且明确说"严禁"或类似禁止语义
     prohibit_phrase = "严禁"
     assert prohibit_phrase in POLISH_CV_SYSTEM, (
-        f"v0.3.4 prompt 应明确含「{prohibit_phrase}」禁止弱动词"
+        f"prompt 应明确含「{prohibit_phrase}」的事实性边界"
     )
     found = [v for v in weak_verbs if v in POLISH_CV_SYSTEM]
     assert len(found) >= 3, (
-        f"v0.3.4 prompt 应至少含 3 个被禁止的弱动词, 只找到 {len(found)}: {found}\n"
+        f"prompt 应至少覆盖 3 个 ownership 边界词, 只找到 {len(found)}: {found}\n"
         f"完整 prompt:\n{POLISH_CV_SYSTEM}"
     )
 
 
 def test_polish_prompt_contains_quantification_requirement():
-    """v0.3.4: prompt 必明确说量化是硬指标, 不是优先."""
-    # 找 "量化" + 强语义词 (硬指标 / 必须 / 必)
+    """量化应被鼓励，但只能复用用户事实。"""
     has_quantify = "量化" in POLISH_CV_SYSTEM
     has_hard_marker = any(
         marker in POLISH_CV_SYSTEM
         for marker in ["硬指标", "必追问", "必须", "【量化是硬指标】"]
     )
     assert has_quantify, "prompt 应含「量化」关键词"
-    assert has_hard_marker, (
-        f"v0.3.4 prompt 应明确量化是硬指标 (必追问/必须/硬指标), 当前没找到\n"
-        f"完整 prompt:\n{POLISH_CV_SYSTEM}"
-    )
+    assert has_hard_marker, "prompt 应说明何时需要追问量化事实"
+
+
+def test_polish_prompt_prioritizes_grounded_facts_over_strength():
+    """Harness experiment: stronger wording may never invent ownership or metrics."""
+    assert "不得把参与、协助、配合、跟进升级为主导" in POLISH_CV_SYSTEM
+    assert "不得计算或新造" in POLISH_CV_SYSTEM
+    assert "用户已提供具体结果时，follow_up_questions 必须为空" in POLISH_CV_SYSTEM
 
 
 def test_polish_prompt_contains_few_shot_examples():

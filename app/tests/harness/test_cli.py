@@ -44,3 +44,24 @@ def test_gate_cli_returns_nonzero_with_blocking_reasons() -> None:
     payload = json.loads(result.stdout)
     assert "gate" in payload
     assert "semantic_average" in payload["gate"]["blocking_reasons"]
+
+
+def test_cli_can_run_current_baseline_suite_only(tmp_path: Path) -> None:
+    output = tmp_path / "current.json"
+    result = subprocess.run(  # noqa: S603
+        [
+            ".venv312/bin/python",
+            "app/scripts/run_achievement_harness.py",
+            "--fake-fixture",
+            "--suite",
+            "current_baseline",
+            "--output",
+            str(output),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(output.read_text(encoding="utf-8"))["total"] == 19

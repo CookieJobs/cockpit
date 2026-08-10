@@ -32,6 +32,10 @@ CANONICAL_STRONG_ACTION_VERBS = (
     "打造",
 )
 
+_SPECIFIC_ACTION_VERBS = CANONICAL_STRONG_ACTION_VERBS + (
+    "新增", "上线", "建立", "发布", "输出", "协调", "访谈", "拆分", "补齐", "迁移",
+)
+
 _OWNERSHIP_LEVELS = {
     "协助": 1,
     "参与": 2,
@@ -203,6 +207,11 @@ def _detect_action_strength(text: str) -> bool:
     return any(stripped.startswith(verb) for verb in CANONICAL_STRONG_ACTION_VERBS)
 
 
+def _has_specific_action(text: str) -> bool:
+    """Informational lexical signal; semantic quality belongs to the judge."""
+    return any(verb in text.lstrip() for verb in _SPECIFIC_ACTION_VERBS)
+
+
 def _leading_ownership_level(text: str) -> int:
     stripped = text.lstrip()
     best = 0
@@ -241,6 +250,7 @@ def evaluate_l1(case: EvaluationCase, output: AchievementDistillationOutput) -> 
         length_valid=0 < len(output.cv.strip()) <= 80,
         follow_up_count_valid=len(output.follow_up_questions) <= 3,
         has_strong_action=has_strong_action,
+        has_specific_action=_has_specific_action(output.cv),
         has_unsupported_number=bool(unsupported_numbers),
         has_unsupported_entity=bool(unsupported_entities),
         likely_duplicate_outcome=likely_duplicate_outcome,
@@ -258,7 +268,6 @@ def is_l1_pass(hard_checks: HardChecks) -> bool:
         hard_checks.schema_valid
         and hard_checks.length_valid
         and hard_checks.follow_up_count_valid
-        and hard_checks.has_strong_action
         and not hard_checks.has_unsupported_number
         and not hard_checks.has_unsupported_entity
         and not hard_checks.likely_duplicate_outcome

@@ -74,6 +74,37 @@ async def test_runner_marks_forbidden_output_as_failed() -> None:
     assert result.passed is False
     assert result.hard_checks.has_unsupported_number is True
     assert "forbidden:30%" in result.judge.violations
+    assert "unsupported_number" in result.failure_reasons
+
+
+@pytest.mark.asyncio
+async def test_target_only_case_is_attributed_as_capability_gap() -> None:
+    case = make_case("target_refusal", category="adversarial", outcome="整理结果")
+    case.suites = ["target_capability"]
+    case.target_capabilities = ["explicit_refusal"]
+    adapter = FakeAdapter(
+        {case.id: AchievementDistillationOutput(cv="整理任务结果", generator_status="polished")}
+    )
+
+    result = (await run_cases([case], adapter))[0]
+
+    assert result.attribution == "capability_gap"
+    assert result.attribution_reason
+
+
+@pytest.mark.asyncio
+async def test_target_only_forbidden_output_remains_a_capability_gap() -> None:
+    case = make_case("target_refusal_forbidden", category="adversarial", outcome="整理结果")
+    case.suites = ["target_capability"]
+    case.target_capabilities = ["explicit_refusal"]
+    case.forbidden = ["伪造 100%"]
+    adapter = FakeAdapter(
+        {case.id: AchievementDistillationOutput(cv="伪造 100%", generator_status="polished")}
+    )
+
+    result = (await run_cases([case], adapter))[0]
+
+    assert result.attribution == "capability_gap"
 
 
 @pytest.mark.asyncio

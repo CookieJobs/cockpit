@@ -17,6 +17,7 @@
 | 日期 | 主题 | 关联 Lessons | 详情 |
 |---|---|---|---|
 | 2026-08-01 | 时区 bug 修复 —「今天」显示成「明天」 | [#19](../lessons/06-timezone.md) | [→](2026-08-01-timezone-fix.md) |
+| 2026-08-10 | **Achievement Distillation 事实优先校准 — Harness 验证后收紧事实约束，保留 P0 guardrail** | [#28](../lessons/02-llm-pitfalls.md) | [→](2026-08-10-achievement-distillation-facts-grounded.md) |
 | 2026-08-02 | **目标模式启动 — 主目标定为"AI 工作流记忆 → 履历生成 OS"** | — | [→](2026-08-02-goal-mode-launch.md) |
 | 2026-08-02 | **v0.3.1 主动建议机制 — outcome 停笔 1.5s 后 AI 自动给 cv 建议** | [#14 #15](../lessons/01-frontend-ux-bugs.md) | [→](2026-08-02-v0.3.1.md) |
 | 2026-08-02 | **v0.3.3 状态机端到端测试 + 修空 answers 升级 bug** | — | [→](2026-08-02-v0.3.3.md) |

@@ -74,6 +74,17 @@ def test_valid_number_and_length_pass() -> None:
     assert is_l1_pass(checks) is True
 
 
+def test_specific_action_is_informational_not_a_hard_failure() -> None:
+    """A factual CV may begin with a non-whitelisted but concrete verb."""
+    case = make_case(outcome="新增 6 个埋点和 3 张看板")
+    output = make_output(cv="新增 6 个埋点和 3 张看板，实现漏斗实时监控")
+
+    checks = evaluate_l1(case, output)
+
+    assert checks.has_specific_action is True
+    assert is_l1_pass(checks) is True
+
+
 def test_empty_and_exact_80_char_cv_length_boundaries() -> None:
     case = make_case(outcome="优化登录流程")
 

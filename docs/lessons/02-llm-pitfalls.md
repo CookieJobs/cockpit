@@ -60,6 +60,16 @@
 
 ---
 
+---
+
+## #28. “写强”不能凌驾于事实来源（2026-08-10）
+
+- **症状**：Achievement Distillation 的 prompt 把“强动作动词”和“量化硬指标”表述得过于绝对。模型会把“参与/协助”升级为“主导”，或从“30 分钟到 5 分钟”自行计算“提升 83%”。运行时 provenance guardrail 正确拒绝这些输出，用户却只看到通用 fallback。
+- **根因**：few-shot 中含有未绑定用户事实的用户量、团队规模、百分比和 ownership，且“没量化 = 没价值”的措辞压过了“不能编造”的规则。
+- **教训**：Prompt 中的示例也是行为契约。所有“强表达”示例都必须标明其事实前提；事实不足时应追问，而不是推导数字或升级 ownership。Guardrail 是最后防线，不能通过放宽它来改善表面成功率。
+- **验证方式**：先用 Harness 的 number traceability、ownership、fallback 指标验证假设；再用 semantic judge 或人工抽样检查“事实正确但没有简历价值”的剩余问题。
+- **修法位置**：`app/api/llm.py` 的 `POLISH_CV_SYSTEM`（`polish_cv_facts_grounded_v1`）和 `app/tests/test_api_polish_cv_v0304.py`。
+
 > **未来可能加的 lessons**（暂记这里防忘）：
 > - 多 LLM 后端切换的 tool schema 兼容（OpenAIClient 共享）— 如果切到某后端 tool 调不通
 > - streaming chunk 顺序错乱（DeepSeek 偶发）的重试策略

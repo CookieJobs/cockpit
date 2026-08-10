@@ -107,6 +107,16 @@ def test_case_contains_expected_and_forbidden_behavior() -> None:
     assert "主导" in case.forbidden
 
 
+def test_dataset_separates_current_and_target_suites() -> None:
+    cases = load_cases()
+    current = [case for case in cases if "current_baseline" in case.suites]
+    target = [case for case in cases if "target_capability" in case.suites]
+
+    assert len(current) > 0
+    assert len(target) > len(current)
+    assert all("target_capability" in case.suites for case in cases if case.category == "adversarial")
+
+
 def test_loader_accepts_explicit_path(tmp_path: Path) -> None:
     dataset = [
         {

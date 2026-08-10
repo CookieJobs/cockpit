@@ -44,6 +44,7 @@ class SemanticScores(HarnessModel):
 class JudgeResult(HarnessModel):
     score: float | None = Field(default=None, ge=1, le=5)
     violations: list[str] = Field(default_factory=list)
+    reason: str = ""
     suggestions: list[str] = Field(default_factory=list)
 
 
@@ -52,6 +53,9 @@ class HardChecks(HarnessModel):
     length_valid: bool
     follow_up_count_valid: bool = True
     has_strong_action: bool
+    # Style signal only. It is deliberately not a hard pass/fail condition:
+    # safe, concrete achievements can start with verbs outside a fixed list.
+    has_specific_action: bool = False
     has_unsupported_number: bool
     has_unsupported_entity: bool
     likely_duplicate_outcome: bool
@@ -66,11 +70,19 @@ class HardChecks(HarnessModel):
 class EvaluationResult(HarnessModel):
     case_id: str = Field(..., min_length=1)
     category: Literal["golden", "boundary", "adversarial"]
+    suites: list[Literal["current_baseline", "target_capability"]] = Field(
+        default_factory=lambda: ["current_baseline", "target_capability"], min_length=1
+    )
     output: AchievementDistillationOutput
     hard_checks: HardChecks
     semantic_scores: SemanticScores
     judge: JudgeResult
     passed: bool
+    failure_reasons: list[str] = Field(default_factory=list)
+    attribution: Literal[
+        "generator_failure", "evaluator_false_negative", "capability_gap", "ambiguous"
+    ] | None = None
+    attribution_reason: str = ""
 
 
 class CategorySummary(HarnessModel):
@@ -83,6 +95,8 @@ class FailureSummary(HarnessModel):
     case_id: str
     category: Literal["golden", "boundary", "adversarial"]
     violations: list[str] = Field(default_factory=list)
+    failure_reasons: list[str] = Field(default_factory=list)
+    attribution: str | None = None
 
 
 class HarnessMetadata(HarnessModel):
@@ -100,6 +114,12 @@ class HarnessReport(HarnessModel):
     p0_violation_counts: dict[str, int] = Field(default_factory=dict)
     generator_status_counts: dict[str, int] = Field(default_factory=dict)
     semantic_average: float | None = Field(default=None, ge=1.0, le=5.0)
+    current_capability: CategorySummary | None = None
+    target_capability: CategorySummary | None = None
+    fallback_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    hard_safety_violation_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    attribution_counts: dict[str, int] = Field(default_factory=dict)
+    semantic_judge_status: Literal["disabled", "enabled", "skipped_unavailable"] = "disabled"
     metadata: HarnessMetadata = Field(default_factory=HarnessMetadata)
     failures: list[FailureSummary] = Field(default_factory=list)
     results: list[EvaluationResult] = Field(default_factory=list)
@@ -112,6 +132,10 @@ class AchievementDistillationCase(HarnessModel):
     expected: dict[str, Any] = Field(default_factory=dict)
     forbidden: list[str] = Field(default_factory=list)
     severity: Literal["p0", "p1"]
+    suites: list[Literal["current_baseline", "target_capability"]] = Field(
+        default_factory=lambda: ["current_baseline", "target_capability"], min_length=1
+    )
+    target_capabilities: list[str] = Field(default_factory=list)
 
 
 def dataset_path() -> Path:
