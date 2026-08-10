@@ -1,0 +1,43 @@
+capabilities:
+  - id: achievement_distillation
+    status: implemented
+    risk_level: write
+    release_suite: true
+    command: [".venv312/bin/pytest", "app/tests/harness", "app/tests/test_api_polish_cv_harness.py", "-q"]
+    required_dependencies: []
+  - id: report_composition
+    status: implemented
+    risk_level: write
+    release_suite: true
+    command: [".venv312/bin/pytest", "app/tests/test_report_workspace_invariants.py", "app/tests/test_complete_modal_minimal_invariants.py", "-q"]
+    required_dependencies: []
+  - id: mcp_write_path
+    status: implemented
+    risk_level: write
+    release_suite: true
+    command: [".venv312/bin/pytest", "app/tests/test_mcp_server.py", "-q"]
+    required_dependencies: ["mcp"]
+  - id: constitution
+    status: implemented
+    risk_level: destructive
+    release_suite: true
+    command: [".venv312/bin/pytest", "app/tests/constitution", "-q"]
+    required_dependencies: []
+  - id: refiner
+    status: future
+    risk_level: read
+    release_suite: false
+    command: []
+    required_dependencies: []
+  - id: git_candidate
+    status: future
+    risk_level: write
+    release_suite: false
+    command: []
+    required_dependencies: []
+  - id: composer
+    status: future
+    risk_level: read
+    release_suite: false
+    command: []
+    required_dependencies: []
