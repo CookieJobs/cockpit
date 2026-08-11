@@ -242,6 +242,14 @@ check("achievement distribution uses asset", achievementSource.includes('classNa
 check("project achievement items are divider rows, not cards", achievementSource.includes('className="divide-y divide-border/70"') && achievementSource.includes('className="px-1 py-3 hover:bg-bg-tertiary/40 transition"'));
 check("timeline achievement items are divider rows, not cards", achievementSource.includes('className="overflow-hidden rounded-xl border border-border bg-bg-secondary divide-y divide-border"') && achievementSource.includes('className="px-3 py-3 hover:bg-bg-tertiary/40 transition"'));
 
+section("report value and recovery hierarchy");
+const reportSource = readFileSync("app/report/page.tsx", "utf8");
+const reportAssetUtilities = reportSource.match(/\b(?:bg|text|border)-asset(?:\b|\/)/g) ?? [];
+check("report value count is the only asset signal", reportSource.includes('data-testid="report-value-count"') && reportAssetUtilities.length === 1 && reportAssetUtilities[0] === "text-asset", reportAssetUtilities.join(", "));
+check("report recovery summaries keep warning separate from interaction", reportSource.includes('getVisualTone("warning")') && !reportSource.includes('bg-accent/10 text-warning'));
+check("empty report completeness states render compact recovery summaries", reportSource.includes('data-testid="report-recovery-summary"') && reportSource.includes('px-3 py-2.5'));
+check("report reading copy uses a 13px floor", reportSource.includes('text-[13px] text-fg-secondary mt-1 line-clamp-2') && reportSource.includes('text-[13px] text-fg-muted'));
+
 section("Tailwind runtime compilation");
 const tempDir = mkdtempSync(join(tmpdir(), "cockpit-visual-tokens-"));
 const output = join(tempDir, "tokens.css");
