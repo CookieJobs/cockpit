@@ -14,7 +14,6 @@
  */
 import useSWR from "swr";
 import { api, type Achievement, type CVStatus, projectEmoji } from "@/lib/api";
-import { computeStats, ratioToPct, gradeRatio, verbDistribution } from "@/lib/achievement-stats";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -25,7 +24,6 @@ import {
   Filter,
   ChevronDown,
   Archive,
-  BarChart3,
   ListTree,
   Clock,
 } from "lucide-react";
@@ -157,79 +155,6 @@ export default function AchievementsPage() {
             </span>
           </div>
         </div>
-
-        {/* v0.3.5 立: 沉淀质量卡片 (顶部固定, 跨过滤态) — 3 个核心指标 + v0.4.3 动词分布展开 */}
-        {items && items.length > 0 && (
-          <div className="rounded-lg border border-border bg-bg-secondary px-4 py-3 mb-4">
-            <div className="flex items-center gap-2 mb-2.5">
-              <BarChart3 size={13} className="text-asset" />
-              <span className="text-[12px] text-fg-secondary font-medium">沉淀质量</span>
-              <span className="text-[10.5px] text-fg-muted/80">· v0.3.5 / v0.4.3</span>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {(() => {
-                const stats = computeStats(items);
-                return (
-                  <>
-                    <StatBar
-                      label="ready 比例"
-                      value={`${ratioToPct(stats.ready_ratio)}%`}
-                      detail={`${stats.ready} / ${stats.total}`}
-                      grade={gradeRatio(stats.ready_ratio)}
-                    />
-                    <StatBar
-                      label="量化率"
-                      value={`${ratioToPct(stats.quantify_ratio)}%`}
-                      detail={`${stats.quantify_count} 条含量化`}
-                      grade={gradeRatio(stats.quantify_ratio)}
-                    />
-                    <StatBar
-                      label="强动词比例"
-                      value={`${ratioToPct(stats.strong_verb_ratio)}%`}
-                      detail={`${stats.strong_verb_count} 条以强动词开头`}
-                      grade={gradeRatio(stats.strong_verb_ratio)}
-                    />
-                  </>
-                );
-              })()}
-            </div>
-            {/* v0.4.3 立: 动词分布展开 — 看到底是"主导"多还是"设计"多 */}
-            {(() => {
-              const dist = verbDistribution(items);
-              if (dist.length === 0) return null;
-              const maxCount = Math.max(...dist.map((d) => d.count), 1);
-              return (
-                <details className="mt-3 group">
-                  <summary className="text-[11px] text-fg-muted hover:text-fg cursor-pointer flex items-center gap-1 select-none">
-                    <ChevronDown
-                      size={11}
-                      className="transition-transform group-open:rotate-180"
-                    />
-                    动词分布 ({dist.length} 种, 共 {dist.reduce((s, d) => s + d.count, 0)} 条)
-                  </summary>
-                  <div className="mt-2.5 space-y-1.5">
-                    {dist.map((d) => (
-                      <div key={d.verb} className="flex items-center gap-2 text-[11.5px]">
-                        <span className="text-fg-muted w-12 text-right font-mono flex-shrink-0">
-                          {d.verb}
-                        </span>
-                        <div className="flex-1 h-3 bg-bg/50 rounded-sm overflow-hidden border border-border/40">
-                          <div
-                            className="h-full bg-asset/60 transition-all"
-                            style={{ width: `${(d.count / maxCount) * 100}%` }}
-                          />
-                        </div>
-                        <span className="text-fg-secondary font-mono flex-shrink-0 w-8 text-right">
-                          {d.count}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              );
-            })()}
-          </div>
-        )}
 
         {/* v0.4.1 立: 视图模式 toggle (按项目 / 按时间) + 状态过滤 */}
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -519,30 +444,6 @@ function AchievementItem({
   );
 }
 
-// v0.3.5 立: 统计指标条 — 沉淀质量卡片用
-function StatBar({
-  label,
-  value,
-  detail,
-  grade,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  grade: { label: string; color: string };
-}) {
-  return (
-    <div className="rounded-md bg-bg/50 border border-border px-3 py-2">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[11px] text-fg-muted">{label}</span>
-        <span className={`text-[10px] font-medium ${grade.color}`}>{grade.label}</span>
-      </div>
-      <div className="text-[18px] font-semibold text-fg leading-tight">{value}</div>
-      <div className="text-[10.5px] text-fg-muted mt-0.5">{detail}</div>
-    </div>
-  );
-}
-
 // v0.4.1 立: 按时间倒序拉平视图 — 跨项目按 date desc 展示所有成就
 // 复用 AchievementCard 渲染 (跟 /cv 视图风格一致, 简单卡片 + 项目 emoji + cv)
 function TimelineView({
@@ -694,18 +595,6 @@ function AchievementCard({
               <Undo2 size={12} />
             </button>
           </div>
-        </div>
-      )}
-      {a.tags.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-1">
-          {a.tags.map((t) => (
-            <span
-              key={t}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-bg-tertiary text-fg-muted"
-            >
-              {t}
-            </span>
-          ))}
         </div>
       )}
     </div>

@@ -251,7 +251,6 @@ async def _list_tasks(project_id: Optional[str] = None) -> list[dict[str, Any]]:
             "priority": t.priority.value if isinstance(t.priority, object) and hasattr(t.priority, "value") else str(t.priority),
             "due": t.due.isoformat() if hasattr(t.due, "isoformat") else t.due,
             "blocked": t.blocked,
-            "draft": t.draft,
             "created_at": t.created_at.isoformat() if t.created_at else None,
         }
         for t in tasks
@@ -352,7 +351,6 @@ async def _list_achievements(
             "title": a.title,
             "cv": a.cv,
             "cv_status": a.cv_status.value if isinstance(a.cv_status, CVStatus) else a.cv_status,
-            "tags": a.tags,
         }
         for a in items
     ]

@@ -15,7 +15,7 @@
 
 import type { Achievement } from "./api";
 
-export type TemplateKind = "product_weekly" | "eng_weekly" | "review_quarterly";
+export type TemplateKind = "product_weekly" | "eng_weekly" | "review_quarterly" | "cv";
 
 export interface TimeRange {
   key: string;
@@ -62,6 +62,13 @@ function addDays(d: Date, n: number): Date {
 }
 
 export const TIME_RANGES: TimeRange[] = [
+  {
+    key: "all",
+    label: "全部",
+    description: "成就库中的全部时间",
+    since: () => "1970-01-01",
+    until: () => ymd(new Date()),
+  },
   {
     key: "this_week",
     label: "本周",
@@ -117,6 +124,22 @@ export const TIME_RANGES: TimeRange[] = [
 // ===== Templates =====
 
 export const TEMPLATES: Template[] = [
+  {
+    key: "cv",
+    label: "CV",
+    emoji: "📄",
+    description: "按项目归纳全部可直接使用的成果",
+    title: () => "## 职业成果",
+    sections: [
+      {
+        key: "achievements",
+        title: "代表成果",
+        hint: "已确认、可直接用于简历或对外材料的成果",
+        match: (a) => a.cv_status === "ready",
+      },
+    ],
+    scoreBullet: (a) => 100 + Math.min(50, a.cv.length),
+  },
   {
     key: "product_weekly",
     label: "产品周报",

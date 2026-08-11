@@ -84,7 +84,6 @@ async def test_add_task_requires_existing_project(temp_db):
 async def test_add_task_defaults(temp_db):
     p = await storage.add_project(ProjectCreate(name="x"))
     t = await storage.add_task(TaskCreate(project=p.id, title="x"))
-    assert t.draft is False  # 新建任务直接进 todo
     assert t.priority == Priority.P2
     assert t.status == TaskStatus.NOT_STARTED
     assert t.checklist == []
@@ -126,11 +125,10 @@ async def test_update_task_partial(temp_db):
     t = await storage.add_task(TaskCreate(project=p.id, title="x"))
     updated = await storage.update_task(
         t.id,
-        TaskUpdate(priority=Priority.P0, draft=False),
+        TaskUpdate(priority=Priority.P0),
     )
     assert updated is not None
     assert updated.priority == Priority.P0
-    assert updated.draft is False
     # 其他字段不变
     assert updated.title == "x"
 
@@ -139,25 +137,6 @@ async def test_update_task_partial(temp_db):
 async def test_update_task_not_found(temp_db):
     updated = await storage.update_task("task_xxx", TaskUpdate(title="x"))
     assert updated is None
-
-
-@pytest.mark.asyncio
-async def test_confirm_drafts(temp_db):
-    """confirm_all_drafts 把 draft=True 的任务批量改为 draft=False。"""
-    p = await storage.add_project(ProjectCreate(name="x"))
-    # 默认 draft=False，主动设 draft=True 才能测 confirm
-    t1 = await storage.add_task(TaskCreate(project=p.id, title="a"))
-    t2 = await storage.add_task(TaskCreate(project=p.id, title="b"))
-    await storage.update_task(t1.id, TaskUpdate(draft=True))
-    await storage.update_task(t2.id, TaskUpdate(draft=True))
-
-    count = await storage.confirm_all_drafts()
-    assert count == 2
-
-    g1 = await storage.get_task(t1.id)
-    g2 = await storage.get_task(t2.id)
-    assert g1.draft is False
-    assert g2.draft is False
 
 
 @pytest.mark.asyncio
@@ -432,20 +411,17 @@ async def test_build_snapshot_focus_ordering(temp_db):
 
 
 @pytest.mark.asyncio
-async def test_build_snapshot_excludes_drafts(temp_db):
-    """draft=True 的任务不进 focus。"""
+async def test_build_snapshot_includes_all_unfinished_tasks(temp_db):
+    """所有未完成任务都进入 focus。"""
     p = await storage.add_project(ProjectCreate(name="x"))
 
-    # 默认 draft=False 的会进 focus
     await storage.add_task(TaskCreate(project=p.id, title="todo"))
-    # 主动设 draft=True 才不进 focus
-    t_draft = await storage.add_task(TaskCreate(project=p.id, title="draft"))
-    await storage.update_task(t_draft.id, TaskUpdate(draft=True))
+    await storage.add_task(TaskCreate(project=p.id, title="normal"))
 
     snapshot = await storage.build_snapshot()
     titles = [f.title for f in snapshot.focus]
     assert "todo" in titles
-    assert "draft" not in titles
+    assert "normal" in titles
 
 
 @pytest.mark.asyncio

@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
+from pathlib import Path
 from typing import Optional
 
 
@@ -145,7 +148,6 @@ class TaskORM(StringPKMixin, CreatedDateMixin, Base):
     priority: Mapped[str] = mapped_column(String(10), nullable=False, default=Priority.P2.value)
     due: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    draft: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     completed_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     checklist_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     # 2026-07-30: 项目内拖动排序。
@@ -304,30 +306,70 @@ async def create_tables() -> None:
         init_engine()
     async with _engine.begin() as conn:  # type: ignore[union-attr]
         await conn.run_sync(Base.metadata.create_all)
-        # Schema migrations（idempotent — 加过的列会报错被吞掉）
-        await _migrate_add_column(conn, "projects", "description", "TEXT NOT NULL DEFAULT ''")
-        await _migrate_add_column(conn, "tasks", "description", "TEXT NOT NULL DEFAULT ''")
-        # 2026-07-17: 删 next_action 列（与 description 语义重复，UI 早已不用）
-        await _migrate_drop_column(conn, "tasks", "next_action")
-        # 2026-07-22: priority 旧值 (高/中/低) → 新值 (P0/P2/P3) 一次性迁移
-        #   P1 是新档, 旧数据没有 — 老 P0 不存在
-        #   SQL UPDATE ... WHERE old IN (...) 幂等, 已经迁移过的行不会再次更新
-        await _migrate_priority_values(conn)
-        # 2026-07-30: 拖动排序字段。老数据 sort_order 全 0, list 排序用 secondary
-        #   created_at ASC fallback, 创建顺序自然保留。新加 task/project 在 add_*
-        #   里主动取 max(sort_order)+10 保证排最后, 不需要"初始化" 步骤 (避免
-        #   覆盖用户已经拖动过的值)。
-        await _migrate_add_column(conn, "projects", "sort_order", "INTEGER NOT NULL DEFAULT 0")
-        await _migrate_add_column(conn, "tasks", "sort_order", "INTEGER NOT NULL DEFAULT 0")
-        # 2026-08-01: follow_up_questions / answers 字段 (LLM 主动追问 + 用户答案)
-        #   老 achievement 没这字段, 默认 '[]' / '{}', 加载走 _achievement_to_pydantic
-        #   的 json.loads(default) 兜底
-        await _migrate_add_column(conn, "achievements", "follow_up_questions_json", "TEXT NOT NULL DEFAULT '[]'")
-        await _migrate_add_column(conn, "achievements", "follow_up_answers_json", "TEXT NOT NULL DEFAULT '{}'")
-        await _migrate_add_column(conn, "achievements", "distillation_trace_id", "TEXT")
-        # 2026-08-01: task.completed_at 字段 (task 保留后记录何时完成, list_tasks 排序用)
-        #   老 task 没这字段, 默认 NULL
-        await _migrate_add_column(conn, "tasks", "completed_at", "DATE")
+        await _run_schema_migrations(conn)
+
+
+async def run_schema_migrations() -> Path | None:
+    """Run idempotent schema migrations and return a backup made for draft retirement.
+
+    Kept public for an isolated migration test; normal application startup calls the
+    same implementation from :func:`create_tables` after creating missing tables.
+    """
+    if _engine is None:
+        init_engine()
+    async with _engine.begin() as conn:  # type: ignore[union-attr]
+        return await _run_schema_migrations(conn)
+
+
+async def _run_schema_migrations(conn) -> Path | None:
+    """Apply additive migrations, then the backup-first draft-column retirement."""
+    # Schema migrations（idempotent — 加过的列会报错被吞掉）
+    await _migrate_add_column(conn, "projects", "description", "TEXT NOT NULL DEFAULT ''")
+    await _migrate_add_column(conn, "tasks", "description", "TEXT NOT NULL DEFAULT ''")
+    # 2026-07-17: 删 next_action 列（与 description 语义重复，UI 早已不用）
+    await _migrate_drop_column(conn, "tasks", "next_action")
+    # 2026-07-22: priority 旧值 (高/中/低) → 新值 (P0/P2/P3) 一次性迁移
+    await _migrate_priority_values(conn)
+    # 2026-07-30: 拖动排序字段。老数据 sort_order 全 0, list 排序用 secondary
+    # created_at ASC fallback, 创建顺序自然保留。
+    await _migrate_add_column(conn, "projects", "sort_order", "INTEGER NOT NULL DEFAULT 0")
+    await _migrate_add_column(conn, "tasks", "sort_order", "INTEGER NOT NULL DEFAULT 0")
+    # 2026-08-01: follow_up_questions / answers 字段 (LLM 主动追问 + 用户答案)
+    await _migrate_add_column(conn, "achievements", "follow_up_questions_json", "TEXT NOT NULL DEFAULT '[]'")
+    await _migrate_add_column(conn, "achievements", "follow_up_answers_json", "TEXT NOT NULL DEFAULT '{}'")
+    await _migrate_add_column(conn, "achievements", "distillation_trace_id", "TEXT")
+    # 2026-08-01: task.completed_at 字段 (task 保留后记录何时完成)
+    await _migrate_add_column(conn, "tasks", "completed_at", "DATE")
+    return await _migrate_drop_task_draft_column(conn)
+
+
+async def _migrate_drop_task_draft_column(conn) -> Path | None:
+    """Back up and retire ``tasks.draft`` while preserving every historical task.
+
+    A legacy draft only meant "not yet confirmed". Once the product state is
+    removed, the row remains an ordinary unfinished task with all other values
+    untouched. The column check makes startup repeats a strict no-op.
+    """
+    try:
+        column_rows = (await conn.exec_driver_sql("PRAGMA table_info(tasks)")).fetchall()
+    except Exception:
+        return None
+    if "draft" not in {row[1] for row in column_rows}:
+        return None
+
+    database_rows = (await conn.exec_driver_sql("PRAGMA database_list")).fetchall()
+    database_path = next((Path(row[2]) for row in database_rows if row[1] == "main" and row[2]), None)
+    if database_path is None:
+        raise RuntimeError("Cannot back up the task draft migration database before changing its schema")
+
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    backup_path = database_path.with_name(
+        f"{database_path.stem}.before-task-draft-retirement-{timestamp}-{uuid.uuid4().hex[:8]}{database_path.suffix}"
+    )
+    shutil.copy2(database_path, backup_path)
+    await conn.exec_driver_sql("ALTER TABLE tasks DROP COLUMN draft")
+    logger.info("Retired tasks.draft after backup: %s", backup_path)
+    return backup_path
 
 
 async def _migrate_priority_values(conn) -> None:
@@ -442,7 +484,6 @@ def _task_to_pydantic(t: TaskORM) -> Task:
         priority=Priority(t.priority),
         due=t.due,
         blocked=t.blocked,
-        draft=t.draft,
         created_at=t.created_at,
         completed_at=t.completed_at,
         checklist=items,
@@ -462,7 +503,6 @@ def _achievement_to_pydantic(a: AchievementORM, *, unmet_reasons: Optional[list[
         reflection=a.reflection,
         cv=a.cv,
         cv_status=CVStatus(a.cv_status),
-        tags=json.loads(a.tags_json or "[]"),
         # 2026-08-01: 解析 follow_up_questions / answers, 旧数据默认 []/{}
         follow_up_questions=json.loads(a.follow_up_questions_json or "[]"),
         follow_up_answers=json.loads(a.follow_up_answers_json or "{}"),
@@ -588,6 +628,64 @@ async def delete_project(pid: str) -> bool:
         return True
 
 
+async def project_deletion_preview(pid: str) -> dict[str, int | str] | None:
+    """Return the full local impact before the advanced deletion boundary."""
+    async with get_session() as session:
+        project = (await session.execute(select(ProjectORM).where(ProjectORM.id == pid))).scalar_one_or_none()
+        if not project:
+            return None
+        task_count = (await session.execute(
+            select(func.count()).select_from(TaskORM).where(TaskORM.project_id == pid)
+        )).scalar_one()
+        achievement_count = (await session.execute(
+            select(func.count()).select_from(AchievementORM).where(AchievementORM.project_id == pid)
+        )).scalar_one()
+        return {
+            "project_id": project.id,
+            "project_name": project.name,
+            "task_count": task_count,
+            "achievement_count": achievement_count,
+        }
+
+
+async def create_database_backup(reason: str) -> Path:
+    """Create a local, timestamped backup before a dangerous operation."""
+    if _engine is None:
+        init_engine()
+    async with _engine.connect() as conn:  # type: ignore[union-attr]
+        database_rows = (await conn.exec_driver_sql("PRAGMA database_list")).fetchall()
+    database_path = next((Path(row[2]) for row in database_rows if row[1] == "main" and row[2]), None)
+    if database_path is None:
+        raise RuntimeError("Cannot create a recoverable backup for an in-memory database")
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    backup_path = database_path.with_name(
+        f"{database_path.stem}.before-{reason}-{timestamp}-{uuid.uuid4().hex[:8]}{database_path.suffix}"
+    )
+    shutil.copy2(database_path, backup_path)
+    return backup_path
+
+
+async def advanced_delete_project(pid: str, project_name: str) -> dict[str, object] | None:
+    """Backup, confirm by exact name, and protect achievement-bearing projects.
+
+    The asset policy is intentionally conservative: a project with achievements
+    is never permanently deleted. The caller receives an actionable conflict and
+    should offer archive (the default project-management action) instead.
+    """
+    preview = await project_deletion_preview(pid)
+    if preview is None:
+        return None
+    backup_path = await create_database_backup("advanced-project-delete")
+    result: dict[str, object] = {**preview, "backup_path": str(backup_path)}
+    if project_name != preview["project_name"]:
+        return {**result, "ok": False, "code": "name_mismatch"}
+    if preview["achievement_count"]:
+        return {**result, "ok": False, "code": "achievements_present"}
+    if not await delete_project(pid):
+        return None
+    return {**result, "ok": True, "code": "deleted"}
+
+
 # 2026-07-30: 拖动 reorder
 async def reorder_projects(items: list[dict]) -> int:
     """批量更新项目 sort_order。
@@ -637,7 +735,6 @@ async def add_task(data: TaskCreate) -> Task:
             priority=data.priority.value,
             due=data.due,
             blocked=data.blocked,
-            draft=False,  # 新建任务直接进入 todo，无需二次确认
             created_at=date.today(),
             checklist_json=json.dumps(checklist_data, ensure_ascii=False),
             sort_order=new_order,
@@ -699,24 +796,12 @@ async def update_task(tid: str, data: TaskUpdate) -> Optional[Task]:
             t.due = data.due
         if data.blocked is not None:
             t.blocked = data.blocked
-        if data.draft is not None:
-            t.draft = data.draft
         if data.checklist is not None:
             checklist_data = [item.model_dump() if hasattr(item, "model_dump") else item
                               for item in data.checklist]
             t.checklist_json = json.dumps(checklist_data, ensure_ascii=False)
         await session.flush()
         return _task_to_pydantic(t)
-
-
-async def confirm_all_drafts() -> int:
-    async with get_session() as session:
-        result = await session.execute(select(TaskORM).where(TaskORM.draft.is_(True)))
-        count = 0
-        for t in result.scalars():
-            t.draft = False
-            count += 1
-        return count
 
 
 async def delete_task(tid: str) -> bool:
@@ -1177,7 +1262,6 @@ async def undo_completion(aid: str) -> Optional[Task]:
                 priority=Priority.P2.value,
                 due=None,
                 blocked=False,
-                draft=False,
                 created_at=date.today(),
                 completed_at=None,
                 checklist_json="[]",

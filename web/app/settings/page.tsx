@@ -173,6 +173,18 @@ export default function SettingsPage() {
             <p>备份：v1.1 接入 iCloud Drive 同步</p>
           </div>
         </section>
+
+        <section className="rounded-lg border border-border bg-bg-secondary p-4 mt-4">
+          <h2 className="text-sm font-semibold text-fg-secondary uppercase tracking-wider mb-2">
+            高级接入
+          </h2>
+          <p className="text-xs text-fg-muted mb-3">
+            可选地把本地 Cockpit 数据接入你已经在使用的工具；不接入不影响日常使用。
+          </p>
+          <Link href="/integrations" className="text-sm text-accent hover:underline">
+            管理本地接入
+          </Link>
+        </section>
       </div>
     </div>
   );

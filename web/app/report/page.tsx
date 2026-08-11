@@ -19,6 +19,7 @@
 import { useState, useMemo, useRef } from "react";
 import useSWR from "swr";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Sparkles,
@@ -36,17 +37,29 @@ import { TIME_RANGES, TEMPLATES, generateReport, type TemplateKind } from "@/lib
 import { getVisualTone } from "@/lib/visual-system";
 import { DataState } from "@/components/DataState";
 
+const OUTPUT_TYPES: TemplateKind[] = ["product_weekly", "eng_weekly", "review_quarterly", "cv"];
+
 export default function ReportPage() {
-  // 顶部选择
-  const [rangeKey, setRangeKey] = useState(TIME_RANGES[0].key);
-  const [templateKey, setTemplateKey] = useState<TemplateKind>("product_weekly");
+  const searchParams = useSearchParams();
+  // Query parameters make the former /cv route a compatibility redirect, while
+  // normal report visits retain their existing weekly-product defaults.
+  const requestedRange = searchParams.get("range");
+  const requestedType = searchParams.get("type");
+  const [rangeKey, setRangeKey] = useState(() =>
+    TIME_RANGES.some((range) => range.key === requestedRange) ? requestedRange! : "this_week"
+  );
+  const [templateKey, setTemplateKey] = useState<TemplateKind>(() =>
+    TEMPLATES.some((template) => template.key === requestedType)
+      ? requestedType as TemplateKind
+      : "product_weekly"
+  );
 
   const range = useMemo(
-    () => TIME_RANGES.find((r) => r.key === rangeKey) || TIME_RANGES[0],
+    () => TIME_RANGES.find((r) => r.key === rangeKey) || TIME_RANGES[1],
     [rangeKey]
   );
   const template = useMemo(
-    () => TEMPLATES.find((t) => t.key === templateKey) || TEMPLATES[0],
+    () => TEMPLATES.find((t) => t.key === templateKey) || TEMPLATES[1],
     [templateKey]
   );
 
@@ -223,7 +236,9 @@ export default function ReportPage() {
                 模板
               </div>
               <div className="flex gap-1.5 flex-wrap">
-                {TEMPLATES.map((t) => (
+                {OUTPUT_TYPES.map((outputType) => {
+                  const t = TEMPLATES.find((template) => template.key === outputType)!;
+                  return (
                   <button
                     key={t.key}
                     onClick={() => setTemplateKey(t.key)}
@@ -236,7 +251,8 @@ export default function ReportPage() {
                   >
                     {t.emoji} {t.label}
                   </button>
-                ))}
+                  );
+                })}
               </div>
               <div className="text-[13px] text-fg-muted mt-1.5">
                 {template.description}

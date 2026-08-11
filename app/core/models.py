@@ -245,7 +245,6 @@ class TaskUpdate(CockpitModel):
     status: Optional[TaskStatus] = None
     due: Optional[date] = None
     blocked: Optional[bool] = None
-    draft: Optional[bool] = None
     checklist: Optional[list[str]] = None
 
 
@@ -254,7 +253,6 @@ class Task(TaskBase):
     id: str = Field(default_factory=lambda: _new_id("task"))
     project: str = Field(..., description="项目 ID")
     status: TaskStatus = Field(default=TaskStatus.NOT_STARTED)
-    draft: bool = Field(default=False, description="待用户确认（默认 False，新任务直接进 todo）")
     created_at: DateField
     completed_at: Optional[date] = None
     # 2026-07-30: 拖动排序字段。间隔 10 存, 跟 Project 同款策略。
@@ -290,7 +288,6 @@ class Achievement(AchievementBase):
     project_id: str
     project: str = Field(..., description="项目名称快照")
     title: str = Field(..., description="任务标题快照")
-    tags: List[str] = Field(default_factory=list)
     # 2026-08-01: LLM 主动追问 (任务完成时根据任务类型生成, 用户可在 follow-up 页补全)
     # 旧 achievement 默认 [] (后端 ORM 有 default 兜底)
     follow_up_questions: List[str] = Field(default_factory=list)

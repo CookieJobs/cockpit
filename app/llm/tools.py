@@ -73,28 +73,12 @@ async def tool_update_project(
 
 
 async def tool_delete_project(id: str) -> dict:
-    """删除项目及其下所有任务（级联）。
-
-    **重要安全**：这是不可逆操作 — 项目和其下所有任务都会被永久删除。
-    调用前应 list_projects 确认 id，且建议先告知用户：「将删除项目 X 及其下 N 个任务，确认吗？」。
-
-    如果用户说"这个项目不需要了"/"删掉 X"/"移除 X 项目" → 先 list_projects
-    找到 id → **二次确认用户**（对话反问 "确认删除项目 X 吗？"）→ 用户说"是"/"删"/"确认" → 才调本工具。
-    """
+    """安全地归档项目；永久删除只能从高级设置的强确认流程完成。"""
     proj = await storage.get_project(id)
     if not proj:
         return {"error": f"Project {id} not found"}
-    name = proj.name
-    # 统计任务数（给用户看删除影响）
-    tasks = await storage.list_tasks(project_id=id)
-    ok = await storage.delete_project(id)
-    if not ok:
-        return {"error": f"Failed to delete project {id}"}
-    return {
-        "ok": True,
-        "deleted_project": name,
-        "deleted_task_count": len(tasks),
-    }
+    archived = await storage.update_project(id, ProjectUpdate(archived=True))
+    return {"ok": bool(archived), "archived_project": proj.name}
 
 
 async def tool_list_tasks(project: str | None = None) -> list[dict]:
@@ -151,7 +135,6 @@ async def tool_update_task(
     due: str | None | object = _DUE_UNSET,
     blocked: bool | None = None,
     status: str | None = None,
-    draft: bool | None = None,
 ) -> dict:
     """更新任务字段。
 
@@ -186,8 +169,6 @@ async def tool_update_task(
             return {"error": f"Invalid status: {status}"}
     if blocked is not None:
         kwargs["blocked"] = blocked
-    if draft is not None:
-        kwargs["draft"] = draft
     # due 单独处理: 用 sentinel `_DUE_UNSET` 区分"未传" vs "传了 None"
     # 默认值是 _DUE_UNSET, LLM 没传 due 就走默认值 → 跳过这个 if, kwargs 不含 due
     # LLM 显式传 None → due is not _DUE_UNSET → kwargs["due"] = None → storage 清空
@@ -205,12 +186,6 @@ async def tool_delete_task(id: str) -> dict:
     """删除任务。"""
     ok = await storage.delete_task(id)
     return {"ok": ok, "id": id}
-
-
-async def tool_confirm_drafts() -> dict:
-    """确认所有草稿任务。"""
-    count = await storage.confirm_all_drafts()
-    return {"confirmed": count}
 
 
 async def tool_complete_task(
@@ -358,16 +333,16 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "delete_project",
         "description": (
-            "删除项目及其下所有任务（**不可逆**）。\n\n"
+            "安全归档项目；永久删除只能在高级设置中完成。\n\n"
             "**主动调用场景**（听到这些意图时立即用）：\n"
             "- 「删掉 X 项目」 / 「移除 X 项目」 / 「项目 X 不需要了」 / 「X 项目删了吧」\n"
-            "- 「清空 X 项目下的所有任务」 → 删项目比逐个删任务更彻底\n\n"
+            "- 用户坚持永久删除时，说明高级设置会先显示影响、要求精确名称并创建本地备份\n\n"
             "**强制安全流程**：\n"
             "1. 先 `list_projects` 找到目标项目 id\n"
-            "2. **对话里反问用户**：「将删除项目 X 及其下 N 个任务，确认吗？」\n"
-            "3. 用户明确说「是」/「确认」/「删」**之后**才调本工具\n"
-            "4. 返回 `{ok, deleted_project, deleted_task_count}` 告诉用户结果\n\n"
-            "**绝不要**用户只说「删」一次就立刻执行 — 删除是不可逆的，必须二次确认。"
+            "2. **对话里反问用户**：「将归档项目 X，确认吗？」\n"
+            "3. 用户明确说「是」/「确认」后才调本工具\n"
+            "4. 返回归档结果；永久删除不在此工具执行\n\n"
+            "**绝不要**用户只说「删」一次就立刻执行。"
         ),
         "input_schema": {
             "type": "object",
@@ -433,7 +408,6 @@ TOOLS: list[dict[str, Any]] = [
                 "status": {"type": "string", "enum": ["未开始", "进行中", "已完成"]},
                 "due": {"type": "string", "description": "YYYY-MM-DD 或 null 清除"},
                 "blocked": {"type": "boolean"},
-                "draft": {"type": "boolean", "description": "true=待确认 false=已确认"},
             },
             "required": ["id"],
         },
@@ -446,11 +420,6 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {"id": {"type": "string", "description": "任务 ID"}},
             "required": ["id"],
         },
-    },
-    {
-        "name": "confirm_drafts",
-        "description": "确认所有 draft 状态的任务，让它们进入 focus 排序。",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
     },
     {
         "name": "complete_task",
@@ -532,7 +501,6 @@ TOOL_HANDLERS: dict[str, Callable[..., Awaitable[Any]]] = {
     "add_task": tool_add_task,
     "update_task": tool_update_task,
     "delete_task": tool_delete_task,
-    "confirm_drafts": tool_confirm_drafts,
     "complete_task": tool_complete_task,
     "undo_completion": tool_undo_completion,
     "list_achievements": tool_list_achievements,

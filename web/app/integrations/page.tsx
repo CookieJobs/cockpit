@@ -39,7 +39,6 @@ export default function IntegrationsPage() {
   const { data, isLoading, mutate } = useSWR<IntegrationsResponse>(
     "/api/integrations/supported",
     () => api.listSupportedIntegrations(),
-    { refreshInterval: 30000 },
   );
   const toast = useToast();
 

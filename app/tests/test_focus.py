@@ -9,7 +9,7 @@ def _make_task(id: str, **kwargs) -> Task:
     defaults = dict(
         id=id, project="proj_1", title=f"task-{id}",
         status=TaskStatus.NOT_STARTED, priority=Priority.P2,
-        due=None, blocked=False, draft=False, created_at=date.today(),
+        due=None, blocked=False, created_at=date.today(),
         completed_at=None, checklist=[],
     )
     defaults.update(kwargs)
@@ -29,14 +29,14 @@ def test_sort_focus_priority():
     assert [t.id for t in sorted_tasks] == ["high", "p1", "medium", "low"]
 
 
-def test_sort_focus_excludes_drafts():
-    """草稿不进 focus。"""
+def test_sort_focus_keeps_all_unfinished_tasks():
+    """Focus 不再按已废弃的草稿状态过滤任务。"""
     tasks = [
-        _make_task("a", draft=True),
-        _make_task("b", draft=False),
+        _make_task("a"),
+        _make_task("b"),
     ]
     sorted_tasks = sort_focus(tasks)
-    assert [t.id for t in sorted_tasks] == ["b"]
+    assert [t.id for t in sorted_tasks] == ["a", "b"]
 
 
 def test_sort_focus_blocked_last():

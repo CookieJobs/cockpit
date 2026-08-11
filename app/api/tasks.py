@@ -21,7 +21,7 @@ async def list_tasks(project: Optional[str] = Query(None, description="按项目
 
 @router.post("")
 async def create_task(data: TaskCreate):
-    """创建任务（草稿状态）。"""
+    """创建任务。"""
     try:
         task = await storage.add_task(data)
     except ValueError as e:
@@ -39,13 +39,6 @@ async def reorder_tasks(data: TaskReorderRequest):
     items = [it.model_dump() for it in data.items]
     updated = await storage.reorder_tasks(items)
     return {"updated": updated}
-
-
-@router.post("/confirm-drafts")
-async def confirm_drafts():
-    """确认所有草稿任务。"""
-    count = await storage.confirm_all_drafts()
-    return {"confirmed": count}
 
 
 @router.get("/{tid}")

@@ -1,10 +1,9 @@
 """Cockpit Focus 排序逻辑。
 
-继承自 task-cockpit skill 的排序规则：
-1. draft 任务不进入 focus
-2. blocked 任务排在非 blocked 后面
-3. priority rank 升序（P0=0, P1=1, P2=2, P3=3）
-4. due 升序，无 due 用 "9999-99-99" 占位
+排序规则：
+1. blocked 任务排在非 blocked 后面
+2. priority rank 升序（P0=0, P1=1, P2=2, P3=3）
+3. due 升序，无 due 用 "9999-99-99" 占位
 """
 from __future__ import annotations
 
@@ -28,9 +27,8 @@ def _focus_key(task: "Task") -> tuple[int, int, str]:
 
 
 def sort_focus(tasks: list["Task"]) -> list["Task"]:
-    """按 focus 规则排序任务列表（draft 排除）。"""
-    non_draft = [t for t in tasks if not t.draft]
-    return sorted(non_draft, key=_focus_key)
+    """按 focus 规则排序所有未完成任务。"""
+    return sorted(tasks, key=_focus_key)
 
 
 def take_focus(tasks: list["Task"], limit: int = 5) -> list["Task"]:

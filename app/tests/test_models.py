@@ -51,10 +51,9 @@ def test_task_create_requires_project():
         TaskCreate(title="x")  # type: ignore[call-arg]
 
 
-def test_task_default_draft_false():
-    """新任务默认 draft=False（直接进 todo，无需确认）。"""
+def test_task_defaults():
+    """新任务直接进入未开始状态。"""
     t = Task(project="proj_xxx", title="x")
-    assert t.draft is False
     assert t.status == TaskStatus.NOT_STARTED
     assert t.priority == Priority.P2
     assert t.blocked is False

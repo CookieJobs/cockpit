@@ -101,7 +101,6 @@ export interface Task {
   priority: Priority;
   due: string | null;
   blocked: boolean;
-  draft: boolean;
   created_at: string;
   completed_at: string | null;
   checklist: ChecklistItem[];
@@ -120,7 +119,6 @@ export interface Achievement {
   reflection: string;
   cv: string;
   cv_status: CVStatus;
-  tags: string[];
   // 2026-08-01: LLM 主动追问 (任务完成时根据任务类型生成), 旧 achievement 默认 []
   follow_up_questions: string[];
   // 2026-08-01: 用户对每条追问的答案 {q_idx: answer_str}, 补全后 cv_status 升级 ready
@@ -339,8 +337,6 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  confirmDrafts: () =>
-    request<{ confirmed: number }>("/api/tasks/confirm-drafts", { method: "POST" }),
 
   updateTask: (id: string, data: Partial<Task>) =>
     request<Task>(`/api/tasks/${id}`, {
@@ -423,17 +419,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ task_title: taskTitle, outcome }),
       signal: options?.signal,
-    }),
-
-  // 2026-08-01 立: PR 描述生成 — 从 ready 成就生成 4 段 markdown
-  generatePr: (data: {
-    project_name: string;
-    achievements: Array<{ title: string; cv?: string; outcome?: string }>;
-    template_kind: "PR_Feature" | "PR_Bugfix" | "PR_Refactor";
-  }) =>
-    request<{ markdown: string; polished: boolean }>("/api/llm/generate_pr", {
-      method: "POST",
-      body: JSON.stringify(data),
     }),
 
   updateAchievement: (id: string, data: { cv?: string }) =>
