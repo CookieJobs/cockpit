@@ -198,6 +198,33 @@ for (const treatment of NESTED_ROLE_TREATMENTS) {
     container !== null && SOFT_TONE_OPACITIES[treatment.role].includes(Number(container[1])),
     container?.[1] ?? "no matching role container");
 }
+
+// The achievement flash has an intentional parent accent surface. Its small
+// +1 badge must not add a second accent fill: that compound surface is too dark
+// for 10px accent text in dark mode. Model a missing badge fill as 0% so this
+// stays a composited-behaviour check after the UI adopts a border-only badge.
+const spotlightSource = readFileSync("components/MainBoard.tsx", "utf8");
+const spotlightStart = spotlightSource.indexOf('data-testid="achievement-spotlight"');
+const spotlightScope = spotlightSource.slice(spotlightStart);
+const spotlightParent = spotlightScope.match(/readyFlash\s*\?\s*"bg-accent\/(\d+)/);
+const flashMarker = spotlightSource.indexOf('data-testid="achievement-spotlight-flash"');
+const flashTag = spotlightSource.slice(spotlightSource.lastIndexOf("<span", flashMarker), flashMarker);
+const flashBadge = flashTag.match(/bg-accent\/(\d+)/);
+const spotlightParentOpacity = Number(spotlightParent?.[1] ?? 0) / 100;
+const flashBadgeOpacity = Number(flashBadge?.[1] ?? 0) / 100;
+check("achievement flash parent opacity is approved",
+  spotlightParent !== null && SOFT_TONE_OPACITIES.interaction.includes(spotlightParentOpacity * 100),
+  spotlightParent?.[1] ?? "no parent accent surface");
+check("achievement flash badge adds no second accent fill", flashBadge === null, flashBadge?.[1] ?? "transparent");
+for (const [label, scope] of [["light", ":root"], ["dark", ".dark"]]) {
+  const base = readRgbToken(scope, "bg-secondary");
+  const accent = readRgbToken(scope, "accent");
+  const parentSurface = base && accent ? blend(accent, base, spotlightParentOpacity) : null;
+  const badgeSurface = parentSurface && accent ? blend(accent, parentSurface, flashBadgeOpacity) : null;
+  const ratio = badgeSurface && accent ? contrastRatio(accent, badgeSurface) : 0;
+  check(`${label} achievement flash badge text reaches AA after nested composition`,
+    Boolean(base && accent && parentSurface && badgeSurface) && ratio >= 4.5, ratio.toFixed(2));
+}
 for (const [label, scope] of [["light", ":root"], ["dark", ".dark"]]) {
   const surface = readRgbToken(scope, "bg");
   for (const role of ["interaction", "asset", "warning"]) {

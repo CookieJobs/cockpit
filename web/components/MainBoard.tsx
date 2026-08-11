@@ -255,7 +255,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
               <span className="text-[12px] text-fg-secondary">条已沉淀成就</span>
               {readyFlash && (
                 <span
-                  className="text-[10px] text-accent font-medium px-1.5 py-0.5 rounded bg-accent/10 animate-pulse"
+                  className="text-[10px] text-accent font-medium px-1.5 py-0.5 rounded border border-accent/40 animate-pulse"
                   data-testid="achievement-spotlight-flash"
                 >
                   +1
