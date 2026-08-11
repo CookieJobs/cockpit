@@ -44,13 +44,14 @@ def test_toast_provider_mounted_in_root_layout():
     assert "<ToastProvider>" in src, "ToastProvider 必须包裹 children"
 
 
-def test_toast_has_achievement_count_message_in_mainboard():
-    """MainBoard 完成入口必须弹 toast, 文案带成就数 + 跳转链接。"""
+def test_toast_uses_persisted_achievement_status_in_mainboard():
+    """完成 toast 必须来自实际落库状态，不能乐观增加 ready 计数。"""
     src = read(MAINBOARD_TSX)
     # 1. 调 toast.success
     assert "toast.success" in src, "MainBoard 完成路径必须调 toast.success 庆祝"
-    # 2. 文案必须包含成就数
-    assert "achievementsReady" in src, "toast 文案必须带 achievementsReady 计数 (让用户看见累计)"
+    # 2. 分支必须读取 API 返回的真实状态
+    assert "achievement.cv_status" in src
+    assert "achievementsReady ?? 0) + 1" not in src
     # 3. 必须有跳转 action
     assert "router.push(\"/achievements\")" in src, "toast 必须有跳转到 /achievements 的 action"
 
@@ -88,11 +89,8 @@ def test_toast_max_concurrent_limit():
 # ===== 双向对称性: MainBoard 自己的 toast 文案必须包含关键 token =====
 
 
-def test_toast_message_contains_key_tokens():
-    """MainBoard 完成 toast 文案必须包含关键 token (🎉 + ready + 跳转 /achievements)。"""
+def test_toast_message_contains_all_persisted_state_outcomes():
+    """三种实际保存结果均有用户可理解的反馈。"""
     mb_src = read(MAINBOARD_TSX)
-    mb_match = re.search(r"toast\.success\(\s*`([^`]+)`", mb_src)
-    assert mb_match, "MainBoard toast.success 文案缺失"
-    msg = mb_match.group(1)
-    assert "🎉" in msg, "toast 文案必须含 🎉 (庆祝信号)"
-    assert "ready" in msg, "toast 文案必须含 ready (成就状态)"
+    for message in ["已沉淀，可直接使用", "已保存，待补证据", "已暂存草稿"]:
+        assert message in mb_src

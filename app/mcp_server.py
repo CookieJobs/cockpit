@@ -129,6 +129,10 @@ async def _handle_list_tools(ctx=None, params=None):
                         "enum": ["ready", "needs_data", "pending"],
                         "description": "成就状态 (默认 ready)",
                     },
+                    "confirmed_cv": {
+                        "type": "boolean",
+                        "description": "用户已经确认最终 CV；未确认时不会进入正式输出。",
+                    },
                 },
                 "required": ["task_id", "outcome", "cv"],
             },
@@ -178,6 +182,7 @@ async def _handle_call_tool(ctx=None, params=None):
                 cv=arguments["cv"],
                 reflection=arguments.get("reflection", ""),
                 cv_status=arguments.get("cv_status", "ready"),
+                confirmed_cv=arguments.get("confirmed_cv", False),
             )
         elif name == "list_achievements":
             result = await _list_achievements(
@@ -292,6 +297,7 @@ async def _complete_task(
     cv: str,
     reflection: str = "",
     cv_status: str = "ready",
+    confirmed_cv: bool = False,
 ) -> dict[str, Any]:
     """完成任务. outcome 是必填 (用户描述的结果), cv 是 AI/用户写的成就陈述.
 
@@ -307,6 +313,7 @@ async def _complete_task(
         cv=cv,
         reflection=reflection,
         cv_status=CVStatus(cv_status),
+        confirmed_cv=confirmed_cv,
     )
     if achievement is None:
         return {"error": f"Task {task_id} not found"}
@@ -318,6 +325,7 @@ async def _complete_task(
         "title": achievement.title,
         "cv": achievement.cv,
         "cv_status": achievement.cv_status.value if isinstance(achievement.cv_status, CVStatus) else achievement.cv_status,
+        "unmet_reasons": achievement.unmet_reasons,
     }
 
 

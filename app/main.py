@@ -53,7 +53,18 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "version": "0.1.0", "name": "Cockpit"}
+    recovery = settings.data_recovery_state()
+    return {
+        "status": "ok",
+        "version": "0.1.0",
+        "name": "Cockpit",
+        "data_recovery": None if recovery is None else {
+            "kind": recovery.kind,
+            "message": recovery.message,
+            "target": str(recovery.target),
+            "misplaced": str(recovery.misplaced),
+        },
+    }
 
 
 # 注册路由

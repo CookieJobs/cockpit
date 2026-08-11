@@ -297,6 +297,8 @@ class Achievement(AchievementBase):
     # 2026-08-01: 用户对每条追问的答案 (dict[q_idx, answer_str]), 补全后 cv_status 升级 ready
     follow_up_answers: dict = Field(default_factory=dict)
     distillation_trace_id: Optional[str] = None
+    # 由 storage readiness 边界实时推导，不作为用户可写状态持久化。
+    unmet_reasons: List[str] = Field(default_factory=list)
 
 
 # ===== Reorder（2026-07-30 立）=====

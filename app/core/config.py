@@ -4,11 +4,110 @@
 """
 from __future__ import annotations
 
+import hashlib
+import os
+import shutil
+import sqlite3
+import uuid
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, PrivateAttr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+@dataclass(frozen=True)
+class DataRecoveryState:
+    """Outcome of checking the legacy relative Cockpit database location."""
+
+    kind: Literal["absent", "existing", "migrated", "already_migrated", "conflict", "failed"]
+    target: Path
+    misplaced: Path
+    message: str = ""
+
+
+class DataRecoveryRequired(RuntimeError):
+    """Raised before an empty database can mask a recoverable data conflict."""
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verify_sqlite_database(path: Path) -> None:
+    """Ensure a copied SQLite database is readable and internally consistent."""
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        result = connection.execute("PRAGMA integrity_check").fetchone()
+    finally:
+        connection.close()
+    if result != ("ok",):
+        raise sqlite3.DatabaseError(f"SQLite integrity check failed for {path}: {result}")
+
+
+def migrate_misplaced_database(*, cwd: Path, target: Path) -> DataRecoveryState:
+    """Recover the historical ``<cwd>/~/.cockpit/cockpit.db`` without data loss."""
+    target = target.expanduser().resolve()
+    misplaced = (cwd.resolve() / "~" / ".cockpit" / "cockpit.db").resolve()
+
+    if not misplaced.exists():
+        return DataRecoveryState(
+            kind="existing" if target.exists() else "absent",
+            target=target,
+            misplaced=misplaced,
+        )
+
+    try:
+        _verify_sqlite_database(misplaced)
+        if target.exists():
+            _verify_sqlite_database(target)
+            if _sha256(misplaced) == _sha256(target):
+                return DataRecoveryState(
+                    kind="already_migrated",
+                    target=target,
+                    misplaced=misplaced,
+                    message="已发现与正确数据目录一致的历史副本，继续使用正确位置。",
+                )
+            return DataRecoveryState(
+                kind="conflict",
+                target=target,
+                misplaced=misplaced,
+                message="发现两份内容不同的 Cockpit 数据库；已暂停写入，请在设置中选择主库。",
+            )
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            shutil.copy2(misplaced, temporary)
+            if _sha256(misplaced) != _sha256(temporary):
+                raise OSError("copied database checksum does not match source")
+            _verify_sqlite_database(temporary)
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        backup = misplaced.with_name(f"{misplaced.name}.migrated-{timestamp}-{uuid.uuid4().hex[:8]}.bak")
+        shutil.copy2(misplaced, backup)
+        return DataRecoveryState(
+            kind="migrated",
+            target=target,
+            misplaced=misplaced,
+            message=f"已安全复制历史数据到 {target}，原位置和备份均已保留。",
+        )
+    except (OSError, sqlite3.Error) as error:
+        return DataRecoveryState(
+            kind="failed",
+            target=target,
+            misplaced=misplaced,
+            message=f"无法迁移历史 Cockpit 数据库：{error}",
+        )
 
 
 class Settings(BaseSettings):
@@ -96,6 +195,16 @@ class Settings(BaseSettings):
         alias="COCKPIT_CORS_ORIGINS",
     )
 
+    _data_recovery_state: DataRecoveryState | None = PrivateAttr(default=None)
+
+    def resolved_data_dir(self) -> Path:
+        """Return the one expanded, absolute directory used by Cockpit data paths."""
+        return self.cockpit_data_dir.expanduser().resolve()
+
+    def data_recovery_state(self) -> DataRecoveryState | None:
+        """Return the latest startup recovery result for diagnostics and API guards."""
+        return self._data_recovery_state
+
     def get_database_url(self) -> str:
         """获取异步数据库 URL（默认 SQLite via aiosqlite）。
 
@@ -104,10 +213,16 @@ class Settings(BaseSettings):
         """
         if self.database_url:
             return self.database_url
+        data_dir = self.resolved_data_dir()
         # 确保数据目录存在
-        self.cockpit_data_dir.mkdir(parents=True, exist_ok=True)
+        data_dir.mkdir(parents=True, exist_ok=True)
         # 默认 DB 文件名 cockpit.db
-        new_db = self.cockpit_data_dir / "cockpit.db"
+        new_db = data_dir / "cockpit.db"
+        self._data_recovery_state = migrate_misplaced_database(cwd=Path.cwd(), target=new_db)
+        if self._data_recovery_state.kind in {"conflict", "failed"}:
+            # Keep the existing target readable for recovery diagnostics.  The
+            # shared storage write guard rejects mutations before commit.
+            return f"sqlite+aiosqlite:///{new_db}"
         # 自动迁移老数据
         self._migrate_legacy_data(new_db)
         return f"sqlite+aiosqlite:///{new_db}"

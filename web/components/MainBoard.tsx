@@ -29,6 +29,7 @@ import { CompleteTaskModal } from "./CompleteTaskModal";
 import { ThemeToggle } from "./ThemeToggle";
 import { FollowUpReminder } from "./FollowUpReminder";
 import { OnboardingTooltip } from "./OnboardingTooltip";
+import { DataState } from "./DataState";
 import { usePopover, usePopoverPosition } from "./Popover";
 import { useToast } from "./Toast";
 import Link from "next/link";
@@ -38,7 +39,7 @@ import { getVisualTone } from "@/lib/visual-system";
 const CHAT_COLLAPSED_KEY = "cockpit_chat_collapsed";
 
 export function MainBoard({ refreshKey }: { refreshKey: number }) {
-  const { data: snapshot, mutate: refreshSnapshot } = useSWR<Snapshot>(
+  const { data: snapshot, error: snapshotError, isLoading: snapshotLoading, mutate: refreshSnapshot } = useSWR<Snapshot>(
     "/api/snapshot",
     () => api.getSnapshot()
   );
@@ -142,6 +143,10 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
     }
     prevReadyCountRef.current = readyCount;
   }, [readyCount]);
+
+  if (snapshotLoading || snapshotError) {
+    return <DataState loading={snapshotLoading} error={snapshotError} onRetry={() => refreshSnapshot()} />;
+  }
 
   return (
     <div className="flex h-screen bg-bg">
@@ -343,16 +348,17 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
           task={completingTask}
           onClose={() => setCompletingTask(null)}
           onSave={async (data) => {
-            await api.completeTask(completingTask.id, data);
+            const achievement = await api.completeTask(completingTask.id, data);
             setCompletingTask(null);
-            // 庆祝 toast: 告知用户沉淀成功 + 跳转到成就库入口 (D 项)
-            const readyAfter = (snapshot?.counts.achievementsReady ?? 0) + 1;
-            toast.success(
-              `🎉 已沉淀 · 成就库累计 ${readyAfter} 个 ready`,
-              "查看成就库",
-              () => router.push("/achievements"),
-            );
+            if (achievement.cv_status === "ready") {
+              toast.success("已沉淀，可直接使用", "查看成就库", () => router.push("/achievements"));
+            } else if (achievement.cv_status === "pending") {
+              toast.info("已暂存草稿", "查看成就库", () => router.push("/achievements"));
+            } else {
+              toast.warning("已保存，待补证据", "查看成就库", () => router.push("/achievements"));
+            }
             refresh();
+            return achievement;
           }}
         />
       )}

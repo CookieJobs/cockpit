@@ -38,6 +38,8 @@ async def test_polish_cv_no_llm_client_returns_fallback(client: TestClient):
     body = res.json()
     assert body["polished"] is False
     assert body["cv"] == "完成「修复登录 bug」"
+    assert body["trace_id"]
+    assert body["guardrail_results"]
 
 
 @pytest.mark.asyncio

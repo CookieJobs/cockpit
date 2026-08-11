@@ -54,7 +54,7 @@ async def test_api_list_achievements_filter_by_cv_status(client: TestClient):
     ]:
         client.post(
             f"/api/tasks/{tid}/complete",
-            json={"outcome": outcome, "cv": cv, "cv_status": status},
+            json={"outcome": outcome, "cv": cv, "cv_status": status, "confirmed_cv": status == "ready"},
         )
 
     # 三个状态分别过滤

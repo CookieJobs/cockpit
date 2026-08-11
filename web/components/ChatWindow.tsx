@@ -14,16 +14,11 @@ import {
   MessageSquare,
   X,
   Eraser,
-  Eye,
-  EyeOff,
-  Brain,
   ChevronDown,
-  ChevronUp,
   PanelRightClose,
 } from "lucide-react";
 
 const SESSION_STORAGE_KEY = "cockpit_session_id";
-const SHOW_COT_STORAGE_KEY = "cockpit_show_cot";
 
 // ChatMessage 是 useChatStream hook 用的类型；这里留个 Message 别名兼容
 // 现有 UI 组件（AgentMessage 等）的 type 引用, 避免大改
@@ -118,19 +113,6 @@ function genSessionId(): string {
   return "sess-" + crypto.randomUUID();
 }
 
-// CoT 开关：纯前端状态（localStorage），不持久化到 db。
-// 默认 false（隐藏 CoT）。打开后会在 agent 消息下方渲染可折叠的
-// 思维链块（仅本轮 session 流式时有数据，历史消息不存 CoT）。
-function getShowCot(): boolean {
-  if (typeof window === "undefined") return false;
-  return localStorage.getItem(SHOW_COT_STORAGE_KEY) === "true";
-}
-
-function setShowCot(v: boolean): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(SHOW_COT_STORAGE_KEY, v ? "true" : "false");
-}
-
 // 把后端 ChatHistoryMessage 转成 UI Message
 function historyToUI(msgs: ChatHistoryMessage[]): Message[] {
   return msgs.map((m) => ({
@@ -214,7 +196,6 @@ export function ChatWindow({
     window.addEventListener("cockpit:focus-chat", handler);
     return () => window.removeEventListener("cockpit:focus-chat", handler);
   }, []);
-  const [showCot, setShowCotState] = useState<boolean>(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // 流式状态由 hook 拥有（2026-07-20 立 useChatStream）
@@ -225,19 +206,6 @@ export function ChatWindow({
       if (onAction) onAction();
     },
   });
-
-  // 初始化 CoT 开关（localStorage → state）
-  useEffect(() => {
-    setShowCotState(getShowCot());
-  }, []);
-
-  const toggleShowCot = useCallback(() => {
-    setShowCotState((v) => {
-      const next = !v;
-      setShowCot(next);
-      return next;
-    });
-  }, []);
 
   // 自动滚到底部
   useEffect(() => {
@@ -399,18 +367,6 @@ export function ChatWindow({
         </div>
         <div className="flex items-center gap-1">
           <button
-            onClick={toggleShowCot}
-            className={`text-xs px-2 py-1 border border-border rounded transition flex items-center gap-1 ${
-              showCot
-                ? "bg-accent/10 text-accent border-accent/40"
-                : "bg-bg-secondary text-fg-secondary hover:border-border-hover hover:text-fg"
-            }`}
-            title={showCot ? "隐藏 AI 思维链" : "显示 AI 思维链"}
-          >
-            {showCot ? <Eye size={11} /> : <EyeOff size={11} />}
-            CoT
-          </button>
-          <button
             onClick={startNewSession}
             className="text-xs px-2 py-1 bg-bg-secondary border border-border rounded text-fg-secondary hover:border-border-hover hover:text-fg transition flex items-center gap-1"
             title="开始新对话"
@@ -476,7 +432,6 @@ export function ChatWindow({
                 {m.role === "agent" ? (
                   <AgentMessageContent
                     message={m}
-                    showCot={showCot}
                   />
                 ) : (
                   <div className="text-sm whitespace-pre-wrap">{m.content}</div>
@@ -665,14 +620,11 @@ function formatRelativeTime(iso: string): string {
  *   交错），流式期间最后一个 text 段末尾带闪烁光标
  * - 老消息（无 events 字段，回退到 content + toolCalls 分离格式）：
  *   tool 列表在上 + text 一次性 markdown 渲染
- * - CoT 折叠块：仅 showCot && cotBlocks.length > 0 时显示
  */
 function AgentMessageContent({
   message,
-  showCot,
 }: {
   message: Message;
-  showCot: boolean;
 }) {
   const hasEvents = message.events && message.events.length > 0;
 
@@ -681,8 +633,6 @@ function AgentMessageContent({
       <EventsView
         events={message.events!}
         streaming={!!message.streaming}
-        showCot={showCot}
-        cotBlocks={message.cotBlocks}
       />
     );
   }
@@ -710,9 +660,6 @@ function AgentMessageContent({
         </div>
       )}
       <MarkdownView content={text} />
-      {showCot && message.cotBlocks && message.cotBlocks.length > 0 && (
-        <CotBlock blocks={message.cotBlocks} />
-      )}
     </div>
   );
 }
@@ -726,13 +673,9 @@ function AgentMessageContent({
 function EventsView({
   events,
   streaming,
-  showCot,
-  cotBlocks,
 }: {
   events: AgentEventItem[];
   streaming: boolean;
-  showCot: boolean;
-  cotBlocks?: string[];
 }) {
   if (events.length === 0) {
     return (
@@ -765,47 +708,6 @@ function EventsView({
         // tool 块
         return <ToolCallCard key={`tool-${e.tc.id}`} tc={e.tc} />;
       })}
-      {showCot && cotBlocks && cotBlocks.length > 0 && (
-        <CotBlock blocks={cotBlocks} />
-      )}
-    </div>
-  );
-}
-
-/**
- * CoT 折叠块：默认折叠，点击 header 展开。带 Brain 图标。
- * 每个 think 块（`<think>...</think>`）独立一个折叠区。
- */
-function CotBlock({ blocks }: { blocks: string[] }) {
-  const [expanded, setExpanded] = useState(false);
-  // 内部把 think 标签剥掉再展示（标签本身是结构标记）
-  const cleaned = blocks.map((b) => b.replace(/^<think>\s*/i, "").replace(/\s*<\/think>\s*$/i, ""));
-  return (
-    <div className="rounded-md border border-border/50 bg-bg-tertiary/40 overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] text-fg-muted hover:text-fg-secondary hover:bg-bg-tertiary/60 transition text-left"
-      >
-        <Brain size={11} className="shrink-0" />
-        <span>AI 思维链</span>
-        <span className="text-fg-muted/60">({blocks.length} 块)</span>
-        <span className="ml-auto">
-          {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-        </span>
-      </button>
-      {expanded && (
-        <div className="border-t border-border/40 px-2.5 py-2 space-y-2">
-          {cleaned.map((text, i) => (
-            <pre
-              key={i}
-              className="text-[11px] text-fg-muted whitespace-pre-wrap break-words leading-relaxed italic"
-            >
-              {text}
-            </pre>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

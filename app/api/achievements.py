@@ -3,7 +3,7 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core import storage
 from app.core.models import AchievementUpdate, CVStatus
@@ -19,6 +19,14 @@ class AnswerFollowUpsRequest(BaseModel):
       (JSON 对象 key 必须是 string)
     """
     answers: dict[str, str]
+
+
+class ResolveAchievementRequest(BaseModel):
+    """Confirmed follow-up resolution; answers remain structured for audit."""
+
+    answers: dict[str, str]
+    cv: str = Field(min_length=1, max_length=2000)
+    distillation_trace_id: str | None = None
 
 
 @router.get("")
@@ -42,6 +50,20 @@ async def list_achievements(
 async def update_achievement(aid: str, data: AchievementUpdate):
     """更新成就（只允许更新 cv / cvStatus，符合 append-only 原则）。"""
     achievement = await storage.update_achievement_cv(aid, data)
+    if not achievement:
+        raise HTTPException(404, "Achievement not found")
+    return achievement.model_dump(mode="json")
+
+
+@router.post("/{aid}/resolve")
+async def resolve_achievement(aid: str, data: ResolveAchievementRequest):
+    """Persist answers and a user-confirmed regenerated CV in one transaction."""
+    achievement = await storage.resolve_achievement(
+        aid,
+        answers={str(key): value for key, value in data.answers.items()},
+        cv=data.cv,
+        distillation_trace_id=data.distillation_trace_id,
+    )
     if not achievement:
         raise HTTPException(404, "Achievement not found")
     return achievement.model_dump(mode="json")

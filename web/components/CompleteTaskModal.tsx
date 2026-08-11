@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { X, Sparkles, Check, ChevronDown, Loader2, AlertCircle, MessageCircleQuestion, Plus, RotateCcw } from "lucide-react";
-import type { Task, CVStatus } from "@/lib/api";
+import { X, Sparkles, Check, ChevronDown, Loader2, AlertCircle, MessageCircleQuestion, RotateCcw } from "lucide-react";
+import type { Task, Achievement, CVStatus } from "@/lib/api";
 import { api } from "@/lib/api";
 import { classifyTaskTitle, getGuidance, type TaskCategory } from "@/lib/taskGuidance";
 
@@ -45,8 +45,10 @@ export function CompleteTaskModal({
     cv_status: CVStatus;
     // 2026-08-01: LLM 主动追问 (polish 拿到的), 落库到 follow_up_questions
     follow_up_questions?: string[];
+    follow_up_answers?: Record<string, string>;
     distillation_trace_id?: string;
-  }) => Promise<void>;
+    confirmed_cv?: boolean;
+  }) => Promise<Achievement>;
 }) {
   // 任务分类 + 引导文案 (按 task.title 静态决定, 弹窗打开一次后不变)
   const taskCategory: TaskCategory = useMemo(
@@ -66,10 +68,10 @@ export function CompleteTaskModal({
   const [polishError, setPolishError] = useState<string | null>(null);
   // LLM 主动追问 (2026-07-30 立): 信息不够具体时, LLM 返 1-2 个 follow_up_questions
   const [followUpQuestions, setFollowUpQuestions] = useState<string[]>([]);
+  const [followUpAnswers, setFollowUpAnswers] = useState<Record<string, string>>({});
   const [distillationTraceId, setDistillationTraceId] = useState<string | undefined>();
-  // outcome 框高亮 (2026-07-30 立, v4.1): 追问 chip 追加后让 outcome 框闪一下, 用户知道追加到了
-  const [outcomeHighlight, setOutcomeHighlight] = useState(false);
   const outcomeRef = useRef<HTMLTextAreaElement>(null);
+  const suggestionRequestId = useRef(0);
 
   // 打开时焦点 outcome
   useEffect(() => {
@@ -95,25 +97,34 @@ export function CompleteTaskModal({
   const [suggestionDismissed, setSuggestionDismissed] = useState(false);
 
   useEffect(() => {
+    const requestId = ++suggestionRequestId.current;
     const o = outcome.trim();
     if (o.length < 30 || suggestionDismissed || polishing) {
       return;
     }
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
         setAutoPolishing(true);
-        const res = await api.polishCv(task.title, o);
+        const res = await api.polishCv(task.title, o, { signal: controller.signal });
+        if (requestId !== suggestionRequestId.current) return;
         if (res.polished && res.cv && res.cv !== cv) {
           setAutoSuggestedCv(res.cv);
+          setFollowUpQuestions(res.follow_up_questions ?? []);
+          setFollowUpAnswers({});
           setDistillationTraceId(res.trace_id);
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
         // 静默失败 — 手动润色按钮有 toast 提示
       } finally {
-        setAutoPolishing(false);
+        if (requestId === suggestionRequestId.current) setAutoPolishing(false);
       }
     }, 1500);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [outcome, task.title, suggestionDismissed, polishing, cv]);
 
   const acceptSuggestion = () => {
@@ -138,16 +149,15 @@ export function CompleteTaskModal({
     if (!c) return; // 理论上不会触发 (cv 有默认值), 留个保险
     setSubmitting(true);
     try {
-      // 2026-08-01: 把 LLM 主动追问 (polish 拿到的) 传给后端, 落库到 follow_up_questions
-      //   - 用户在 /achievements/follow-up 页可以补全
-      //   - 补全后 cv_status 升级 ready (Reminders 端点用来扫描待补全)
       await onSave({
         outcome: o,
         cv: c,
         reflection: reflection.trim(),
         cv_status: cvStatus,
         follow_up_questions: followUpQuestions,
+        follow_up_answers: followUpAnswers,
         distillation_trace_id: distillationTraceId,
+        confirmed_cv: cvStatus !== "pending",
       });
     } finally {
       setSubmitting(false);
@@ -163,6 +173,7 @@ export function CompleteTaskModal({
       return;
     }
     setPolishing(true);
+    suggestionRequestId.current += 1;
     setPolishError(null);
     try {
       const res = await api.polishCv(task.title, outcome);
@@ -172,6 +183,7 @@ export function CompleteTaskModal({
       setSuggestionDismissed(true);
       // 保留 LLM 的追问 (覆盖之前的, 因为是基于新 outcome 重新判断的)
       setFollowUpQuestions(res.follow_up_questions ?? []);
+      setFollowUpAnswers({});
       setDistillationTraceId(res.trace_id);
     } catch (e) {
       // 失败: 保留当前 cv (兜底), 给个轻量提示
@@ -180,19 +192,6 @@ export function CompleteTaskModal({
     } finally {
       setPolishing(false);
     }
-  };
-
-  // 把追问追加到 outcome 末尾 (用户填了答案后, 下次润色会拿到更完整的 outcome)
-  const appendFollowUp = (q: string) => {
-    const sep = outcome.trim() ? "\n" : "";
-    const newOutcome = `${outcome}${sep}【${q}】`;
-    setOutcome(newOutcome);
-    setFollowUpQuestions((prev) => prev.filter((item) => item !== q));
-    // 重新 focus outcome 框, 让用户接着打字
-    setTimeout(() => outcomeRef.current?.focus(), 50);
-    // 视觉反馈: outcome 框临时高亮 1.2s, 让用户知道追加成功了 (2026-07-30 立)
-    setOutcomeHighlight(true);
-    setTimeout(() => setOutcomeHighlight(false), 1200);
   };
 
   // 重置 CV 框到默认值 (2026-07-30 立, v4.1 UX 残留)
@@ -257,7 +256,7 @@ export function CompleteTaskModal({
             rows={2}
             className={
               "w-full bg-bg border rounded-md px-3 py-2 text-[14px] text-fg placeholder-fg-muted/60 focus:outline-none focus:border-accent resize-none transition-colors " +
-              (outcomeHighlight ? "border-accent ring-2 ring-accent/30" : "border-border")
+              "border-border"
             }
           />
 
@@ -340,16 +339,14 @@ export function CompleteTaskModal({
           </div>
         )}
 
-        {/* LLM 主动追问 (2026-07-30 立, lesson #15):
-            polish 完后, 如果 LLM 觉得 outcome 不够具体, 会返 1-2 个追问.
-            点 chip 把问题追加到 outcome 末尾, 用户填答案后下次润色会拿到更完整的 cv. */}
+        {/* 每条追问保持独立答案字段，避免把证据混入 outcome。 */}
         {followUpQuestions.length > 0 && (
           <div className="px-5 pt-2.5">
             <div className="rounded-md bg-info/10 border border-info/30 px-3 py-2.5">
               <div className="flex items-center justify-between mb-1.5">
                 <div className="text-[11px] text-info font-medium flex items-center gap-1.5">
                   <MessageCircleQuestion size={12} />
-                  AI 想问你几个问题帮你补全 (点追加到结果描述)
+                  补充这些证据后，重新生成并确认成就陈述
                 </div>
                 <button
                   type="button"
@@ -360,17 +357,20 @@ export function CompleteTaskModal({
                   <X size={11} />
                 </button>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {followUpQuestions.map((q) => (
-                  <button
-                    key={q}
-                    type="button"
-                    onClick={() => appendFollowUp(q)}
-                    className="text-[11px] px-2 py-1 rounded bg-bg border border-info/30 text-info hover:bg-info/15 transition flex items-center gap-1"
-                  >
-                    <Plus size={9} />
-                    {q}
-                  </button>
+              <div className="space-y-2">
+                {followUpQuestions.map((q, index) => (
+                  <label key={q} className="block text-[11px] text-fg-secondary">
+                    <span className="mb-1 block">{q}</span>
+                    <input
+                      value={followUpAnswers[String(index)] ?? ""}
+                      onChange={(event) => setFollowUpAnswers((answers) => ({
+                        ...answers,
+                        [String(index)]: event.target.value,
+                      }))}
+                      className="w-full bg-bg border border-info/30 rounded px-2 py-1.5 text-[12px] text-fg focus:outline-none focus:border-info"
+                      placeholder="填写事实、范围或结果"
+                    />
+                  </label>
                 ))}
               </div>
             </div>

@@ -233,34 +233,29 @@ def test_modal_stores_follow_up_questions_from_polish_response():
     assert "res.follow_up_questions" in polish_body, "必须从 res.follow_up_questions 取追问 (后端 JSON 字段名)"
 
 
-def test_modal_renders_follow_up_questions_chip_when_non_empty():
-    """followUpQuestions 非空时, 必须渲染追问卡片 + chip (用户可点追加到 outcome)。"""
+def test_modal_renders_structured_follow_up_answers_when_non_empty():
+    """追问必须独立保存答案，不能把证据拼接进 outcome。"""
     src = read_modal()
     # 1. 条件渲染: followUpQuestions.length > 0
     assert "followUpQuestions.length > 0" in src, "追问卡片必须有 length > 0 条件渲染"
-    # 2. 循环渲染 chip
-    assert "followUpQuestions.map" in src, "追问必须用 .map 渲染为 chip 列表"
-    # 3. appendFollowUp 函数 (点 chip 追加到 outcome)
-    assert "appendFollowUp" in src, "必须有 appendFollowUp 函数 (点 chip 追加追问到 outcome)"
+    # 2. 循环渲染独立答案输入
+    assert "followUpQuestions.map" in src, "追问必须用 .map 渲染"
+    assert "followUpAnswers" in src, "每条追问必须有结构化答案 state"
+    assert "setFollowUpAnswers" in src, "答案输入必须写入结构化 state"
+    assert "appendFollowUp" not in src, "追问不得再拼进 outcome"
     # 4. 关闭追问按钮
     # 已经在 showGuidance 块外, 但追问卡片也是可关闭的, 找第二个 X 按钮
     # 简化: 检查 setFollowUpQuestions([]) 调用 (在追问卡片 X 按钮 onClick)
     assert "setFollowUpQuestions([])" in src, "追问卡片必须有 X 关闭按钮"
 
 
-def test_modal_append_followup_modifies_outcome():
-    """appendFollowUp 必须把追问追加到 outcome 文本, 触发"补全 → 再润色" 闭环。"""
+def test_modal_follow_up_answers_remain_structured_for_submit():
+    """提交时必须传原问题与按索引存储的答案。"""
     src = read_modal()
-    # 找 appendFollowUp 函数体
-    fn_idx = src.find("const appendFollowUp =")
-    assert fn_idx > 0, "必须有 appendFollowUp 函数"
-    fn_body = src[fn_idx : fn_idx + 500]
-    # 1. setOutcome(newOutcome) 触发重渲染
-    assert "setOutcome" in fn_body, "appendFollowUp 必须 setOutcome 追加追问"
-    # 2. 追加格式: 用 【...】 包住, 视觉明显区别于 outcome 本身
-    assert "【" in fn_body and "】" in fn_body, "追问追加到 outcome 必须用【...】包住, 视觉区分"
-    # 3. 追问被消费后从列表移除 (避免重复点同一追问)
-    assert "setFollowUpQuestions" in fn_body, "追问被追加后必须从列表移除 (filter)"
+    submit_idx = src.find("const submit = async () =>")
+    submit_body = src[submit_idx : submit_idx + 900]
+    assert "follow_up_questions: followUpQuestions" in submit_body
+    assert "follow_up_answers: followUpAnswers" in submit_body
 
 
 def test_task_guidance_module_has_5_categories():
@@ -496,28 +491,10 @@ def test_modal_cv_has_reset_button_when_modified():
     assert "onClick={resetCv}" in src, "重置按钮必须 onClick={resetCv}"
 
 
-def test_modal_append_followup_has_visual_feedback():
-    """追问 chip 追加后, 必须有 outcome 框视觉反馈 (用户知道追加成功了).
-
-    实现: setOutcomeHighlight(true) + outcome textarea 临时加 ring 高亮 + 1.2s 后清掉
-    """
+def test_modal_follow_up_answers_have_visible_independent_inputs():
+    """每条追问都应呈现可编辑输入框，而非隐藏进结果描述。"""
     src = read_modal()
-    # 1. 找 appendFollowUp 函数
-    fn_idx = src.find("const appendFollowUp =")
-    assert fn_idx > 0, "appendFollowUp 函数缺失"
-    fn_body = src[fn_idx : fn_idx + 600]
-    # 2. 必须调 setOutcomeHighlight(true)
-    assert "setOutcomeHighlight(true)" in fn_body, (
-        "appendFollowUp 必须 setOutcomeHighlight(true) 触发视觉反馈, "
-        "否则用户看不出追问追加到 outcome 了"
-    )
-    # 3. 1.2s 后清掉 highlight (避免永久高亮)
-    assert "setTimeout" in fn_body and "setOutcomeHighlight(false)" in fn_body, (
-        "appendFollowUp 必须 setTimeout 清掉 highlight, 防永久高亮"
-    )
-    # 4. outcome textarea 条件渲染 highlight 样式
-    assert "outcomeHighlight" in src, "outcome textarea 必须引用 outcomeHighlight 状态"
-    # 5. 视觉提示: 至少要 ring 或 border-accent
-    assert "ring" in src.lower() or "border-accent" in src, (
-        "outcome 高亮必须有视觉提示 (ring 或 border-accent), 不能只改数据不显示"
-    )
+    follow_up_idx = src.find("followUpQuestions.map")
+    follow_up_body = src[follow_up_idx : follow_up_idx + 900]
+    assert "<input" in follow_up_body
+    assert "placeholder=\"填写事实、范围或结果\"" in follow_up_body

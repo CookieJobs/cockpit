@@ -6,6 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from typing import Literal
 
 from sqlalchemy import select
 
@@ -39,6 +40,51 @@ class DistillationFeedback:
     original_cv: str
     final_cv: str
     edit_type: str
+
+
+ConfirmationAction = Literal["confirmed", "draft", "abandoned"]
+
+
+def classify_confirmation_feedback(
+    original_cv: str,
+    final_cv: str,
+    *,
+    action: ConfirmationAction,
+) -> str:
+    """Classify a candidate-final decision for local distillation learning."""
+    if action == "draft":
+        return "draft"
+    if action == "abandoned" or not final_cv.strip():
+        return "abandoned"
+    if _normalize(original_cv) == _normalize(final_cv):
+        return "direct_accept"
+    similarity = SequenceMatcher(None, _normalize(original_cv), _normalize(final_cv)).ratio()
+    if similarity >= 0.65 and abs(len(final_cv) - len(original_cv)) <= max(12, len(original_cv)):
+        return "light_edit"
+    return "rewrite"
+
+
+def record_confirmation_feedback_in_session(
+    session,
+    *,
+    trace_id: str,
+    original_cv: str,
+    final_cv: str,
+    action: ConfirmationAction,
+) -> None:
+    """Append confirmation feedback beside the achievement write transaction."""
+    edit_type = classify_confirmation_feedback(original_cv, final_cv, action=action)
+    session.add(storage.DistillationFeedbackORM(
+        id=_new_id("feedback"),
+        trace_id=trace_id,
+        original_cv=original_cv,
+        final_cv=final_cv,
+        edit_type=edit_type,
+        diff_json=json.dumps(
+            {"original": original_cv, "final": final_cv, "action": action},
+            ensure_ascii=False,
+        ),
+    ))
 
 
 async def record_feedback(trace_id: str, original_cv: str, final_cv: str) -> DistillationFeedback:

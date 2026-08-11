@@ -103,6 +103,7 @@ class PolishCvResponse(BaseModel):
         max_length=3,  # 最多 3 个, 防止 LLM 啰嗦
     )
     trace_id: str | None = None
+    guardrail_results: dict[str, object] = Field(default_factory=dict)
 
 
 async def _with_distillation_trace(
@@ -117,6 +118,8 @@ async def _with_distillation_trace(
     """Persist observability without letting audit failure break completion flow."""
     generator_status = "polished" if response.polished else "fallback"
     final_quality_status = "ready" if response.polished and not response.follow_up_questions else "needs_data"
+    resolved_guardrails = guardrail_results or _runtime_guardrail_results(req, response)
+    response.guardrail_results = resolved_guardrails
     try:
         trace = DistillationTrace.new(
             task_title=req.task_title,
@@ -128,7 +131,7 @@ async def _with_distillation_trace(
                 "polished": response.polished,
             },
             generator_status=generator_status,
-            guardrail_results=guardrail_results or _runtime_guardrail_results(req, response),
+            guardrail_results=resolved_guardrails,
             final_quality_status=final_quality_status,
             model_version="configured-client" if response.polished else "unavailable",
             prompt_version="polish_cv_facts_grounded_v1",

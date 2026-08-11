@@ -24,8 +24,8 @@ def client(temp_db) -> TestClient:
 
 
 @pytest.mark.asyncio
-async def test_answer_follow_ups_upgrades_needs_data_to_ready(client: TestClient):
-    """补全追问后, cv_status 自动从 needs_data 升级到 ready (用户主动补全 = 数据充分)."""
+async def test_answer_follow_ups_keeps_needs_data_until_final_cv_is_resolved(client: TestClient):
+    """补答案只保存证据，旧 CV 不能直接升级 ready。"""
     p = await storage.add_project(ProjectCreate(name="测试项目"))
     t = await storage.add_task(TaskCreate(project=p.id, title="完成 PRD"))
 
@@ -51,8 +51,7 @@ async def test_answer_follow_ups_upgrades_needs_data_to_ready(client: TestClient
     )
     assert res.status_code == 200, res.text
     body = res.json()
-    # cv_status 自动升级
-    assert body["cv_status"] == "ready"
+    assert body["cv_status"] == "needs_data"
     # 答案写入
     assert body["follow_up_answers"]["0"] == "DAU +5%"
     assert body["follow_up_answers"]["1"] == "登录、首页、设置"
@@ -91,11 +90,8 @@ async def test_answer_follow_ups_empty_answers_keeps_status(client: TestClient):
 
 
 @pytest.mark.asyncio
-async def test_answer_follow_ups_pending_to_ready(client: TestClient):
-    """pending 状态也能通过 follow_ups 升级到 ready (不只 needs_data).
-
-    场景: 用户先存草稿, 后来补全, cv_status 跨级升级.
-    """
+async def test_answer_follow_ups_keeps_explicit_draft_pending(client: TestClient):
+    """显式草稿补答案后仍是草稿，必须提交新版 CV 才能 resolve。"""
     p = await storage.add_project(ProjectCreate(name="项目"))
     t = await storage.add_task(TaskCreate(project=p.id, title="任务"))
     complete_res = client.post(f"/api/tasks/{t.id}/complete", json={
@@ -110,7 +106,7 @@ async def test_answer_follow_ups_pending_to_ready(client: TestClient):
         json={"answers": {"0": "补好了"}},
     )
     assert res.status_code == 200
-    assert res.json()["cv_status"] == "ready"
+    assert res.json()["cv_status"] == "pending"
 
 
 @pytest.mark.asyncio
@@ -125,7 +121,7 @@ async def test_reminders_pending_and_answer_end_to_end(client: TestClient):
 
     # t1: needs_data（有追问）→ 应出现在 pending
     client.post(f"/api/tasks/{t1.id}/complete", json={
-        "outcome": "搞了 X", "cv": "X 待补", "cv_status": "needs_data",
+        "outcome": "完成 X 的上线验证并记录待补充证据", "cv": "完成 X，待补充证据", "cv_status": "needs_data",
         "follow_up_questions": ["补 1?", "补 2?"],
     })
     # t2: ready → 不应出现在 pending
@@ -141,18 +137,26 @@ async def test_reminders_pending_and_answer_end_to_end(client: TestClient):
     assert body["items"][0]["cv_status"] == "needs_data"
     aid = body["items"][0]["id"]
 
-    # 2. 补全追问
+    # 2. 补全追问只保存答案，仍留在补证队列
     res = client.patch(f"/api/achievements/{aid}/follow_ups", json={
         "answers": {"0": "答案 1", "1": "答案 2"},
     })
     assert res.status_code == 200
-    assert res.json()["cv_status"] == "ready"
+    assert res.json()["cv_status"] == "needs_data"
 
-    # 3. pending 列表: 已升级, 移除
+    # 3. pending 列表: 旧 CV 尚未吸收答案，不能移除
     res = client.get("/api/reminders/pending")
     body = res.json()
-    assert body["total"] == 0
-    assert body["items"] == []
+    assert body["total"] == 1
+
+    # 4. 显式确认重新生成的 CV 后才移除
+    res = client.post(f"/api/achievements/{aid}/resolve", json={
+        "answers": {"0": "答案 1", "1": "答案 2"},
+        "cv": "完成 X，并补充答案 1 和答案 2",
+    })
+    assert res.status_code == 200
+    assert res.json()["cv_status"] == "ready"
+    assert client.get("/api/reminders/pending").json()["total"] == 0
 
 
 @pytest.mark.asyncio
@@ -202,7 +206,7 @@ async def test_answer_follow_ups_preserves_cv_text(client: TestClient):
     body = res.json()
     # cv 文本保留 (补全追问不覆盖)
     assert body["cv"] == original_cv
-    # cv_status 升级
-    assert body["cv_status"] == "ready"
+    # 旧 CV 未重写，状态仍待补证据
+    assert body["cv_status"] == "needs_data"
     # 答案写入
     assert body["follow_up_answers"]["0"] == "DAU +5%"

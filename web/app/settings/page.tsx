@@ -16,6 +16,7 @@ import {
 import useSWR from "swr";
 import { api, type ChatMessage } from "@/lib/api";
 import { useState, useEffect } from "react";
+import { DataState } from "@/components/DataState";
 
 type Backend = "anthropic" | "deepseek" | "minimax" | "openai" | "custom";
 
@@ -103,11 +104,15 @@ const PRESETS: Record<Backend, string[]> = {
 };
 
 export default function SettingsPage() {
-  const { data: health } = useSWR("/api/health", () => api.health());
-  const { data: settings, mutate: refreshSettings } = useSWR<LLMSettingsResponse>(
+  const { data: health, error: healthError, isLoading: healthLoading, mutate: refreshHealth } = useSWR("/api/health", () => api.health());
+  const { data: settings, error: settingsError, isLoading: settingsLoading, mutate: refreshSettings } = useSWR<LLMSettingsResponse>(
     "/api/settings/llm",
     () => api.getLLMSettings()
   );
+
+  if (healthLoading || settingsLoading || healthError || settingsError) {
+    return <DataState loading={healthLoading || settingsLoading} error={healthError || settingsError} onRetry={() => { refreshHealth(); refreshSettings(); }} />;
+  }
 
   return (
     <div className="min-h-screen bg-bg text-fg">
@@ -133,6 +138,14 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2 text-sm text-warning">
               <AlertCircle size={14} />
               <span>连接中...</span>
+            </div>
+          )}
+          {health?.data_recovery && (
+            <div className="mt-3 rounded border border-warning/40 bg-warning/5 p-3 text-sm text-warning">
+              <p>{health.data_recovery.message}</p>
+              <p className="mt-1 text-xs">当前库：{health.data_recovery.target}</p>
+              <p className="text-xs">历史副本：{health.data_recovery.misplaced}</p>
+              <p className="mt-2 text-xs">恢复完成前已暂停写入，请先备份并选择主库。</p>
             </div>
           )}
         </section>

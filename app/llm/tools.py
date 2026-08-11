@@ -219,6 +219,7 @@ async def tool_complete_task(
     reflection: str = "",
     cv: str = "",
     cv_status: str = "ready",
+    confirmed_cv: bool = False,
 ) -> dict:
     """完成任务并沉淀为成就。
 
@@ -236,7 +237,7 @@ async def tool_complete_task(
     except ValueError:
         return {"error": f"Invalid cv_status: {cv_status}. Must be ready/needs_data/pending."}
     a = await storage.complete_task(
-        id, outcome=outcome, reflection=reflection, cv=cv, cv_status=status,
+        id, outcome=outcome, reflection=reflection, cv=cv, cv_status=status, confirmed_cv=confirmed_cv,
     )
     if not a:
         return {"error": f"Task {id} not found"}
@@ -296,7 +297,7 @@ async def tool_generate_weekly_report() -> str:
     from datetime import date, timedelta
     today = date.today()
     monday = today - timedelta(days=today.weekday())
-    items = await storage.list_achievements(since=monday)
+    items = await storage.list_output_ready_achievements(since=monday)
     if not items:
         return "本周还没有完成的成就。"
 
@@ -308,8 +309,7 @@ async def tool_generate_weekly_report() -> str:
     for proj, list_ in by_project.items():
         lines.append(f"### {proj}")
         for a in list_:
-            outcome = a.outcome or a.cv or a.title
-            lines.append(f"- {outcome}")
+            lines.append(f"- {a.cv}")
         lines.append("")
     return "\n".join(lines)
 
@@ -457,9 +457,9 @@ TOOLS: list[dict[str, Any]] = [
         "description": (
             "完成任务并沉淀为成就。\n\n"
             "**重要工作流**：当用户说某事完成时，\n"
-            "1. 如果用户已提供 outcome/reflection，直接生成 cv 调用此工具\n"
-            "2. 如果素材不充分，cv_status=pending 让用户后续补充\n"
-            "3. cv 必须基于 outcome+reflection+任务上下文生成，不能编造"
+            "1. 先收集 outcome，并展示候选 CV 与必要追问\n"
+            "2. 只有用户明确确认最终 CV 时才传 confirmed_cv=true\n"
+            "3. 素材不充分时保存为 needs_data 或 pending，不能声明 ready 绕过确认"
         ),
         "input_schema": {
             "type": "object",
@@ -469,6 +469,7 @@ TOOLS: list[dict[str, Any]] = [
                 "reflection": {"type": "string", "description": "用户复盘反思（可选）"},
                 "cv": {"type": "string", "description": "agent 生成的 CV 描述（必填，动词开头，含影响/结果）"},
                 "cv_status": {"type": "string", "enum": ["ready", "needs_data", "pending"], "description": "ready=素材充分 / needs_data=cv 已写但还差数据 / pending=挂起待补"},
+                "confirmed_cv": {"type": "boolean", "description": "用户已明确确认最终 CV；未确认时存储层会返回 needs_data 和原因"},
             },
             "required": ["id", "outcome", "cv"],
         },

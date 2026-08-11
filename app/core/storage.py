@@ -12,13 +12,14 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Optional
 
 
 logger = logging.getLogger(__name__)
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, delete, func, select
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, delete, event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -43,7 +44,13 @@ from app.core.models import (
     TaskUpdate,
     _new_id,
 )
-from app.core.config import settings
+from app.core.config import DataRecoveryRequired, settings
+from app.harness.l1 import evaluate_l1
+from app.harness.models import (
+    AchievementDistillationCase,
+    AchievementDistillationInput,
+    AchievementDistillationOutput,
+)
 
 
 # ===== ORM =====
@@ -255,6 +262,20 @@ _engine = None
 _session_factory: Optional[async_sessionmaker[AsyncSession]] = None
 
 
+def _recovery_write_block_message() -> str | None:
+    state = settings.data_recovery_state()
+    if state and state.kind in {"conflict", "failed"}:
+        return state.message or "数据恢复尚未完成；写入已暂停。"
+    return None
+
+
+@event.listens_for(AsyncSession.sync_session_class, "before_flush")
+def _block_writes_during_data_recovery(_session, _flush_context, _instances) -> None:
+    """Preserve read-only diagnostics while a DB migration conflict is unresolved."""
+    if message := _recovery_write_block_message():
+        raise DataRecoveryRequired(message)
+
+
 def init_engine(database_url: Optional[str] = None) -> None:
     """初始化数据库引擎。"""
     global _engine, _session_factory
@@ -276,6 +297,9 @@ async def create_tables() -> None:
     create_all 只创建缺失的表，不加新列。这里手动 ALTER TABLE 给已存在的表
     加 description 列（projects/tasks），保持向后兼容。
     """
+    if message := _recovery_write_block_message():
+        logger.warning("Skipping schema writes while data recovery is required: %s", message)
+        return
     if _engine is None:
         init_engine()
     async with _engine.begin() as conn:  # type: ignore[union-attr]
@@ -426,7 +450,7 @@ def _task_to_pydantic(t: TaskORM) -> Task:
     )
 
 
-def _achievement_to_pydantic(a: AchievementORM) -> Achievement:
+def _achievement_to_pydantic(a: AchievementORM, *, unmet_reasons: Optional[list[str]] = None) -> Achievement:
     return Achievement(
         id=a.id,
         date=a.date,
@@ -443,6 +467,7 @@ def _achievement_to_pydantic(a: AchievementORM) -> Achievement:
         follow_up_questions=json.loads(a.follow_up_questions_json or "[]"),
         follow_up_answers=json.loads(a.follow_up_answers_json or "{}"),
         distillation_trace_id=a.distillation_trace_id,
+        unmet_reasons=unmet_reasons or [],
     )
 
 
@@ -750,29 +775,81 @@ async def reorder_tasks(items: list[dict]) -> int:
 # ===== CRUD: Achievements =====
 
 
-def _derive_completion_cv_status(
+@dataclass(frozen=True)
+class ReadinessDecision:
+    """The storage-owned decision for whether an achievement may enter formal output."""
+
+    status: CVStatus
+    unmet_reasons: list[str]
+
+
+def _provenance_guardrail(
+    *,
+    task_title: str,
+    outcome: str,
+    reflection: str,
+    cv: str,
+    answers: dict[str, str],
+) -> dict[str, bool]:
+    """Run the deterministic P0 fact guard against outcome plus structured answers."""
+    answer_evidence = "\n".join(answer.strip() for answer in answers.values() if answer.strip())
+    case = AchievementDistillationCase(
+        id="runtime-readiness",
+        category="boundary",
+        severity="p0",
+        input=AchievementDistillationInput(
+            task_title=task_title,
+            outcome="\n".join(part for part in [outcome.strip(), answer_evidence] if part),
+            reflection=reflection.strip() or None,
+            language="zh-CN",
+        ),
+    )
+    checks = evaluate_l1(
+        case,
+        AchievementDistillationOutput(cv=cv, follow_up_questions=[], generator_status="polished"),
+    )
+    return {
+        "has_unsupported_number": checks.has_unsupported_number,
+        "has_unsupported_entity": checks.has_unsupported_entity,
+        "ownership_violation": checks.ownership_violation,
+    }
+
+
+def derive_achievement_readiness(
     *,
     task_title: str,
     outcome: str,
     cv: str,
     requested_status: CVStatus,
-    follow_up_questions: Optional[list[str]],
-) -> CVStatus:
-    """Derive report eligibility from completion evidence at the shared write boundary.
-
-    ``ready`` is an output-eligibility claim, not a UI default. An explicit
-    ``pending`` remains a user choice to save a draft; otherwise incomplete
-    evidence must enter the recoverable ``needs_data`` path.
-    """
+    follow_up_questions: list[str],
+    follow_up_answers: dict[str, str],
+    final_cv_confirmed: bool,
+    cv_regenerated_after_answers: bool,
+    provenance: dict[str, bool],
+) -> ReadinessDecision:
+    """Derive report eligibility from evidence, never from a caller's ready claim."""
     if requested_status == CVStatus.PENDING:
-        return CVStatus.PENDING
+        return ReadinessDecision(CVStatus.PENDING, ["用户选择暂存草稿"])
 
-    has_follow_ups = any(question.strip() for question in follow_up_questions or [])
+    reasons: list[str] = []
+    questions = [question.strip() for question in follow_up_questions if question.strip()]
     is_title_fallback = cv.strip() == f"完成「{task_title}」"
-    has_short_outcome = len(outcome.strip()) < 10
-    if has_follow_ups or is_title_fallback or has_short_outcome:
-        return CVStatus.NEEDS_DATA
-    return requested_status
+    if len(outcome.strip()) < 10:
+        reasons.append("缺少结果描述")
+    if is_title_fallback:
+        reasons.append("CV 仍是任务标题兜底")
+    if any(not (follow_up_answers.get(str(index)) or "").strip() for index in range(len(questions))):
+        reasons.append("追问未答")
+    if questions and all((follow_up_answers.get(str(index)) or "").strip() for index in range(len(questions))):
+        if not cv_regenerated_after_answers:
+            reasons.append("CV 尚未吸收补充证据")
+    if not final_cv_confirmed:
+        reasons.append("CV 尚未确认")
+    if any(provenance.values()):
+        reasons.append("存在无来源事实")
+    if reasons:
+        return ReadinessDecision(CVStatus.NEEDS_DATA, reasons)
+    return ReadinessDecision(CVStatus.READY, [])
 
 
 async def complete_task(
@@ -782,7 +859,9 @@ async def complete_task(
     cv: str = "",
     cv_status: CVStatus = CVStatus.READY,
     follow_up_questions: Optional[list[str]] = None,
+    follow_up_answers: Optional[dict[str, str]] = None,
     distillation_trace_id: Optional[str] = None,
+    confirmed_cv: bool = False,
 ) -> Optional[Achievement]:
     """完成任务并沉淀为成就。
 
@@ -811,12 +890,24 @@ async def complete_task(
         project = proj_result.scalar_one_or_none()
         if not project:
             raise ValueError(f"Project {task.project_id} not found")
-        persisted_cv_status = _derive_completion_cv_status(
+        questions = [question.strip() for question in (follow_up_questions or []) if question.strip()]
+        answers = {
+            str(key): value.strip()
+            for key, value in (follow_up_answers or {}).items()
+            if isinstance(value, str) and value.strip()
+        }
+        readiness = derive_achievement_readiness(
             task_title=task.title,
             outcome=outcome,
             cv=cv,
             requested_status=cv_status,
-            follow_up_questions=follow_up_questions,
+            follow_up_questions=questions,
+            follow_up_answers=answers,
+            final_cv_confirmed=confirmed_cv,
+            cv_regenerated_after_answers=not questions,
+            provenance=_provenance_guardrail(
+                task_title=task.title, outcome=outcome, reflection=reflection, cv=cv, answers=answers,
+            ),
         )
         # 写 achievement (append, 多次完成同 task 多次 append)
         achievement = AchievementORM(
@@ -829,18 +920,38 @@ async def complete_task(
             outcome=outcome,
             reflection=reflection,
             cv=cv,
-            cv_status=persisted_cv_status.value,
+            cv_status=readiness.status.value,
             tags_json="[]",
-            follow_up_questions_json=json.dumps(follow_up_questions or [], ensure_ascii=False),
-            follow_up_answers_json="{}",
+            follow_up_questions_json=json.dumps(questions, ensure_ascii=False),
+            follow_up_answers_json=json.dumps(answers, ensure_ascii=False),
             distillation_trace_id=distillation_trace_id,
         )
         session.add(achievement)
+        if distillation_trace_id and readiness.status == CVStatus.PENDING:
+            from app.harness.feedback import record_confirmation_feedback_in_session
+
+            record_confirmation_feedback_in_session(
+                session,
+                trace_id=distillation_trace_id,
+                original_cv=cv,
+                final_cv=cv,
+                action="draft",
+            )
+        elif distillation_trace_id and confirmed_cv:
+            from app.harness.feedback import record_confirmation_feedback_in_session
+
+            record_confirmation_feedback_in_session(
+                session,
+                trace_id=distillation_trace_id,
+                original_cv=cv,
+                final_cv=cv,
+                action="confirmed",
+            )
         # 2026-08-01: 改 task 状态 (不删), 保留"看回" 体验
         task.status = TaskStatus.COMPLETED.value
         task.completed_at = date.today()
         await session.flush()
-        return _achievement_to_pydantic(achievement)
+        return _achievement_to_pydantic(achievement, unmet_reasons=readiness.unmet_reasons)
 
 
 async def update_achievement_cv(aid: str, data: AchievementUpdate) -> Optional[Achievement]:
@@ -849,9 +960,31 @@ async def update_achievement_cv(aid: str, data: AchievementUpdate) -> Optional[A
         a = result.scalar_one_or_none()
         if not a:
             return None
+        decision: ReadinessDecision | None = None
         if data.cv is not None:
             original_cv = a.cv
             a.cv = data.cv
+            questions = json.loads(a.follow_up_questions_json or "[]")
+            answers = json.loads(a.follow_up_answers_json or "{}")
+            was_ready = a.cv_status == CVStatus.READY.value
+            decision = derive_achievement_readiness(
+                task_title=a.title,
+                outcome=a.outcome,
+                cv=a.cv,
+                requested_status=CVStatus(a.cv_status),
+                follow_up_questions=questions,
+                follow_up_answers=answers,
+                final_cv_confirmed=was_ready,
+                cv_regenerated_after_answers=a.cv.strip() != original_cv.strip(),
+                provenance=_provenance_guardrail(
+                    task_title=a.title,
+                    outcome=a.outcome,
+                    reflection=a.reflection,
+                    cv=a.cv,
+                    answers=answers,
+                ),
+            )
+            a.cv_status = decision.status.value
             if a.distillation_trace_id and data.cv != original_cv:
                 try:
                     from app.harness.feedback import record_feedback
@@ -860,7 +993,7 @@ async def update_achievement_cv(aid: str, data: AchievementUpdate) -> Optional[A
                 except Exception as feedback_error:
                     logger.warning("achievement feedback persistence failed: %s", feedback_error)
         await session.flush()
-        return _achievement_to_pydantic(a)
+        return _achievement_to_pydantic(a, unmet_reasons=decision.unmet_reasons if decision else None)
 
 
 async def answer_follow_ups(aid: str, answers: dict) -> Optional[Achievement]:
@@ -879,18 +1012,93 @@ async def answer_follow_ups(aid: str, answers: dict) -> Optional[Achievement]:
             return None
         # 合并新答案 (旧答案 + 新答案, 新覆盖旧)
         existing = json.loads(a.follow_up_answers_json or "{}")
-        existing.update(answers)
+        existing.update({
+            str(key): value.strip()
+            for key, value in answers.items()
+            if isinstance(value, str) and value.strip()
+        })
         a.follow_up_answers_json = json.dumps(existing, ensure_ascii=False)
         questions = json.loads(a.follow_up_questions_json or "[]")
-        all_questions_answered = bool(questions) and all(
-            (existing.get(str(index)) or "").strip()
-            for index, question in enumerate(questions)
-            if question.strip()
+        decision = derive_achievement_readiness(
+            task_title=a.title,
+            outcome=a.outcome,
+            cv=a.cv,
+            requested_status=CVStatus(a.cv_status),
+            follow_up_questions=questions,
+            follow_up_answers=existing,
+            final_cv_confirmed=False,
+            cv_regenerated_after_answers=False,
+            provenance=_provenance_guardrail(
+                task_title=a.title,
+                outcome=a.outcome,
+                reflection=a.reflection,
+                cv=a.cv,
+                answers=existing,
+            ),
         )
-        if all_questions_answered:
-            a.cv_status = CVStatus.READY.value
+        if a.cv_status != CVStatus.PENDING.value:
+            a.cv_status = CVStatus.NEEDS_DATA.value
         await session.flush()
-        return _achievement_to_pydantic(a)
+        return _achievement_to_pydantic(a, unmet_reasons=decision.unmet_reasons)
+
+
+async def resolve_achievement(
+    aid: str,
+    *,
+    answers: dict[str, str],
+    cv: str,
+    distillation_trace_id: Optional[str] = None,
+) -> Optional[Achievement]:
+    """Atomically save evidence and a user-confirmed regenerated CV."""
+    async with get_session() as session:
+        result = await session.execute(select(AchievementORM).where(AchievementORM.id == aid))
+        achievement = result.scalar_one_or_none()
+        if not achievement:
+            return None
+
+        existing_answers = json.loads(achievement.follow_up_answers_json or "{}")
+        existing_answers.update({
+            str(key): value.strip()
+            for key, value in answers.items()
+            if isinstance(value, str) and value.strip()
+        })
+        questions = json.loads(achievement.follow_up_questions_json or "[]")
+        previous_cv = achievement.cv
+        decision = derive_achievement_readiness(
+            task_title=achievement.title,
+            outcome=achievement.outcome,
+            cv=cv,
+            requested_status=CVStatus.NEEDS_DATA,
+            follow_up_questions=questions,
+            follow_up_answers=existing_answers,
+            final_cv_confirmed=True,
+            cv_regenerated_after_answers=cv.strip() != previous_cv.strip(),
+            provenance=_provenance_guardrail(
+                task_title=achievement.title,
+                outcome=achievement.outcome,
+                reflection=achievement.reflection,
+                cv=cv,
+                answers=existing_answers,
+            ),
+        )
+        achievement.follow_up_answers_json = json.dumps(existing_answers, ensure_ascii=False)
+        achievement.cv = cv.strip()
+        achievement.cv_status = decision.status.value
+        if distillation_trace_id:
+            achievement.distillation_trace_id = distillation_trace_id
+        trace_id = achievement.distillation_trace_id
+        if trace_id:
+            from app.harness.feedback import record_confirmation_feedback_in_session
+
+            record_confirmation_feedback_in_session(
+                session,
+                trace_id=trace_id,
+                original_cv=previous_cv,
+                final_cv=achievement.cv,
+                action="confirmed",
+            )
+        await session.flush()
+        return _achievement_to_pydantic(achievement, unmet_reasons=decision.unmet_reasons)
 
 
 async def list_achievements(
@@ -911,6 +1119,26 @@ async def list_achievements(
         elif only_ready:
             # 兼容旧 API: only_ready=true 仍走 ready
             stmt = stmt.where(AchievementORM.cv_status == CVStatus.READY.value)
+        result = await session.execute(stmt)
+        return [_achievement_to_pydantic(a) for a in result.scalars()]
+
+
+async def list_output_ready_achievements(
+    *,
+    project_name: Optional[str] = None,
+    since: Optional[date] = None,
+) -> list[Achievement]:
+    """The sole read boundary for formal reports and other career outputs."""
+    async with get_session() as session:
+        stmt = (
+            select(AchievementORM)
+            .where(AchievementORM.cv_status == CVStatus.READY.value)
+            .order_by(AchievementORM.date.desc())
+        )
+        if project_name:
+            stmt = stmt.where(AchievementORM.project == project_name)
+        if since:
+            stmt = stmt.where(AchievementORM.date >= since)
         result = await session.execute(stmt)
         return [_achievement_to_pydantic(a) for a in result.scalars()]
 
@@ -1303,6 +1531,7 @@ async def build_snapshot() -> Snapshot:
         all_ach_result = await session.execute(select(AchievementORM))
         all_achievements = all_ach_result.scalars().all()
         ready_count = sum(1 for a in all_achievements if a.cv_status == CVStatus.READY.value)
+        needs_data_count = sum(1 for a in all_achievements if a.cv_status == CVStatus.NEEDS_DATA.value)
         pending_count = sum(1 for a in all_achievements if a.cv_status == CVStatus.PENDING.value)
 
     # 2026-08-01: 区分 active vs done, focus/projects_grouped 只放 active (任务流干净)
@@ -1352,6 +1581,8 @@ async def build_snapshot() -> Snapshot:
         done_tasks=sorted(done_tasks, key=lambda t: t.completed_at or date.min, reverse=True),
         counts={
             "achievementsReady": ready_count,
+            "achievementsNeedsData": needs_data_count,
             "achievementsPending": pending_count,
+            "achievementsNeedsAttention": needs_data_count + pending_count,
         },
     )

@@ -32,6 +32,7 @@ import {
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getVisualTone } from "@/lib/visual-system";
+import { DataState } from "@/components/DataState";
 
 type StatusFilter = "all" | "needs_data" | "pending" | "ready";
 // v0.4.1 立: 视图模式 — 按项目分组 vs 按时间倒序
@@ -72,7 +73,7 @@ export default function AchievementsPage() {
       /* ignore */
     }
   };
-  const { data: items, mutate } = useSWR<Achievement[]>(
+  const { data: items, error, isLoading, mutate } = useSWR<Achievement[]>(
     ["/api/achievements", filter],
     () => (filter === "all" ? api.listAchievements() : api.listAchievements({ cv_status: filter as CVStatus }))
   );
@@ -133,6 +134,10 @@ export default function AchievementsPage() {
       return a.project.localeCompare(b.project);
     });
   }, [items]);
+
+  if (isLoading || error) {
+    return <DataState loading={isLoading} error={error} onRetry={() => mutate()} />;
+  }
 
   return (
     <div className="min-h-screen bg-bg text-fg">

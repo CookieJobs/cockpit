@@ -90,6 +90,7 @@ def _replay_persona(persona: Persona, events: list[WorkEvent]) -> PersonaReplay:
                             "reflection": event.reflection or "",
                             "cv_status": event.expected_readiness,
                             "follow_up_questions": event.follow_up_questions,
+                            "confirmed_cv": event.expected_readiness == "ready",
                         },
                     )
                 completion_response.raise_for_status()
@@ -104,13 +105,18 @@ def _replay_persona(persona: Persona, events: list[WorkEvent]) -> PersonaReplay:
                         json={"answers": {str(index): answer for index, answer in enumerate(event.follow_up_answers)}},
                     )
                     answers_response.raise_for_status()
-                    if answers_response.json()["cv_status"] != "ready":
-                        raise RuntimeError(f"{event.id}: follow-up answers did not recover ready status")
-                    revised_cv_response = client.patch(
-                        f"/api/achievements/{achievement['id']}",
-                        json={"cv": event.recovered_cv},
+                    if answers_response.json()["cv_status"] != "needs_data":
+                        raise RuntimeError(f"{event.id}: answers unexpectedly changed readiness")
+                    revised_cv_response = client.post(
+                        f"/api/achievements/{achievement['id']}/resolve",
+                        json={
+                            "answers": {str(index): answer for index, answer in enumerate(event.follow_up_answers)},
+                            "cv": event.recovered_cv,
+                        },
                     )
                     revised_cv_response.raise_for_status()
+                    if revised_cv_response.json()["cv_status"] != "ready":
+                        raise RuntimeError(f"{event.id}: resolved evidence did not become ready")
 
             achievements_response = client.get("/api/achievements")
             achievements_response.raise_for_status()

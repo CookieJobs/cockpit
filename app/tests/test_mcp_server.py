@@ -218,8 +218,9 @@ def test_mcp_complete_task_creates_achievement(mcp_server):
         "name": "complete_task",
         "arguments": {
             "task_id": task_id,
-            "outcome": "主导 MCP 集成, 让 Claude Code 能调 cockpit",
+            "outcome": "主导 cockpit MCP 集成，暴露 5 个核心工具给 Claude Code / Cursor 调用",
             "cv": "主导 cockpit MCP 集成, 暴露 5 个核心工具给 Claude Code / Cursor 调用",
+            "confirmed_cv": True,
         },
     }, req_id=7)
     assert "result" in resp, f"complete_task failed: {resp}"
@@ -268,8 +269,9 @@ def test_mcp_end_to_end_workflow(mcp_server):
         "name": "complete_task",
         "arguments": {
             "task_id": task["id"],
-            "outcome": "写了 MCP server + 6 个测试",
+            "outcome": "主导 cockpit MCP 集成，暴露 5 工具，并补齐 6 个端到端测试",
             "cv": "主导 cockpit MCP 集成, 暴露 5 工具, 加端到端测试覆盖",
+            "confirmed_cv": True,
         },
     }, req_id=11)
     achievement = json.loads(complete_resp["result"]["content"][0]["text"])

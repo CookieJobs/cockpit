@@ -37,6 +37,7 @@ async def test_api_complete_task_4fields_via_body(client: TestClient):
             "cv": "定位并修复高优先级登录鉴权 bug, 消除用户阻塞, 当日上线验证",
             "reflection": "下次早点拉设计对一遍",
             "cv_status": "ready",
+            "confirmed_cv": True,
         },
     )
     assert res.status_code == 200, f"complete_task 失败: {res.status_code} {res.text}"
@@ -92,8 +93,8 @@ async def test_api_complete_task_invalid_cv_status_returns_400(client: TestClien
 
 
 @pytest.mark.asyncio
-async def test_api_complete_task_default_cv_status_is_ready(client: TestClient):
-    """不传 cv_status 时，证据充分的成就仍默认 ready。"""
+async def test_api_complete_task_confirmed_cv_is_ready(client: TestClient):
+    """已确认的 CV 在证据充分时才进入 ready。"""
     p = await storage.add_project(ProjectCreate(name="P4"))
     t = await storage.add_task(TaskCreate(project=p.id, title="Y"))
 
@@ -102,6 +103,7 @@ async def test_api_complete_task_default_cv_status_is_ready(client: TestClient):
         json={
             "outcome": "完成任务并通过线上验收，确认结果符合预期",
             "cv": "完成任务交付并完成线上验收",
+            "confirmed_cv": True,
         },
     )
     assert res.status_code == 200

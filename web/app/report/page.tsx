@@ -34,6 +34,7 @@ import {
 import { api, type Achievement } from "@/lib/api";
 import { TIME_RANGES, TEMPLATES, generateReport, type TemplateKind } from "@/lib/templates";
 import { getVisualTone } from "@/lib/visual-system";
+import { DataState } from "@/components/DataState";
 
 export default function ReportPage() {
   // 顶部选择
@@ -49,17 +50,21 @@ export default function ReportPage() {
     [templateKey]
   );
 
-  // 拉这段时间内所有成就（含 needs_data / pending, 述职模板会自动过滤 ready）
-  const { data: items, mutate } = useSWR<Achievement[]>(
-    ["/api/achievements", range.since()],
+  // 正式 markdown 只读取统一 ready 边界；补证卡使用独立集合。
+  const { data: readyItems, error: readyError, isLoading: readyLoading, mutate: refreshReady } = useSWR<Achievement[]>(
+    ["/api/achievements", range.since(), "ready"],
+    () => api.listAchievements({ since: range.since(), only_ready: true })
+  );
+  const { data: recoveryItems, error: recoveryError, isLoading: recoveryLoading, mutate: refreshRecovery } = useSWR<Achievement[]>(
+    ["/api/achievements", range.since(), "recovery"],
     () => api.listAchievements({ since: range.since() })
   );
 
   // 生成报告
   const report = useMemo(() => {
-    if (!items) return null;
-    return generateReport(items, range, template);
-  }, [items, range, template]);
+    if (!readyItems) return null;
+    return generateReport(readyItems, range, template);
+  }, [readyItems, range, template]);
 
   // 编辑模式
   const [editing, setEditing] = useState(false);
@@ -87,7 +92,7 @@ export default function ReportPage() {
   };
 
   // 待补成就（左侧升级区）— 选中的时间范围内, 状态非 ready 的
-  const pendingItems = (items || []).filter(
+  const pendingItems = (recoveryItems || []).filter(
     (a) => a.cv_status !== "ready"
   );
   const needsDataItems = pendingItems.filter(
@@ -106,6 +111,10 @@ export default function ReportPage() {
     () => api.listPendingFollowUps({ limit: 10 }),
     { refreshInterval: 60000 },
   );
+
+  if (readyLoading || recoveryLoading || readyError || recoveryError) {
+    return <DataState loading={readyLoading || recoveryLoading} error={readyError || recoveryError} onRetry={() => { refreshReady(); refreshRecovery(); }} />;
+  }
 
   return (
     <div className="min-h-screen bg-bg text-fg">

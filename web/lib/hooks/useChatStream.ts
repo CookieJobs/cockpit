@@ -28,7 +28,6 @@ export type ChatMessage = {
   events?: AgentEventItem[];
   content?: string;
   toolCalls?: ToolCallState[];
-  cotBlocks?: string[];
   streaming?: boolean;
   usedLLM?: boolean;
   timestamp: number;
@@ -113,13 +112,12 @@ export function useChatStream({ sessionId, onComplete }: UseChatStreamOptions) {
               ...m,
               streaming: false,
               usedLLM: true,
-              cotBlocks: event.data.cot_blocks || undefined,
             }));
             usedLLM = true;
           } else if (event.type === "error") {
             patchAgent((m) => appendError(m, `❌ ${event.data.message}`));
           }
-          // 'start' / 'cot' 事件：暂不处理（cot 由 end.cot_blocks 统一携带）
+          // start 和内部事件不进入 UI 状态。
         });
       } catch (e: unknown) {
         const errMsg = e instanceof Error ? e.message : String(e);

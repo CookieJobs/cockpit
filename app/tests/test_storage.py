@@ -184,6 +184,7 @@ async def test_complete_task_creates_achievement(temp_db):
         reflection="定位花了 1 小时",
         cv="修复高优先级登录鉴权 bug",
         cv_status=CVStatus.READY,
+        confirmed_cv=True,
     )
 
     assert achievement is not None
@@ -283,7 +284,14 @@ async def test_follow_up_readiness_requires_every_question_answered(temp_db):
     assert partial.cv_status == CVStatus.NEEDS_DATA
 
     complete = await storage.answer_follow_ups(achievement.id, {"1": "评审通过，进入研发排期"})
-    assert complete.cv_status == CVStatus.READY
+    assert complete.cv_status == CVStatus.NEEDS_DATA
+
+    resolved = await storage.resolve_achievement(
+        achievement.id,
+        answers={},
+        cv="撰写并评审 PRD，明确登录和首页范围，评审通过后进入研发排期",
+    )
+    assert resolved.cv_status == CVStatus.READY
 
 
 @pytest.mark.asyncio
@@ -298,6 +306,7 @@ async def test_list_achievements_filter_by_cv_status(temp_db):
         outcome="完成第一项关键交付并通过线上验收",
         cv="完成第一项关键交付并通过线上验收",
         cv_status=CVStatus.READY,
+        confirmed_cv=True,
     )
     await storage.complete_task(t2.id, outcome="o", cv="c", cv_status=CVStatus.NEEDS_DATA)
     await storage.complete_task(t3.id, outcome="o", cv="c", cv_status=CVStatus.PENDING)
@@ -383,6 +392,7 @@ async def test_list_achievements_filter(temp_db):
         outcome="完成第一项目标交付并通过线上验收",
         cv="完成第一项目标交付并通过线上验收",
         cv_status=CVStatus.READY,
+        confirmed_cv=True,
     )
     a2 = await storage.complete_task(t2.id, outcome="o2", cv="cv2", cv_status=CVStatus.PENDING)
 
@@ -449,6 +459,7 @@ async def test_build_snapshot_counts(temp_db):
         outcome="完成第一项目标交付并通过线上验收",
         cv="完成第一项目标交付并通过线上验收",
         cv_status=CVStatus.READY,
+        confirmed_cv=True,
     )
     await storage.complete_task(t2.id, outcome="o", cv="cv2", cv_status=CVStatus.PENDING)
 

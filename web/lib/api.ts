@@ -126,6 +126,7 @@ export interface Achievement {
   // 2026-08-01: 用户对每条追问的答案 {q_idx: answer_str}, 补全后 cv_status 升级 ready
   follow_up_answers: Record<string, string>;
   distillation_trace_id?: string | null;
+  unmet_reasons: string[];
 }
 
 export interface FocusItem {
@@ -152,7 +153,12 @@ export interface Snapshot {
   focus: FocusItem[];
   projects: ProjectSnapshot[];
   done_today: Achievement[];
-  counts: { achievementsReady: number; achievementsPending: number };
+  counts: {
+    achievementsReady: number;
+    achievementsNeedsData: number;
+    achievementsPending: number;
+    achievementsNeedsAttention: number;
+  };
   // 2026-08-01: 全局已完成 task 列表 (跨 project, 按 completed_at desc)
   done_tasks: Task[];
 }
@@ -290,7 +296,12 @@ export interface IntegrationStatus {
 // ===== Projects =====
 
 export const api = {
-  health: () => request<{ status: string; version: string; name: string }>("/api/health"),
+  health: () => request<{
+    status: string;
+    version: string;
+    name: string;
+    data_recovery: null | { kind: string; message: string; target: string; misplaced: string };
+  }>("/api/health"),
 
   listProjects: (include_archived = false) =>
     request<Project[]>(`/api/projects?include_archived=${include_archived}`),
@@ -347,7 +358,7 @@ export const api = {
       body: JSON.stringify({ items }),
     }),
 
-  completeTask: (id: string, data: { outcome?: string; reflection?: string; cv?: string; cv_status?: CVStatus; follow_up_questions?: string[]; distillation_trace_id?: string }) =>
+  completeTask: (id: string, data: { outcome?: string; reflection?: string; cv?: string; cv_status?: CVStatus; follow_up_questions?: string[]; follow_up_answers?: Record<string, string>; distillation_trace_id?: string; confirmed_cv?: boolean }) =>
     request<Achievement>(`/api/tasks/${id}/complete`, {
       method: "POST",
       body: JSON.stringify({
@@ -356,7 +367,9 @@ export const api = {
         cv: data.cv || "",
         cv_status: data.cv_status || "ready",
         follow_up_questions: data.follow_up_questions || [],
+        follow_up_answers: data.follow_up_answers || {},
         distillation_trace_id: data.distillation_trace_id,
+        confirmed_cv: data.confirmed_cv ?? false,
       }),
     }),
 
@@ -399,15 +412,17 @@ export const api = {
   //   - polished=false 表示 LLM 不可用已 fallback
   //   - follow_up_questions: 当 outcome 信息不够具体时, LLM 主动追问 1-2 个问题
   //     (2026-07-30 立, 解决"完成 PRD" 类抽象任务"动作≠价值" 痛点)
-  polishCv: (taskTitle: string, outcome: string) =>
+  polishCv: (taskTitle: string, outcome: string, options?: { signal?: AbortSignal }) =>
     request<{
       cv: string;
       polished: boolean;
       follow_up_questions?: string[];
       trace_id?: string;
+      guardrail_results: Record<string, unknown>;
     }>("/api/llm/polish_cv", {
       method: "POST",
       body: JSON.stringify({ task_title: taskTitle, outcome }),
+      signal: options?.signal,
     }),
 
   // 2026-08-01 立: PR 描述生成 — 从 ready 成就生成 4 段 markdown
