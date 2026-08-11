@@ -15,6 +15,7 @@ from datetime import date, timedelta
 from typing import Any, Optional
 
 from app.core import storage
+from app.core.composer import ComposeOutputRequest, OutputType, compose_output
 from app.core.models import CVStatus, ProjectCreate, TaskCreate
 
 logger = logging.getLogger(__name__)
@@ -90,7 +91,7 @@ async def cmd_add_task(text: str) -> ChatResponse:
         project_msg = f"已加到项目「{projects[0].name}」"
     task = await storage.add_task(TaskCreate(project=project_id, title=title))
     return ChatResponse(
-        text=f"✅ 已添加任务：**{title}**\n{project_msg}（草稿状态，确认后生效）",
+        text=f"✅ 已添加任务：**{title}**\n{project_msg}",
         action="task_added",
         data={"task": task.model_dump(mode="json")},
     )
@@ -128,52 +129,22 @@ async def cmd_complete(text: str) -> ChatResponse:
 async def cmd_weekly(text: str) -> ChatResponse:
     today = date.today()
     monday = today - timedelta(days=today.weekday())
-    items = await storage.list_achievements(since=monday)
-    if not items:
-        return ChatResponse(text="📭 本周还没有完成的成就。完成一些任务后再来吧！")
-    by_project: dict[str, list] = {}
-    for a in items:
-        by_project.setdefault(a.project, []).append(a)
-    lines = [f"## 本周完成（{monday} ~ {today}）\n"]
-    for project, achievements in by_project.items():
-        lines.append(f"### {project}")
-        for a in achievements:
-            outcome = a.outcome or a.cv or a.title
-            lines.append(f"- {outcome}")
-        lines.append("")
+    output = await compose_output(
+        ComposeOutputRequest(type=OutputType.WEEKLY, since=monday, until=today)
+    )
     return ChatResponse(
-        text="\n".join(lines),
+        text=output.markdown,
         action="weekly_generated",
-        data={"count": len(items), "period": f"{monday} ~ {today}"},
+        data={"count": output.ready_achievement_count, "period": f"{monday} ~ {today}"},
     )
 
 
 async def cmd_promotion(text: str) -> ChatResponse:
-    items = await storage.list_achievements(only_ready=True)
-    if not items:
-        return ChatResponse(text="📭 成就库里还没有 ready 的成就，先去完成一些任务吧！")
-    lines = [f"## 述职材料（共 {len(items)} 项成就）\n"]
-    for a in items:
-        lines.append(f"### {a.title}")
-        if a.outcome:
-            lines.append(f"- **结果**：{a.outcome}")
-        if a.cv:
-            lines.append(f"- **CV 描述**：{a.cv}")
-        if a.reflection:
-            lines.append(f"- **复盘**：{a.reflection}")
-        lines.append("")
+    output = await compose_output(ComposeOutputRequest(type=OutputType.REVIEW))
     return ChatResponse(
-        text="\n".join(lines),
+        text=output.markdown,
         action="promotion_generated",
-        data={"count": len(items)},
-    )
-
-
-async def cmd_confirm(text: str) -> ChatResponse:
-    count = await storage.confirm_all_drafts()
-    return ChatResponse(
-        text=f"✅ 已确认 {count} 个草稿任务",
-        action="drafts_confirmed",
+        data={"count": output.ready_achievement_count},
     )
 
 
@@ -183,9 +154,9 @@ async def cmd_help(text: str) -> ChatResponse:
             "🤖 **Cockpit对话命令**（无 LLM 阶段用关键词匹配，3c 阶段会接 LLM）\n\n"
             "**任务管理**\n"
             "- `我现在该干啥` — 查看今日聚焦\n"
-            "- `添加任务 <标题>` — 新建任务（草稿）\n"
+            "- `添加任务 <标题>` — 新建任务\n"
             "- `<关键词>完成了` — 完成任务并沉淀成就\n"
-            "- `确认` — 确认所有草稿任务\n\n"
+            "\n"
             "**复盘 / 报告**\n"
             "- `整理周报` — 本周成就汇总（按项目分组）\n"
             "- `述职` / `复盘` — 述职材料生成（只取 ready）\n"
@@ -201,7 +172,6 @@ KEYWORD_ROUTES: list[tuple[list[str], Any]] = [
     (["完成了", "做完了", "done", "搞定"], cmd_complete),
     (["整理周报", "周报", "weekly"], cmd_weekly),
     (["述职", "答辩", "promotion", "复盘"], cmd_promotion),
-    (["确认", "confirm"], cmd_confirm),
     (["帮助", "help", "怎么用", "你能做什么"], cmd_help),
 ]
 

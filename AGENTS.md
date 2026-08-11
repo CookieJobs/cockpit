@@ -107,6 +107,12 @@
 - 改 Python 前必须 `rm -rf app/llm/__pycache__` 否则 uvicorn `--reload` 不生效
 - 跑回归**不要**用 `next build` — lesson #16：dev server 在跑时 build 会污染 `.next/` 致样式全丢。常用组合是 `tsc --noEmit` + 后端 `pytest`
 
+## 数据与备份
+
+- 设置页“数据与备份”导出 `cockpit-career-memory` 本地包；不包含 `settings`、API Key 或环境变量。
+- 导入必须先预览、明确确认并创建数据库备份；首版拒绝 ID 冲突，不合并、不覆盖。
+- 成就 `needs_data` 是待补证据状态，不能进入周报、月度总结、述职或 CV 正式输出。
+
 ## 设计哲学：对话驱动 vs 看板 inline edit 的边界（2026-07-16 立）
 
 Cockpit 跟 task-cockpit skill 是同源项目，但**产品形态不同**。task-cockpit 是"看板只读 + 一切修改走对话"，cockpit 是"看板可 inline edit + 对话可生成"。这两种模式各有取舍，**不要混用**：

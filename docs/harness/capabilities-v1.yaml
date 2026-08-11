@@ -9,7 +9,7 @@ capabilities:
     status: implemented
     risk_level: write
     release_suite: true
-    command: [".venv312/bin/pytest", "app/tests/test_report_workspace_invariants.py", "app/tests/test_complete_modal_minimal_invariants.py", "-q"]
+    command: [".venv312/bin/pytest", "app/tests/test_composer.py", "app/tests/test_ready_only_output_boundaries.py", "app/tests/test_report_workspace_invariants.py", "-q"]
     required_dependencies: []
   - id: mcp_write_path
     status: implemented
@@ -42,8 +42,8 @@ capabilities:
     command: []
     required_dependencies: []
   - id: composer
-    status: future
+    status: implemented
     risk_level: read
-    release_suite: false
-    command: []
+    release_suite: true
+    command: [".venv312/bin/pytest", "app/tests/test_composer.py", "app/tests/test_portability.py", "app/tests/test_core_loop_cross_entry.py", "app/tests/harness/test_completion_feedback_loop.py", "-q"]
     required_dependencies: []

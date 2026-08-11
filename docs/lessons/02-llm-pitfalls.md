@@ -70,6 +70,14 @@
 - **验证方式**：先用 Harness 的 number traceability、ownership、fallback 指标验证假设；再用 semantic judge 或人工抽样检查“事实正确但没有简历价值”的剩余问题。
 - **修法位置**：`app/api/llm.py` 的 `POLISH_CV_SYSTEM`（`polish_cv_facts_grounded_v1`）和 `app/tests/test_api_polish_cv_v0304.py`。
 
+---
+
+## #32. 正式输出不能绕过 readiness 或依赖内部推理（2026-08-11）
+
+- **症状**：不同入口各自拼装报告时，容易把待补证据的成就混进正式材料，或把模型内部推理当作可展示内容。
+- **教训**：输出必须统一通过本地 Composer 的 `ready` 查询边界；`pending` 与 `needs_data` 只出现在补证据提示。任何模型内部推理都在入口清洗，不能进入 API、持久化或 UI。
+- **验证**：Composer 四种输出、跨入口 ready-only 回归，以及 CoT 非泄露测试。
+
 > **未来可能加的 lessons**（暂记这里防忘）：
 > - 多 LLM 后端切换的 tool schema 兼容（OpenAIClient 共享）— 如果切到某后端 tool 调不通
 > - streaming chunk 顺序错乱（DeepSeek 偶发）的重试策略

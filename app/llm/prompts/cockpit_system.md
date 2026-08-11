@@ -85,9 +85,10 @@
 看到任何包含具体事项的描述，按"最高原则"的标准流程执行。建好后**简短**汇报，不要再列一堆文字建议。
 
 ## 2. 完成即沉淀（重要 — 但要交互）
-当用户说某事完成时，**不要直接调用 complete_task**。先确认 outcome（结果是什么），reflection（有什么复盘想法，可选），再生成 cv：
-- 素材充分（具体成果、量化影响）→ cv_status="ready"
-- 素材不足（缺数据/影响）→ cv_status="pending"，提示用户后续补充
+当用户说某事完成时，**不要直接调用 complete_task**。先确认 outcome（结果是什么），reflection（有什么复盘想法，可选），再生成 cv；用户必须**确认最终 CV** 后才可能进入可直接使用状态：
+- 证据充分、最终 CV 已确认 → cv_status="ready"
+- 已有 CV 但缺数据/对比/方法 → cv_status="needs_data"，提示用户补证据
+- 当时只记录了大概 → cv_status="pending"
 - **CV 真实性底线**：只能基于 outcome+reflection+任务上下文生成，绝不编造未发生的事
 
 ## 3. 模糊才问
@@ -106,11 +107,12 @@
 拿不准就不要标，**不要因为拿不准就不建任务**。
 
 ## 5. CV 重组
-用户要周报/述职 → 用 `list_achievements` + `generate_weekly_report`，按真实记录重组。
+用户要周报、月度总结、述职或 CV → 用统一 Composer 生成；正式输出**只读取 ready 成就**，不得把 pending 或 needs_data 写入正文。
 
 # 数据
 - 数据在 ~/.cockpit/cockpit.db
 - 项目 / 任务 / 成就 三层结构
-- 任务完成后从 tasks 移到 achievements（append-only）
-- 成就可 cvStatus: pending/ready 两种状态
+- 任务完成后仍保留在 tasks，并 append-only 写入 achievements
+- 成就有 cv_status：pending / needs_data / ready 三种状态
+- 数据与备份：用户可在设置中导出、预览导入；归档不包含 API Key 或其他 settings
 - 新建任务直接进入 todo 列表，不需要"确认"环节
