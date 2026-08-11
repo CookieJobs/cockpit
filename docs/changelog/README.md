@@ -16,6 +16,7 @@
 
 | 日期 | 主题 | 关联 Lessons | 详情 |
 | 2026-08-11 | **视觉语义刷新 — indigo 交互 / gold 成就资产 / orange 风险，成就库去嵌套卡片** | [#31](../lessons/05-theme-system.md) · [#27](../lessons/05-theme-system.md) | [→](2026-08-11-visual-language-refresh.md) |
+| 2026-08-11 | **MainBoard 移动端单视图切换 — 看板默认、对话全屏可返回** | [#30](../lessons/01-frontend-ux-bugs.md) · [#27](../lessons/05-theme-system.md) | [→](2026-08-11-mobile-mainboard-layout.md) |
 | 2026-08-10 | **Project Harness v1 — 本地能力注册、宪法回归与统一质量门** | — | [→](2026-08-10-project-harness-v1.md) |
 |---|---|---|---|
 | 2026-08-10 | **Achievement Readiness Gate — 不完整成就不进入多次输出池** | [#29](../lessons/01-frontend-ux-bugs.md) | [→](2026-08-10-achievement-readiness-gate.md) |

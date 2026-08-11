@@ -32,6 +32,7 @@ import { OnboardingTooltip } from "./OnboardingTooltip";
 import { usePopover, usePopoverPosition } from "./Popover";
 import { useToast } from "./Toast";
 import Link from "next/link";
+import { getChatLauncherClassName, getChatPanelClassName } from "@/lib/board-layout";
 import { getVisualTone } from "@/lib/visual-system";
 
 const CHAT_COLLAPSED_KEY = "cockpit_chat_collapsed";
@@ -146,15 +147,15 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
     <div className="flex h-screen bg-bg">
       {/* 左栏:项目 + 任务 — 主视图,占主空间 */}
       <div className="flex-1 min-w-0 border-r border-border flex flex-col bg-bg-secondary">
-        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-          <h1 className="text-[17px] font-semibold text-fg tracking-tight">
+        <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-border flex items-center gap-3">
+          <h1 className="shrink-0 text-[17px] font-semibold text-fg tracking-tight">
             Cockpit
           </h1>
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-3">
             {/* LLM 状态徽章 */}
             {llmStatus && (
               <span
-                className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                className={`shrink-0 text-[11px] px-2 py-0.5 rounded-full font-medium ${
                   llmStatus.available
                     ? "bg-success/10 text-success"
                     : "bg-fg-muted/10 text-fg-muted"
@@ -170,7 +171,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
             <FollowUpReminder />
             <Link
               href="/report"
-              className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
+              className="shrink-0 text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
               title="周报/述职 workspace"
             >
               <Sparkles size={11} />
@@ -179,7 +180,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
             {/* 2026-08-01 立: PR 描述生成入口 (项目维度) */}
             <Link
               href="/pr"
-              className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
+              className="shrink-0 text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
               title="从 ready 成就生成 GitHub PR 描述"
             >
               <FileCode size={11} />
@@ -188,7 +189,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
             {/* v0.4.2 立: 跨项目 CV 视图 (时间维度, 一次沉淀多次输出的"输出"端基础) */}
             <Link
               href="/cv"
-              className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
+              className="shrink-0 text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
               title="跨项目 CV 视图 (按时间倒序拉所有 ready 成就)"
             >
               <FileText size={11} />
@@ -206,13 +207,13 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
             <IntegrationNavLink />
             <Link
               href="/achievements"
-              className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary"
+              className="shrink-0 text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary"
             >
               成就
             </Link>
             <Link
               href="/settings"
-              className="text-fg-muted hover:text-fg transition p-1.5 rounded hover:bg-bg-tertiary"
+              className="shrink-0 text-fg-muted hover:text-fg transition p-1.5 rounded hover:bg-bg-tertiary"
               title="设置"
             >
               <Settings size={14} />
@@ -358,23 +359,23 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
 
       {/* 右栏:对话窗口 - 折叠态:44px 窄条;展开态:w-[35%] 侧栏 */}
       {chatOpen ? (
-        <div className="w-[35%] min-w-[360px] max-w-[640px] flex flex-col">
+        <div className={getChatPanelClassName()}>
           <ChatWindow onAction={refresh} onCollapse={() => toggleChat()} />
         </div>
       ) : (
         <button
           onClick={() => toggleChat()}
-          className="w-11 flex-shrink-0 border-l border-border bg-bg-secondary hover:bg-bg-tertiary transition flex flex-col items-center justify-start pt-4 gap-3 text-fg-muted hover:text-fg group"
+          className={getChatLauncherClassName()}
           title="展开对话"
         >
           <PanelRightOpen size={16} />
           <span
-            className="text-[10px] tracking-wider"
+            className="hidden text-[10px] tracking-wider md:block"
             style={{ writingMode: "vertical-rl" }}
           >
             展开对话
           </span>
-          <MessageSquare size={12} className="mt-2 opacity-50 group-hover:opacity-100" />
+          <MessageSquare size={16} className="opacity-70 group-hover:opacity-100 md:mt-2 md:text-[12px]" />
         </button>
       )}
     </div>
@@ -494,14 +495,14 @@ function FocusSection({
           </div>
           <div className="text-[12px] text-fg-muted">
             {isNewUser
-              ? "在右栏对话试试「加个任务：完成 XX」"
-              : "加新任务继续 — 在右栏对话里说「加个任务」"}
+              ? "在对话里试试「加个任务：完成 XX」"
+              : "加新任务继续 — 在对话里说「加个任务」"}
           </div>
           <button
             onClick={onRequestFocusChat}
             className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/5 text-accent border border-accent/30 hover:bg-accent/10 transition"
           >
-            {isNewUser ? "去对话建项目" : "加新任务"}
+            {isNewUser ? "去对话添加任务" : "加新任务"}
           </button>
         </div>
       </div>
@@ -1003,7 +1004,7 @@ function ProjectsSection({
                 <div className="text-[20px]">📁</div>
                 <div className="text-fg-secondary font-medium">还没有项目</div>
                 <div className="text-[12px]">
-                  在右栏对话试试「建一个项目：XX」
+                  在对话里试试「建一个项目：XX」
                 </div>
                 <button
                   onClick={onRequestFocusChat}

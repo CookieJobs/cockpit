@@ -501,3 +501,17 @@ v4 → v4.1 这 4 轮用户反馈暴露 **3 类"单测过但真实数据失败" 
   - 后端：`app/core/storage.py` 的 `_derive_completion_cv_status()` 拦截标题兜底、短 outcome、未答追问；`answer_follow_ups()` 仅在所有问题均非空后升级。
   - 前端：`web/components/CompleteTaskModal.tsx` 在质量门将延后输出资格时明确说明“将保存为待补数据，不会进入报告；补全后自动可用”。
   - 回归：`app/tests/test_storage.py`、`app/tests/test_api_complete_task.py` 与 `app/tests/test_complete_modal_minimal_invariants.py` 锁住该闭环。
+
+## #30. 桌面两栏不能缩小后继续并排 (修于 2026-08-11)
+
+- **症状**：MainBoard 在 390px 宽度仍保留“项目区 + 最小 360px 对话栏”的桌面 flex 布局。展开对话后看板被挤出视口；收起后导航链接被压成逐字换行，用户无法先看积累再决定是否对话。
+- **根因**：把“对话默认折叠”的桌面信息架构，误当成了移动端响应式策略；CSS 只保证元素还能渲染，没有保证一个时刻只呈现一个可完成的主任务。
+- **教训**：
+  - **响应式不是缩放，是重新分配主任务**：移动端默认看板，对话按需成为可退出的全屏工作区；不能把两个桌面面板硬塞进一屏。
+  - **文案不能依赖布局位置**：`右栏对话` 在手机上既不真实也无帮助，统一写成 `在对话里`；CTA 的动词必须和目标一致，添加任务不能叫“建项目”。
+  - **Tailwind 的扫描路径也是 UX 交付的一部分**：响应式类放进 `web/lib/` 后必须将该目录加入 `content`，否则 JSX 虽引用了类名，CSS 产物里没有它（见 #27）。
+- **修法位置**：
+  - `web/lib/board-layout.ts`：定义移动端全屏对话 / 桌面右栏、移动端悬浮入口 / 桌面窄条的响应式契约。
+  - `web/components/MainBoard.tsx`：消费该契约；导航改为横向滚动；空状态文案与 CTA 对齐实际操作。
+  - `web/tailwind.config.ts`：扫描 `web/lib/`。
+  - `web/scripts/test-board-layout.mjs`：锁住两种视图模式的布局契约；浏览器在 390×844 和 1280px 实测主路径。
