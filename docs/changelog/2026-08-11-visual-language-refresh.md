@@ -22,8 +22,9 @@ related_lessons: #31 · #27
 
 - 保持 `:root` / `.dark` CSS 变量和 `darkMode: "class"`；深色面板调整为
   blue-grey 层级，light/dark 都从同一语义 token 取色。
-- `web/lib/visual-system.ts` 是组件层唯一的角色边界：`getVisualTone()` 只接受
-  interaction、asset、warning；同角色弱底色只允许已验证的 5%/10% 透明度。
+- `web/lib/visual-system.ts` 是可复用角色 treatment 的共享边界：`getVisualTone()`
+  只接受 interaction、asset、warning；组件需要局部、单一用途的 treatment 时可直接
+  使用对应语义 token。同角色弱底色只允许已验证的 5%/10% 透明度。
 - 主看板的成就闪现、成就库质量/分布指标与报告可复用价值计数归 `asset`；筛选、
   选项和下载等操作仍归 `accent`；数据缺口归 `warning`。
 - 成就库保留项目分组与质量摘要两类卡片；组内项目条目和时间线改为 divider rows，
