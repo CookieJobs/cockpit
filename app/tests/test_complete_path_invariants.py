@@ -455,12 +455,12 @@ def test_priority_badge_styles_4_levels():
     # 2026-07-23 v2 改: P2 从琥珀 (accent) 换冷色蓝 (info) 跨色环
     #   P3 从亮灰 (fg-secondary) 换 success 绿, 跟 P0/P1/P2 形成完整色环
     expected = {
-        "P0": "bg-danger/15 text-danger border-danger/30",      # 最急 - 红
-        "P1": "bg-warning/15 text-warning border-warning/30",  # 高 - 橙
-        "P2": "bg-info/15 text-info border-info/30",            # 普通 - 蓝 (2026-07-23 换)
-        "P3": "bg-success/15 text-success border-success/30",  # 不急 - 绿 (2026-07-23 换)
+        "P0": ("danger", "15", "danger", "danger"),  # 最急 - 红
+        "P1": ("warning", "5", "warning", "warning"),  # 高 - 橙，视觉系统的弱背景
+        "P2": ("info", "15", "info", "info"),  # 普通 - 蓝 (2026-07-23 换)
+        "P3": ("success", "15", "success", "success"),  # 不急 - 绿 (2026-07-23 换)
     }
-    for level, expected_classes in expected.items():
+    for level, (expected_bg, expected_opacity, expected_text, expected_border) in expected.items():
         # 简化匹配: 检查每档都存在 + 含其核心颜色
         level_match = re.search(rf'{level}\s*:\s*"([^"]+)"', style_body)
         assert level_match, (
@@ -469,17 +469,12 @@ def test_priority_badge_styles_4_levels():
         )
         actual = level_match.group(1)
         # 提取每个档的核心颜色 (bg-* text-* border-* 各一个)
-        bg = re.search(r"bg-(\S+?)/15", actual)
+        bg = re.search(r"bg-(\S+?)/(\d+)", actual)
         text = re.search(r"text-(\S+?)(?:\s|$)", actual)
         border = re.search(r"border-(\S+?)/30", actual)
-        expected_bg, expected_text, expected_border = (
-            expected_classes.split()[0].replace("bg-", "").replace("/15", ""),
-            expected_classes.split()[1].replace("text-", ""),
-            expected_classes.split()[2].replace("border-", "").replace("/30", ""),
-        )
-        assert bg and bg.group(1) == expected_bg, (
-            f"PRIORITY_BADGE_STYLES.{level} bg 应是 bg-{expected_bg}/15, 实际是 "
-            f"bg-{bg.group(1) if bg else '?'}/15"
+        assert bg and (bg.group(1), bg.group(2)) == (expected_bg, expected_opacity), (
+            f"PRIORITY_BADGE_STYLES.{level} bg 应是 bg-{expected_bg}/{expected_opacity}, 实际是 "
+            f"bg-{bg.group(1) if bg else '?'}/{bg.group(2) if bg else '?'}"
         )
         assert text and text.group(1) == expected_text, (
             f"PRIORITY_BADGE_STYLES.{level} text 应是 text-{expected_text}, 实际是 "
