@@ -41,8 +41,8 @@
   --color-accent: 79 70 229;
   --color-accent-hover: 67 56 202;
   /* Achievement value: gold is reserved for evidence and reusable assets. */
-  --color-asset: 180 83 9;
-  --color-asset-hover: 146 64 14;
+  --color-asset: 143 106 0;
+  --color-asset-hover: 117 87 0;
   --color-success: 22 163 74;
   /* Risk / missing data: orange must not be confused with achievement gold. */
   --color-warning: 194 65 12;
@@ -55,7 +55,7 @@
 .dark {
   /* Blue-grey surfaces make panel hierarchy perceptible without a harsh black void. */
   --color-bg: 15 23 42;
-  --color-bg-secondary: 17 24 39;
+  --color-bg-secondary: 23 32 51;
   --color-bg-tertiary: 30 41 59;
   --color-border: 51 65 85;
   --color-border-hover: 71 85 105;
