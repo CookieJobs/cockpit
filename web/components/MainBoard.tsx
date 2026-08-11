@@ -33,10 +33,17 @@ import { DataState } from "./DataState";
 import { usePopover, usePopoverPosition } from "./Popover";
 import { useToast } from "./Toast";
 import Link from "next/link";
-import { getChatLauncherClassName, getChatPanelClassName } from "@/lib/board-layout";
 import { getVisualTone } from "@/lib/visual-system";
 
 const CHAT_COLLAPSED_KEY = "cockpit_chat_collapsed";
+
+// Keep these responsive utilities in this JSX consumer file. Tailwind's dev JIT can
+// then regenerate both sides of the breakpoint from a MainBoard edit, instead of
+// leaving a stale fixed mobile rule when a helper-module scan is not refreshed.
+const CHAT_PANEL_CLASS =
+  "fixed inset-0 z-30 flex flex-col bg-bg md:static md:z-auto md:w-[35%] md:min-w-[360px] md:max-w-[640px]";
+const CHAT_LAUNCHER_CLASS =
+  "fixed bottom-4 right-4 z-20 h-11 w-11 rounded-full border border-border bg-bg-secondary shadow-lg hover:bg-bg-tertiary transition flex items-center justify-center text-fg-muted hover:text-fg group md:static md:h-auto md:w-11 md:rounded-none md:shadow-none md:border-0 md:border-l md:flex-col md:items-center md:justify-start md:pt-4 md:gap-3";
 
 export function MainBoard({ refreshKey }: { refreshKey: number }) {
   const { data: snapshot, error: snapshotError, isLoading: snapshotLoading, mutate: refreshSnapshot } = useSWR<Snapshot>(
@@ -365,13 +372,13 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
 
       {/* 右栏:对话窗口 - 折叠态:44px 窄条;展开态:w-[35%] 侧栏 */}
       {chatOpen ? (
-        <div className={getChatPanelClassName()}>
+        <div className={CHAT_PANEL_CLASS}>
           <ChatWindow onAction={refresh} onCollapse={() => toggleChat()} />
         </div>
       ) : (
         <button
           onClick={() => toggleChat()}
-          className={getChatLauncherClassName()}
+          className={CHAT_LAUNCHER_CLASS}
           title="展开对话"
         >
           <PanelRightOpen size={16} />

@@ -22,9 +22,10 @@
 
 ## 防回归
 
-- `web/lib/board-layout.ts` 把移动端覆盖层/桌面侧栏的类名作为独立契约导出。
-- `web/scripts/test-board-layout.mjs` 验证这两个响应式状态。
-- `tailwind.config.ts` 显式扫描 `web/lib/`；否则工具类存在于 TypeScript 字符串里，却不会进入 CSS 产物（见 lesson #27）。
+- `web/components/MainBoard.tsx` 保留移动端覆盖层 / 桌面侧栏的完整静态 class，确保
+  Tailwind 开发期热更新能从实际消费者立即生成两端规则。
+- `web/scripts/test-board-layout.mjs` 编译只扫描 `MainBoard` 的 Tailwind 产物，验证手机
+  `fixed` 与桌面 `md:static` / `md:flex-col` 同时存在。
 
 ## 验证
 
