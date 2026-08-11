@@ -12,6 +12,7 @@ const config: Config = {
   content: [
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./lib/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   // 2026-08-01 立: 主题切换 (light/dark) 需要 class 策略。配合 globals.css 里
   //   :root (light) + .dark (dark) 两套 CSS 变量, 切 html class 即可换主题。
@@ -25,7 +26,7 @@ const config: Config = {
   safelist: [
     {
       pattern:
-        /^(bg|border)-(danger|warning|info|success|fg|fg-secondary|fg-muted|accent|border|border-hover|bg-secondary|bg-tertiary)\/(10|15|20|30|40|50)$/,
+        /^(bg|border)-(danger|warning|asset|info|success|fg|fg-secondary|fg-muted|accent|border|border-hover|bg-secondary|bg-tertiary)\/(10|15|20|30|35|40|50)$/,
     },
   ],
   theme: {
@@ -98,15 +99,31 @@ const config: Config = {
               ? `rgb(var(--color-accent-hover) / ${opacityValue})`
               : "rgb(var(--color-accent-hover))",
         },
+        asset: {
+          DEFAULT: ({ opacityValue }: { opacityValue: number | undefined }) =>
+            opacityValue !== undefined
+              ? `rgb(var(--color-asset) / ${opacityValue})`
+              : "rgb(var(--color-asset))",
+          hover: ({ opacityValue }: { opacityValue: number | undefined }) =>
+            opacityValue !== undefined
+              ? `rgb(var(--color-asset-hover) / ${opacityValue})`
+              : "rgb(var(--color-asset-hover))",
+        },
         // success/warning/danger/info 同样用函数形式
         success: ({ opacityValue }: { opacityValue: number | undefined }) =>
           opacityValue !== undefined
             ? `rgb(var(--color-success) / ${opacityValue})`
             : "rgb(var(--color-success))",
-        warning: ({ opacityValue }: { opacityValue: number | undefined }) =>
-          opacityValue !== undefined
-            ? `rgb(var(--color-warning) / ${opacityValue})`
-            : "rgb(var(--color-warning))",
+        warning: {
+          DEFAULT: ({ opacityValue }: { opacityValue: number | undefined }) =>
+            opacityValue !== undefined
+              ? `rgb(var(--color-warning) / ${opacityValue})`
+              : "rgb(var(--color-warning))",
+          hover: ({ opacityValue }: { opacityValue: number | undefined }) =>
+            opacityValue !== undefined
+              ? `rgb(var(--color-warning-hover) / ${opacityValue})`
+              : "rgb(var(--color-warning-hover))",
+        },
         danger: ({ opacityValue }: { opacityValue: number | undefined }) =>
           opacityValue !== undefined
             ? `rgb(var(--color-danger) / ${opacityValue})`

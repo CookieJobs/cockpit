@@ -10,9 +10,8 @@
  * Tailwind 自动展开 alpha 变体 (bg-danger/15 → rgb(239 68 68 / 0.15)),
  * 切 html class 即可换主题。
  *
- * light 模式是默认 (:root), .dark 覆盖。light accent 用 amber-600 (#d97706)
- * 而不是 dark 的 amber-400 — 在白底上 amber-400 对比度不够,
- * amber-600 (深一档) 跟白底对比度 4.5:1+ 满足 WCAG AA。
+ * 交互、成就价值、风险/待补数据使用独立语义 token，避免一种暖色同时
+ * 表示“点这里”“这是资产”“需要注意”。
  * ========================================================================= */
 :root {
   /* 2026-08-01 v2 改: light 模式色阶重新设计。
@@ -38,28 +37,38 @@
   --color-fg: 10 10 10;
   --color-fg-secondary: 71 85 105;
   --color-fg-muted: 100 116 139;
-  --color-accent: 217 119 6;
-  --color-accent-hover: 180 83 9;
+  /* Interaction / selection: indigo gives controls a calm, unambiguous home. */
+  --color-accent: 79 70 229;
+  --color-accent-hover: 67 56 202;
+  /* Achievement value: gold is reserved for evidence and reusable assets. */
+  --color-asset: 180 83 9;
+  --color-asset-hover: 146 64 14;
   --color-success: 22 163 74;
-  --color-warning: 217 119 6;
+  /* Risk / missing data: orange must not be confused with achievement gold. */
+  --color-warning: 194 65 12;
+  --color-warning-hover: 154 52 18;
   --color-danger: 220 38 38;
   --color-info: 37 99 235;
   color-scheme: light;
 }
 
 .dark {
-  --color-bg: 10 10 10;
-  --color-bg-secondary: 20 20 20;
-  --color-bg-tertiary: 30 30 30;
-  --color-border: 42 42 42;
-  --color-border-hover: 58 58 58;
-  --color-fg: 229 229 229;
-  --color-fg-secondary: 160 160 160;
-  --color-fg-muted: 102 102 102;
-  --color-accent: 251 191 36;
-  --color-accent-hover: 245 158 11;
+  /* Blue-grey surfaces make panel hierarchy perceptible without a harsh black void. */
+  --color-bg: 15 23 42;
+  --color-bg-secondary: 17 24 39;
+  --color-bg-tertiary: 30 41 59;
+  --color-border: 51 65 85;
+  --color-border-hover: 71 85 105;
+  --color-fg: 241 245 249;
+  --color-fg-secondary: 203 213 225;
+  --color-fg-muted: 148 163 184;
+  --color-accent: 129 140 248;
+  --color-accent-hover: 165 180 252;
+  --color-asset: 251 191 36;
+  --color-asset-hover: 253 230 138;
   --color-success: 34 197 74;
-  --color-warning: 245 158 11;
+  --color-warning: 251 146 60;
+  --color-warning-hover: 253 186 116;
   --color-danger: 239 68 68;
   --color-info: 59 130 246;
   color-scheme: dark;
