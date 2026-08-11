@@ -32,6 +32,7 @@ import { OnboardingTooltip } from "./OnboardingTooltip";
 import { usePopover, usePopoverPosition } from "./Popover";
 import { useToast } from "./Toast";
 import Link from "next/link";
+import { getVisualTone } from "@/lib/visual-system";
 
 const CHAT_COLLAPSED_KEY = "cockpit_chat_collapsed";
 
@@ -228,7 +229,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
          *   "今日 +N" + "查看全部 →" — 把心理重心从"待办焦虑"切到"已有积累"。
          *
          * 设计决定:
-         * - 大数字 readyCount (text-accent 28px) — 跟 "12 条成就" 文案对比明显
+         * - 大数字 readyCount (text-asset 28px) — 跟 "12 条成就" 文案对比明显
          * - 右侧 stack: 今日 +N (fg) + 待补 N (warning) + 待办 N (fg-muted)
          * - 底部: "查看全部 →" 链接到 /achievements — 闭环
          * - highlight 动画: readyCount +1 时 readyFlash=true, 数字 + 卡片背景闪
@@ -239,23 +240,19 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
           data-testid="achievement-spotlight"
           className={`mx-4 mt-3 mb-2 px-4 py-3 rounded-lg border transition-colors duration-500 ${
             readyFlash
-              ? "bg-accent/10 border-accent/30"
+              ? getVisualTone("asset")
               : "bg-bg-tertiary border-border"
           }`}
         >
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-baseline gap-2 min-w-0">
-              <strong
-                className={`text-[28px] font-bold tabular-nums leading-none transition-colors duration-500 ${
-                  readyFlash ? "text-accent" : "text-fg"
-                }`}
-              >
+              <strong className="text-[28px] font-bold tabular-nums leading-none text-asset transition-colors duration-500">
                 {readyCount}
               </strong>
               <span className="text-[12px] text-fg-secondary">条已沉淀成就</span>
               {readyFlash && (
                 <span
-                  className="text-[10px] text-accent font-medium px-1.5 py-0.5 rounded border border-accent/40 animate-pulse"
+                  className="text-[10px] font-medium px-1.5 py-0.5 rounded border border-asset/40 text-fg animate-pulse"
                   data-testid="achievement-spotlight-flash"
                 >
                   +1
@@ -286,7 +283,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
           {readyCount > 0 && (
             <Link
               href="/achievements"
-              className="mt-2 inline-flex items-center gap-1 text-[11px] text-fg-secondary hover:text-accent transition group"
+              className="mt-2 inline-flex items-center gap-1 text-[11px] text-fg-secondary hover:text-asset transition group"
             >
               查看全部 {readyCount} 条成就
               <ChevronRight

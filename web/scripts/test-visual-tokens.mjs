@@ -80,14 +80,6 @@ const NESTED_ROLE_TREATMENTS = [
     descendant: "text-[11px] text-accent",
   },
   {
-    name: "achievement spotlight",
-    path: "components/MainBoard.tsx",
-    anchor: 'data-testid="achievement-spotlight"',
-    role: "interaction",
-    container: /bg-accent\/(\d+)/,
-    descendant: 'readyFlash ? "text-accent"',
-  },
-  {
     name: "commitment row",
     path: "components/MainBoard.tsx",
     anchor: 'isCommitment ? "bg-accent/',
@@ -206,24 +198,26 @@ for (const treatment of NESTED_ROLE_TREATMENTS) {
 const spotlightSource = readFileSync("components/MainBoard.tsx", "utf8");
 const spotlightStart = spotlightSource.indexOf('data-testid="achievement-spotlight"');
 const spotlightScope = spotlightSource.slice(spotlightStart);
-const spotlightParent = spotlightScope.match(/readyFlash\s*\?\s*"bg-accent\/(\d+)/);
+const spotlightUsesAssetTone = spotlightScope.includes('readyFlash\n              ? getVisualTone("asset")');
 const flashMarker = spotlightSource.indexOf('data-testid="achievement-spotlight-flash"');
 const flashTag = spotlightSource.slice(spotlightSource.lastIndexOf("<span", flashMarker), flashMarker);
-const flashBadge = flashTag.match(/bg-accent\/(\d+)/);
-const spotlightParentOpacity = Number(spotlightParent?.[1] ?? 0) / 100;
+const flashBadge = flashTag.match(/bg-asset\/(\d+)/);
+const spotlightParentOpacity = softOpacity("asset") ?? 0;
 const flashBadgeOpacity = Number(flashBadge?.[1] ?? 0) / 100;
 check("achievement flash parent opacity is approved",
-  spotlightParent !== null && SOFT_TONE_OPACITIES.interaction.includes(spotlightParentOpacity * 100),
-  spotlightParent?.[1] ?? "no parent accent surface");
-check("achievement flash badge adds no second accent fill", flashBadge === null, flashBadge?.[1] ?? "transparent");
+  spotlightUsesAssetTone && SOFT_TONE_OPACITIES.asset.includes(spotlightParentOpacity * 100),
+  spotlightUsesAssetTone ? String(spotlightParentOpacity * 100) : "no asset tone");
+check("achievement flash badge adds no second asset fill", flashBadge === null, flashBadge?.[1] ?? "transparent");
+check("achievement flash badge uses readable foreground text", flashTag.includes("text-fg"), flashTag);
 for (const [label, scope] of [["light", ":root"], ["dark", ".dark"]]) {
   const base = readRgbToken(scope, "bg-secondary");
-  const accent = readRgbToken(scope, "accent");
-  const parentSurface = base && accent ? blend(accent, base, spotlightParentOpacity) : null;
-  const badgeSurface = parentSurface && accent ? blend(accent, parentSurface, flashBadgeOpacity) : null;
-  const ratio = badgeSurface && accent ? contrastRatio(accent, badgeSurface) : 0;
+  const asset = readRgbToken(scope, "asset");
+  const foreground = readRgbToken(scope, "fg");
+  const parentSurface = base && asset ? blend(asset, base, spotlightParentOpacity) : null;
+  const badgeSurface = parentSurface && asset ? blend(asset, parentSurface, flashBadgeOpacity) : null;
+  const ratio = badgeSurface && foreground ? contrastRatio(foreground, badgeSurface) : 0;
   check(`${label} achievement flash badge text reaches AA after nested composition`,
-    Boolean(base && accent && parentSurface && badgeSurface) && ratio >= 4.5, ratio.toFixed(2));
+    Boolean(base && asset && foreground && parentSurface && badgeSurface) && ratio >= 4.5, ratio.toFixed(2));
 }
 for (const [label, scope] of [["light", ":root"], ["dark", ".dark"]]) {
   const surface = readRgbToken(scope, "bg");
@@ -238,6 +232,15 @@ for (const [label, scope] of [["light", ":root"], ["dark", ".dark"]]) {
     }
   }
 }
+
+section("achievement value hierarchy");
+const achievementSource = readFileSync("app/achievements/page.tsx", "utf8");
+check("main achievement spotlight is an asset surface", spotlightUsesAssetTone);
+check("main achievement count uses asset text", spotlightScope.includes('text-[28px] font-bold tabular-nums leading-none text-asset'));
+check("achievement quality signal uses asset", achievementSource.includes('BarChart3 size={13} className="text-asset"'));
+check("achievement distribution uses asset", achievementSource.includes('className="h-full bg-asset/60 transition-all"'));
+check("project achievement items are divider rows, not cards", achievementSource.includes('className="divide-y divide-border/70"') && achievementSource.includes('className="px-1 py-3 hover:bg-bg-tertiary/40 transition"'));
+check("timeline achievement items are divider rows, not cards", achievementSource.includes('className="overflow-hidden rounded-xl border border-border bg-bg-secondary divide-y divide-border"') && achievementSource.includes('className="px-3 py-3 hover:bg-bg-tertiary/40 transition"'));
 
 section("Tailwind runtime compilation");
 const tempDir = mkdtempSync(join(tmpdir(), "cockpit-visual-tokens-"));
