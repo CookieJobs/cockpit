@@ -219,3 +219,43 @@ curl -s "http://localhost:3002/_next/static/css/app/layout.css?${v}" \
 - lesson #17 (主题切换架构) — 上游 lesson, 主题架构立得正确, 但 config 写法有个坑埋下了
 - lesson #18 (light 色阶) — 同源: 默认值跟 bug 视觉一致时, bug 会被隐藏 (lesson #27 教训 3)
 - lesson #25 (成就二次加工 PR 描述) — 同源: 端到端要真验证, 不能只 grep 字符串
+
+## #31. 语义色不能一色多义，弱底色也必须做组合对比测试（修于 2026-08-11）
+
+### 症状
+
+旧的 amber 同时表示 CTA、已选状态、成就闪现和待补提醒。即使用户读得懂文字，
+也无法在扫视时分清「可点」「已沉淀」和「需要处理」。成就库的项目卡内再放成就卡，
+又让每条资产的视觉重量与项目容器相同，页面显得像深色后台而不是成就库。
+
+### 根因
+
+1. token 只有颜色名，没有产品语义归属；组件直接复用 `accent`，导致暖色含义漂移。
+2. 仅检查单个文字/背景色的对比度，忽略软底色嵌套后实际的合成颜色；深色模式尤其
+   容易掉到 AA 以下。
+3. 把「分组」误实现为「每个层级都加一张卡」，没有区分容器和列表行。
+
+### 教训
+
+1. **token 必须先写所有权，再写颜色。** interaction = indigo 的操作与选中，asset =
+   gold 的可复用成就，warning = orange 的风险/缺数据；不能跨角色借色。颜色调整时先
+   改 token 层，再由 `getVisualTone()` 给组件提供 treatment。
+2. **软底色要有单一允许值表，并验证最终合成对比。** `SOFT_TONE_OPACITIES` 是产品
+   唯一允许的透明度；测试需覆盖 light/dark、父表面叠加与 Tailwind 编译产物，不能只
+   grep class 或测原色。
+3. **卡片用于边界，divider 用于条目。** 成就库保留项目组和质量摘要卡；组内资产与
+   时间线是带分隔线的行，信息密度更高且编辑/补全操作仍可清楚定位。
+4. **视觉升级先用现有 token 系统，不以渐变或新设计系统替代层级。** 渐变会掩盖状态，
+   第三方 DS 会扩大主题与状态回归面；在 CSS variables + Tailwind 已能表达需求时，
+   先增强语义、对比和密度。
+
+### 修法位置
+
+- `web/app/globals.css` — `accent` / `asset` / `warning` 的 light/dark token 与
+  blue-grey 深色层级。
+- `web/tailwind.config.ts` — `asset` 的函数式 CSS-variable colour mapping 和 JIT
+  safelist；必须保留 `web/lib/` content scan（见 #27）。
+- `web/lib/visual-system.ts` — 角色到 Tailwind treatment 的共享边界与可用软底色。
+- `web/components/MainBoard.tsx`、`web/app/achievements/page.tsx`、
+  `web/app/report/page.tsx` — 分别消费成就价值、交互和风险角色。
+- `web/scripts/test-visual-tokens.mjs` — 角色、编译产物、弱底色和组合对比回归契约。

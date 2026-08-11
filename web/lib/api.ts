@@ -58,21 +58,21 @@ export type CVStatus = "pending" | "needs_data" | "ready";
 //   软底色 (color/15) + 同色描边 (color/30) + 同色文字
 //   P0 红 (0°)    = 最急 / danger
 //   P1 橙 (30°)   = 高 / warning
-//   P2 蓝 (220°)  = 普通 (默认) / info ← 2026-07-23 从琥珀换蓝色, 跟 P1 拉开 200°
+//   P2 蓝 (220°)  = 普通 (默认) / info，跟 P1 暖色拉开 200°
 //   P3 绿 (142°)  = 不急 / success ← 2026-07-23 从灰色换绿色, 跟 P0/P1/P2 一致
 //                                                       用彩色表达"放松/无压力"
 // 共享给 MainBoard 的 TaskRow (PriorityMenu trigger + popover 列表项),
 // MainBoard 的 FocusItem (今日聚焦卡, 只读 span) 和
 // /today 的 FocusRow (今日聚焦行, 只读 span) — 三处永远同步, 改颜色梯度只改一处。
-// 跟 StatusMenu (短横条 + 灰/琥珀/绿) 颜色梯度协调, 但形状/语义完全区分
+// 跟 StatusMenu (短横条 + 灰/靛蓝/绿) 颜色梯度协调, 但形状/语义完全区分
 // (StatusMenu 是进度编码, PriorityMenu 是紧急度编码 — 两个不同维度)。
-// 注: P2 用 info (蓝) 而非 accent (琥珀), 避免跟 P1 (橙) 暖色撞色, 也避免跟
-//     StatusMenu "进行中" (accent 琥珀) 视觉混淆 — 普通优先级是中性默认态, 蓝色最不抢眼。
+// 注: P2 用 info (蓝) 而非 accent (靛蓝), 避免跟 P1 (橙) 暖色撞色, 也避免跟
+//     StatusMenu "进行中" (accent 靛蓝) 视觉混淆 — 普通优先级是中性默认态, 蓝色最不抢眼。
 //     P3 用 success (绿) 而非 fg-secondary (灰), 跟 P0 红/P1 橙/P2 蓝形成完整色环
 //     (0° → 30° → 220° → 142°), 不急 = 放松, 绿色符合直觉。
 export const PRIORITY_BADGE_STYLES: Record<Priority, string> = {
   P0: "bg-danger/15 text-danger border-danger/30",
-  P1: "bg-warning/15 text-warning border-warning/30",
+  P1: "bg-warning/5 text-warning border-warning/30",
   P2: "bg-info/15 text-info border-info/30",
   P3: "bg-success/15 text-success border-success/30",
 };

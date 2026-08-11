@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { getVisualTone } from "@/lib/visual-system";
 
 type StatusFilter = "all" | "needs_data" | "pending" | "ready";
 // v0.4.1 立: 视图模式 — 按项目分组 vs 按时间倒序
@@ -156,7 +157,7 @@ export default function AchievementsPage() {
         {items && items.length > 0 && (
           <div className="rounded-lg border border-border bg-bg-secondary px-4 py-3 mb-4">
             <div className="flex items-center gap-2 mb-2.5">
-              <BarChart3 size={13} className="text-accent" />
+              <BarChart3 size={13} className="text-asset" />
               <span className="text-[12px] text-fg-secondary font-medium">沉淀质量</span>
               <span className="text-[10.5px] text-fg-muted/80">· v0.3.5 / v0.4.3</span>
             </div>
@@ -209,7 +210,7 @@ export default function AchievementsPage() {
                         </span>
                         <div className="flex-1 h-3 bg-bg/50 rounded-sm overflow-hidden border border-border/40">
                           <div
-                            className="h-full bg-accent/60 transition-all"
+                            className="h-full bg-asset/60 transition-all"
                             style={{ width: `${(d.count / maxCount) * 100}%` }}
                           />
                         </div>
@@ -239,7 +240,7 @@ export default function AchievementsPage() {
                 onClick={() => updateViewMode(it.k)}
                 className={`text-[11.5px] px-2.5 py-1 rounded transition flex items-center gap-1 ${
                   viewMode === it.k
-                    ? "bg-accent/15 text-accent border border-accent/30"
+                    ? getVisualTone("interaction")
                     : "text-fg-muted hover:text-fg border border-transparent hover:bg-bg-tertiary"
                 }`}
                 title={
@@ -268,7 +269,7 @@ export default function AchievementsPage() {
                 onClick={() => setFilter(it.k)}
                 className={`px-2.5 py-1 rounded text-[12px] transition ${
                   filter === it.k
-                    ? "bg-accent/15 text-accent"
+                    ? getVisualTone("interaction")
                     : "text-fg-muted hover:text-fg hover:bg-bg-tertiary"
                 }`}
               >
@@ -295,7 +296,7 @@ export default function AchievementsPage() {
             <div className="flex items-center justify-center gap-2 pt-1">
               <Link
                 href="/"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 transition"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/5 text-accent border border-accent/30 hover:bg-accent/10 transition"
               >
                 打开看板
               </Link>
@@ -385,7 +386,7 @@ function ProjectSection({
                     {list.length}
                   </span>
                 </h2>
-                <div className="space-y-2">
+                <div className="divide-y divide-border/70">
                   {list.map((a) => (
                     <AchievementItem key={a.id} a={a} onMutate={onMutate} />
                   ))}
@@ -426,7 +427,7 @@ function AchievementItem({
   };
 
   return (
-    <div className="rounded-lg border border-border bg-bg p-3 hover:border-border-hover transition">
+    <div className="px-1 py-3 hover:bg-bg-tertiary/40 transition">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -441,7 +442,7 @@ function AchievementItem({
             {a.cv_status === "needs_data" && (
               <Link
                 href={`/achievements/follow-up?focus=${a.id}`}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning font-medium"
+                className="text-[10px] px-1.5 py-0.5 rounded bg-warning/5 text-warning font-medium"
                 title="补全追问后会自动进入 ready"
               >
                 📊 还差数据 · 去补全
@@ -464,7 +465,7 @@ function AchievementItem({
               <div className="flex gap-2">
                 <button
                   onClick={saveEdit}
-                  className="text-xs px-3 py-1 bg-accent text-black rounded hover:bg-accent-hover"
+                  className="text-xs px-3 py-1 bg-accent text-bg rounded hover:bg-accent-hover"
                 >
                   保存
                 </button>
@@ -553,7 +554,7 @@ function TimelineView({
   );
 
   return (
-    <div className="space-y-1.5">
+    <div className="overflow-hidden rounded-xl border border-border bg-bg-secondary divide-y divide-border">
       {sorted.map((a) => (
         <AchievementCard key={a.id} achievement={a} mutate={mutate} />
       ))}
@@ -623,7 +624,7 @@ function AchievementCard({
   const StatusIcon = statusBadge.icon;
 
   return (
-    <div className="rounded-md border border-border bg-bg-secondary p-3 hover:border-accent/30 transition">
+    <div className="px-3 py-3 hover:bg-bg-tertiary/40 transition">
       <div className="flex items-start justify-between gap-2 mb-1.5">
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           <span className="text-[12px] flex-shrink-0 opacity-70">
@@ -654,7 +655,7 @@ function AchievementCard({
             <button
               onClick={save}
               disabled={saving}
-              className="text-[11px] px-2 py-1 rounded bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40"
+              className="text-[11px] px-2 py-1 rounded bg-accent/5 text-accent hover:bg-accent/10 disabled:opacity-40"
             >
               {saving ? "保存中..." : "保存"}
             </button>

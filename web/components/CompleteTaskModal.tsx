@@ -280,7 +280,7 @@ export function CompleteTaskModal({
                 "text-[11px] px-2.5 py-1 rounded transition flex items-center gap-1 " +
                 (polishing || !outcome.trim()
                   ? "bg-bg-tertiary text-fg-muted cursor-not-allowed"  // disabled: 灰底灰字, 强对比
-                  : "bg-accent/15 text-accent hover:bg-accent/25")  // enabled: accent 色调
+                  : "bg-accent/5 text-accent hover:bg-accent/10")  // enabled: accent 色调
               }
               title={
                 outcome.trim()
@@ -383,7 +383,7 @@ export function CompleteTaskModal({
             跟原"✨ 润色"按钮形成"主动建议 + 手动精修"双轨. */}
         {autoSuggestedCv && (
           <div className="px-5 pt-3">
-            <div className="rounded-md bg-accent/8 border border-accent/25 px-3 py-2.5">
+            <div className="rounded-md bg-accent/5 border border-accent/25 px-3 py-2.5">
               <div className="flex items-center justify-between mb-1.5">
                 <div className="text-[11px] text-accent font-medium flex items-center gap-1.5">
                   <Sparkles size={12} />
@@ -407,7 +407,7 @@ export function CompleteTaskModal({
                 <button
                   type="button"
                   onClick={acceptSuggestion}
-                  className="text-[11px] px-2.5 py-1 rounded bg-accent/20 text-accent hover:bg-accent/30 transition flex items-center gap-1"
+                  className="text-[11px] px-2.5 py-1 rounded bg-accent/5 text-accent hover:bg-accent/10 transition flex items-center gap-1"
                 >
                   <Check size={10} />
                   采纳
@@ -526,7 +526,7 @@ export function CompleteTaskModal({
                     onClick={() => setCvStatus("needs_data")}
                     className={`flex-1 px-2 py-2 rounded-md text-[12px] border transition ${
                       cvStatus === "needs_data"
-                        ? "bg-warning/10 border-warning text-warning"
+                        ? "bg-warning/5 border-warning text-warning"
                         : "bg-bg border-border text-fg-muted hover:text-fg"
                     }`}
                   >
@@ -563,7 +563,7 @@ export function CompleteTaskModal({
           <button
             onClick={submit}
             disabled={!outcome.trim() || !cv.trim() || submitting}
-            className="px-4 py-1.5 text-[13px] font-medium bg-accent text-black rounded-md hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1.5"
+            className="px-4 py-1.5 text-[13px] font-medium bg-accent text-bg rounded-md hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1.5"
           >
             <Check size={13} strokeWidth={2.5} />
             {submitting ? "沉淀中..." : "沉淀成就"}

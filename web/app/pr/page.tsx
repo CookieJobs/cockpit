@@ -189,7 +189,7 @@ export default function PrPage() {
                       onClick={() => setSelectedProjectId(p.id)}
                       className={`text-[12px] px-2.5 py-1.5 rounded transition ${
                         selectedProjectId === p.id
-                          ? "bg-accent/15 text-accent border border-accent/30"
+                          ? "bg-accent/10 text-accent border border-accent/30"
                           : "bg-bg-tertiary text-fg-secondary hover:text-fg border border-transparent"
                       }`}
                     >
@@ -282,7 +282,7 @@ export default function PrPage() {
             <button
               onClick={generate}
               disabled={generating || selectedAchievements.length === 0}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md text-[13px] font-semibold bg-accent text-black hover:bg-accent-hover transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md text-[13px] font-semibold bg-accent text-bg hover:bg-accent-hover transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {generating ? (
                 <>

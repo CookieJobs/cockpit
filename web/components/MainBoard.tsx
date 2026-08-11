@@ -32,6 +32,8 @@ import { OnboardingTooltip } from "./OnboardingTooltip";
 import { usePopover, usePopoverPosition } from "./Popover";
 import { useToast } from "./Toast";
 import Link from "next/link";
+import { getChatLauncherClassName, getChatPanelClassName } from "@/lib/board-layout";
+import { getVisualTone } from "@/lib/visual-system";
 
 const CHAT_COLLAPSED_KEY = "cockpit_chat_collapsed";
 
@@ -145,15 +147,15 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
     <div className="flex h-screen bg-bg">
       {/* 左栏:项目 + 任务 — 主视图,占主空间 */}
       <div className="flex-1 min-w-0 border-r border-border flex flex-col bg-bg-secondary">
-        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-          <h1 className="text-[17px] font-semibold text-fg tracking-tight">
+        <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-border flex items-center gap-3">
+          <h1 className="shrink-0 text-[17px] font-semibold text-fg tracking-tight">
             Cockpit
           </h1>
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-3">
             {/* LLM 状态徽章 */}
             {llmStatus && (
               <span
-                className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                className={`shrink-0 text-[11px] px-2 py-0.5 rounded-full font-medium ${
                   llmStatus.available
                     ? "bg-success/10 text-success"
                     : "bg-fg-muted/10 text-fg-muted"
@@ -169,7 +171,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
             <FollowUpReminder />
             <Link
               href="/report"
-              className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
+              className="shrink-0 text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
               title="周报/述职 workspace"
             >
               <Sparkles size={11} />
@@ -178,7 +180,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
             {/* 2026-08-01 立: PR 描述生成入口 (项目维度) */}
             <Link
               href="/pr"
-              className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
+              className="shrink-0 text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
               title="从 ready 成就生成 GitHub PR 描述"
             >
               <FileCode size={11} />
@@ -187,7 +189,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
             {/* v0.4.2 立: 跨项目 CV 视图 (时间维度, 一次沉淀多次输出的"输出"端基础) */}
             <Link
               href="/cv"
-              className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
+              className="shrink-0 text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
               title="跨项目 CV 视图 (按时间倒序拉所有 ready 成就)"
             >
               <FileText size={11} />
@@ -205,13 +207,13 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
             <IntegrationNavLink />
             <Link
               href="/achievements"
-              className="text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary"
+              className="shrink-0 text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary"
             >
               成就
             </Link>
             <Link
               href="/settings"
-              className="text-fg-muted hover:text-fg transition p-1.5 rounded hover:bg-bg-tertiary"
+              className="shrink-0 text-fg-muted hover:text-fg transition p-1.5 rounded hover:bg-bg-tertiary"
               title="设置"
             >
               <Settings size={14} />
@@ -228,7 +230,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
          *   "今日 +N" + "查看全部 →" — 把心理重心从"待办焦虑"切到"已有积累"。
          *
          * 设计决定:
-         * - 大数字 readyCount (text-accent 28px) — 跟 "12 条成就" 文案对比明显
+         * - 大数字 readyCount (text-asset 28px) — 跟 "12 条成就" 文案对比明显
          * - 右侧 stack: 今日 +N (fg) + 待补 N (warning) + 待办 N (fg-muted)
          * - 底部: "查看全部 →" 链接到 /achievements — 闭环
          * - highlight 动画: readyCount +1 时 readyFlash=true, 数字 + 卡片背景闪
@@ -239,23 +241,19 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
           data-testid="achievement-spotlight"
           className={`mx-4 mt-3 mb-2 px-4 py-3 rounded-lg border transition-colors duration-500 ${
             readyFlash
-              ? "bg-accent/10 border-accent/30"
+              ? getVisualTone("asset")
               : "bg-bg-tertiary border-border"
           }`}
         >
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-baseline gap-2 min-w-0">
-              <strong
-                className={`text-[28px] font-bold tabular-nums leading-none transition-colors duration-500 ${
-                  readyFlash ? "text-accent" : "text-fg"
-                }`}
-              >
+              <strong className="text-[28px] font-bold tabular-nums leading-none text-asset transition-colors duration-500">
                 {readyCount}
               </strong>
               <span className="text-[12px] text-fg-secondary">条已沉淀成就</span>
               {readyFlash && (
                 <span
-                  className="text-[10px] text-accent font-medium px-1.5 py-0.5 rounded bg-accent/15 animate-pulse"
+                  className="text-[10px] font-medium px-1.5 py-0.5 rounded border border-asset/40 text-fg animate-pulse"
                   data-testid="achievement-spotlight-flash"
                 >
                   +1
@@ -286,7 +284,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
           {readyCount > 0 && (
             <Link
               href="/achievements"
-              className="mt-2 inline-flex items-center gap-1 text-[11px] text-fg-secondary hover:text-accent transition group"
+              className="mt-2 inline-flex items-center gap-1 text-[11px] text-fg-secondary hover:text-asset transition group"
             >
               查看全部 {readyCount} 条成就
               <ChevronRight
@@ -361,23 +359,23 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
 
       {/* 右栏:对话窗口 - 折叠态:44px 窄条;展开态:w-[35%] 侧栏 */}
       {chatOpen ? (
-        <div className="w-[35%] min-w-[360px] max-w-[640px] flex flex-col">
+        <div className={getChatPanelClassName()}>
           <ChatWindow onAction={refresh} onCollapse={() => toggleChat()} />
         </div>
       ) : (
         <button
           onClick={() => toggleChat()}
-          className="w-11 flex-shrink-0 border-l border-border bg-bg-secondary hover:bg-bg-tertiary transition flex flex-col items-center justify-start pt-4 gap-3 text-fg-muted hover:text-fg group"
+          className={getChatLauncherClassName()}
           title="展开对话"
         >
           <PanelRightOpen size={16} />
           <span
-            className="text-[10px] tracking-wider"
+            className="hidden text-[10px] tracking-wider md:block"
             style={{ writingMode: "vertical-rl" }}
           >
             展开对话
           </span>
-          <MessageSquare size={12} className="mt-2 opacity-50 group-hover:opacity-100" />
+          <MessageSquare size={16} className="opacity-70 group-hover:opacity-100 md:mt-2 md:text-[12px]" />
         </button>
       )}
     </div>
@@ -497,14 +495,14 @@ function FocusSection({
           </div>
           <div className="text-[12px] text-fg-muted">
             {isNewUser
-              ? "在右栏对话试试「加个任务：完成 XX」"
-              : "加新任务继续 — 在右栏对话里说「加个任务」"}
+              ? "在对话里试试「加个任务：完成 XX」"
+              : "加新任务继续 — 在对话里说「加个任务」"}
           </div>
           <button
             onClick={onRequestFocusChat}
-            className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 transition"
+            className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/5 text-accent border border-accent/30 hover:bg-accent/10 transition"
           >
-            {isNewUser ? "去对话建项目" : "加新任务"}
+            {isNewUser ? "去对话添加任务" : "加新任务"}
           </button>
         </div>
       </div>
@@ -730,7 +728,7 @@ function DoneTodaySection({
                       <Check size={12} className="text-success flex-shrink-0" strokeWidth={2.5} />
                       <span className="text-[13px] text-fg truncate">{a.title}</span>
                       {a.cv_status === "pending" && (
-                        <span className="text-[10px] px-1.5 py-0 rounded bg-warning/20 text-warning font-medium flex-shrink-0">
+                        <span className="text-[10px] px-1.5 py-0 rounded bg-warning/5 text-warning font-medium flex-shrink-0">
                           CV 待补
                         </span>
                       )}
@@ -1006,11 +1004,11 @@ function ProjectsSection({
                 <div className="text-[20px]">📁</div>
                 <div className="text-fg-secondary font-medium">还没有项目</div>
                 <div className="text-[12px]">
-                  在右栏对话试试「建一个项目：XX」
+                  在对话里试试「建一个项目：XX」
                 </div>
                 <button
                   onClick={onRequestFocusChat}
-                  className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 transition"
+                  className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/5 text-accent border border-accent/30 hover:bg-accent/10 transition"
                 >
                   去对话建项目
                 </button>
@@ -1474,7 +1472,7 @@ function ProjectCard({
                 <button
                   type="submit"
                   disabled={!newTaskTitle.trim() || addingBusy}
-                  className="px-2.5 py-1.5 bg-accent text-black text-[13px] font-medium rounded-md hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  className="px-2.5 py-1.5 bg-accent text-bg text-[13px] font-medium rounded-md hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition"
                 >
                   添加
                 </button>
@@ -1531,7 +1529,7 @@ function ProjectCard({
                         {a.title}
                       </span>
                       {a.cv_status === "pending" && (
-                        <span className="text-[9px] px-1 py-0 rounded bg-warning/20 text-warning font-medium flex-shrink-0">
+                        <span className="text-[9px] px-1 py-0 rounded bg-warning/5 text-warning font-medium flex-shrink-0">
                           CV 待补
                         </span>
                       )}
@@ -1978,7 +1976,7 @@ function PriorityMenu({
   //   3. 升 4 档 (P0/P1/P2/P3) 顺便跟业界 incident / 故障分级对齐, 沟通更精准。
   // 视觉设计:
   //   软底色 (color/15) + 同色描边 (color/30) + 同色文字 (color) + 圆角 4px
-  //   P0 红 (最急) → P1 橙 → P2 琥珀 → P3 灰 (不急) — 颜色饱和度跟紧急度匹配
+  //   P0 红 (最急) → P1 橙 → P2 蓝 → P3 绿 (不急) — 颜色饱和度跟紧急度匹配
   //   hover brightness 提亮, open 状态 ring-accent — 跟 StatusMenu 视觉语言一致
   // (2026-07-22) 抽 usePopover: 跟 StatusMenu 共用 web/components/Popover.tsx 的 hook
   //   (click-outside / Esc / focus trigger / Portal+fixed 全部复用)
@@ -2466,7 +2464,7 @@ function DescriptionEditor({
           className="w-full bg-bg border border-border rounded px-2 py-1 text-xs text-fg placeholder-fg-muted resize-none focus:outline-none focus:border-accent"
         />
         <div className="flex items-center gap-2 text-[10px] text-fg-muted">
-          <button onClick={save} className="px-2 py-0.5 bg-accent text-black rounded">
+          <button onClick={save} className="px-2 py-0.5 bg-accent text-bg rounded">
             保存
           </button>
           <button onClick={cancel} className="px-2 py-0.5 hover:text-fg">

@@ -156,7 +156,7 @@ export function OnboardingTooltip() {
           </button>
           <button
             onClick={next}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[13px] font-semibold bg-accent text-black hover:bg-accent-hover transition"
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[13px] font-semibold bg-accent text-bg hover:bg-accent-hover transition"
           >
             {isLast ? (
               <>

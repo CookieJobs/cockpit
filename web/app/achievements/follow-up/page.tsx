@@ -151,7 +151,7 @@ export default function FollowUpPage() {
             </div>
             <Link
               href="/"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 transition"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/5 text-accent border border-accent/30 hover:bg-accent/10 transition"
             >
               打开看板
             </Link>
@@ -230,7 +230,7 @@ export default function FollowUpPage() {
                       <button
                         onClick={() => save(item)}
                         disabled={!allAnswered || savingId === item.id}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent text-black hover:bg-accent-hover transition disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent text-bg hover:bg-accent-hover transition disabled:opacity-40 disabled:cursor-not-allowed"
                         title={allAnswered ? "保存并升级 cv_status" : "答完所有追问才能保存"}
                       >
                         {savingId === item.id ? (

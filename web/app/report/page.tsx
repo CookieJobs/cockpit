@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { api, type Achievement } from "@/lib/api";
 import { TIME_RANGES, TEMPLATES, generateReport, type TemplateKind } from "@/lib/templates";
+import { getVisualTone } from "@/lib/visual-system";
 
 export default function ReportPage() {
   // 顶部选择
@@ -123,7 +124,7 @@ export default function ReportPage() {
                 <Sparkles size={16} className="text-accent" />
                 周报/述职 workspace
               </h1>
-              <div className="text-[12px] text-fg-muted mt-0.5">
+              <div className="text-[13px] text-fg-muted mt-0.5">
                 5 分钟搞定, 不是 30 分钟翻成就库
               </div>
             </div>
@@ -141,7 +142,7 @@ export default function ReportPage() {
         {followUps && followUps.total > 0 && (
           <div className="rounded-lg border border-info/30 bg-info/5 p-3.5 mb-4">
             <div className="flex items-center justify-between mb-2.5">
-              <div className="flex items-center gap-1.5 text-[12px] font-medium text-info">
+              <div className="flex items-center gap-1.5 text-[13px] font-medium text-info">
                 <AlertCircle size={13} />
                 还有 {followUps.total} 条成就在等你补全追问
                 <span className="text-[10.5px] text-fg-muted font-normal ml-1">· 写周报前补完, cv 立刻 ready</span>
@@ -165,7 +166,7 @@ export default function ReportPage() {
                     {a.date}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[12px] text-fg-secondary truncate">
+                    <div className="text-[13px] text-fg-secondary truncate">
                       {a.title}
                     </div>
                     {a.follow_up_questions.length > 0 && (
@@ -193,9 +194,9 @@ export default function ReportPage() {
                   <button
                     key={r.key}
                     onClick={() => setRangeKey(r.key)}
-                    className={`px-3 py-1.5 rounded text-[12px] transition ${
+                    className={`px-3 py-1.5 rounded text-[13px] transition ${
                       r.key === rangeKey
-                        ? "bg-accent/15 text-accent border border-accent/40"
+                        ? "bg-accent/10 text-accent border border-accent/40"
                         : "bg-bg border border-border text-fg-secondary hover:text-fg hover:border-border-hover"
                     }`}
                     title={r.description}
@@ -204,7 +205,7 @@ export default function ReportPage() {
                   </button>
                 ))}
               </div>
-              <div className="text-[11px] text-fg-muted mt-1.5">
+              <div className="text-[13px] text-fg-muted mt-1.5">
                 {range.since()} ~ {range.until()} · {range.description}
               </div>
             </div>
@@ -217,9 +218,9 @@ export default function ReportPage() {
                   <button
                     key={t.key}
                     onClick={() => setTemplateKey(t.key)}
-                    className={`px-3 py-1.5 rounded text-[12px] transition ${
+                    className={`px-3 py-1.5 rounded text-[13px] transition ${
                       t.key === templateKey
-                        ? "bg-accent/15 text-accent border border-accent/40"
+                        ? "bg-accent/10 text-accent border border-accent/40"
                         : "bg-bg border border-border text-fg-secondary hover:text-fg hover:border-border-hover"
                     }`}
                     title={t.description}
@@ -228,7 +229,7 @@ export default function ReportPage() {
                   </button>
                 ))}
               </div>
-              <div className="text-[11px] text-fg-muted mt-1.5">
+              <div className="text-[13px] text-fg-muted mt-1.5">
                 {template.description}
               </div>
             </div>
@@ -236,9 +237,9 @@ export default function ReportPage() {
         </div>
 
         {/* 主体两栏 */}
-        <div className="grid grid-cols-12 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
           {/* 左侧 40%: 待补成就 + 升级入口 */}
-          <div className="col-span-5 space-y-3">
+          <div className="col-span-1 space-y-3 md:col-span-5">
             <PendingCard
               title="📊 还差数据"
               hint="cv 已写但证据不全 — 补充数据后才会进入报告"
@@ -255,13 +256,13 @@ export default function ReportPage() {
             />
             {/* 报告内数据统计 */}
             {report && (
-              <div className="rounded-lg border border-border bg-bg-secondary p-3 text-[12px] text-fg-muted">
+              <div className="rounded-lg border border-border bg-bg-secondary p-3 text-[13px] text-fg-muted">
                 <div className="flex items-center gap-2 mb-1">
                   <Filter size={11} />
                   <span className="font-semibold text-fg-secondary">本次报告</span>
                 </div>
                 <div>
-                  使用 {report.usedAchievements.length} 条成就
+                  使用 <span data-testid="report-value-count" className="font-semibold tabular-nums text-asset">{report.usedAchievements.length}</span> 条成就
                   {template.key === "review_quarterly" && (
                     <span className="ml-1">(述职只取 ready, 其他状态先升级)</span>
                   )}
@@ -276,7 +277,7 @@ export default function ReportPage() {
           </div>
 
           {/* 右侧 60%: 报告预览 / 编辑 */}
-          <div className="col-span-7">
+          <div className="col-span-1 md:col-span-7">
             <div className="rounded-lg border border-border bg-bg-secondary overflow-hidden flex flex-col" style={{ minHeight: 480 }}>
               {/* 工具条 */}
               <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-bg-tertiary/30">
@@ -312,7 +313,7 @@ export default function ReportPage() {
                   <button
                     onClick={downloadMd}
                     disabled={!displayMarkdown}
-                    className="text-[12px] px-2.5 py-1 rounded bg-accent text-black hover:bg-accent-hover transition flex items-center gap-1.5 disabled:opacity-40"
+                    className="text-[12px] px-2.5 py-1 rounded bg-accent text-bg hover:bg-accent-hover transition flex items-center gap-1.5 disabled:opacity-40"
                   >
                     <Download size={12} />
                     下载 .md
@@ -365,22 +366,21 @@ function PendingCard({
   emptyText: string;
   accent: "warning" | "muted";
 }) {
-  const ringColor = accent === "warning" ? "border-warning/30" : "border-border";
-  const titleColor = accent === "warning" ? "text-warning" : "text-fg-secondary";
+  const roleTreatment = accent === "warning" ? getVisualTone("warning") : "border border-border text-fg-secondary";
   return (
-    <div className={`rounded-lg border ${ringColor} bg-bg-secondary p-3`}>
+    <div className={`rounded-lg ${roleTreatment} ${accent === "muted" ? "bg-bg-secondary" : ""} p-3`}>
       <div className="flex items-center justify-between mb-2">
-        <div className={`text-[13px] font-semibold ${titleColor} flex items-center gap-1.5`}>
+        <div className="text-[13px] font-semibold flex items-center gap-1.5">
           {title}
           <span className="text-[11px] text-fg-muted font-normal">
             {items.length}
           </span>
         </div>
       </div>
-      <div className="text-[11px] text-fg-muted mb-2">{hint}</div>
+      <div className="text-[13px] text-fg-muted mb-2">{hint}</div>
       {items.length === 0 ? (
-        <div className="text-[12px] text-fg-muted py-3 text-center">
-          {emptyText}
+        <div data-testid="report-recovery-summary" className="rounded-md border border-border/70 bg-bg px-3 py-2.5 text-[13px] text-fg-muted">
+          {emptyText} <span className="text-fg-secondary">现在可以直接专注于报告内容。</span>
         </div>
       ) : (
         <div className="space-y-1.5 max-h-[260px] overflow-y-auto">
@@ -391,7 +391,7 @@ function PendingCard({
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
-                  <div className="text-[12px] text-fg truncate font-medium">
+                  <div className="text-[13px] text-fg truncate font-medium">
                     {a.title}
                   </div>
                   <div className="text-[11px] text-fg-muted mt-0.5 flex items-center gap-1.5">
@@ -401,7 +401,7 @@ function PendingCard({
                     )}
                   </div>
                   {a.cv && (
-                    <div className="text-[11px] text-fg-secondary mt-1 line-clamp-2">
+                    <div className="text-[13px] text-fg-secondary mt-1 line-clamp-2">
                       {a.cv}
                     </div>
                   )}
