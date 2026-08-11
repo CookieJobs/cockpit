@@ -237,9 +237,9 @@ export default function ReportPage() {
         </div>
 
         {/* 主体两栏 */}
-        <div className="grid grid-cols-12 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
           {/* 左侧 40%: 待补成就 + 升级入口 */}
-          <div className="col-span-5 space-y-3">
+          <div className="col-span-1 space-y-3 md:col-span-5">
             <PendingCard
               title="📊 还差数据"
               hint="cv 已写但证据不全 — 补充数据后才会进入报告"
@@ -277,7 +277,7 @@ export default function ReportPage() {
           </div>
 
           {/* 右侧 60%: 报告预览 / 编辑 */}
-          <div className="col-span-7">
+          <div className="col-span-1 md:col-span-7">
             <div className="rounded-lg border border-border bg-bg-secondary overflow-hidden flex flex-col" style={{ minHeight: 480 }}>
               {/* 工具条 */}
               <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-bg-tertiary/30">

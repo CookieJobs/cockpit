@@ -249,6 +249,7 @@ check("report value count is the only asset signal", reportSource.includes('data
 check("report recovery summaries keep warning separate from interaction", reportSource.includes('getVisualTone("warning")') && !reportSource.includes('bg-accent/10 text-warning'));
 check("empty report completeness states render compact recovery summaries", reportSource.includes('data-testid="report-recovery-summary"') && reportSource.includes('px-3 py-2.5'));
 check("report reading copy uses a 13px floor", reportSource.includes('text-[13px] text-fg-secondary mt-1 line-clamp-2') && reportSource.includes('text-[13px] text-fg-muted'));
+check("report workspace stacks recovery before preview on mobile", reportSource.includes('className="grid grid-cols-1 gap-4 md:grid-cols-12"') && reportSource.includes('className="col-span-1 space-y-3 md:col-span-5"') && reportSource.includes('className="col-span-1 md:col-span-7"'));
 
 section("Tailwind runtime compilation");
 const tempDir = mkdtempSync(join(tmpdir(), "cockpit-visual-tokens-"));
