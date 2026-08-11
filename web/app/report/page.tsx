@@ -312,7 +312,7 @@ export default function ReportPage() {
                   <button
                     onClick={downloadMd}
                     disabled={!displayMarkdown}
-                    className="text-[12px] px-2.5 py-1 rounded bg-accent text-black hover:bg-accent-hover transition flex items-center gap-1.5 disabled:opacity-40"
+                    className="text-[12px] px-2.5 py-1 rounded bg-accent text-bg hover:bg-accent-hover transition flex items-center gap-1.5 disabled:opacity-40"
                   >
                     <Download size={12} />
                     下载 .md

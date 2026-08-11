@@ -464,7 +464,7 @@ function AchievementItem({
               <div className="flex gap-2">
                 <button
                   onClick={saveEdit}
-                  className="text-xs px-3 py-1 bg-accent text-black rounded hover:bg-accent-hover"
+                  className="text-xs px-3 py-1 bg-accent text-bg rounded hover:bg-accent-hover"
                 >
                   保存
                 </button>

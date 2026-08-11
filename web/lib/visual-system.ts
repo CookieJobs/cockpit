@@ -18,12 +18,12 @@ const VISUAL_TONES: Record<VisualRole, Record<VisualTreatment, string>> = {
     text: "text-accent hover:text-accent-hover",
   },
   asset: {
-    soft: "border border-asset/35 bg-asset/10 text-asset",
+    soft: "border border-asset/35 bg-asset/5 text-asset",
     solid: "bg-asset text-bg hover:bg-asset-hover",
     text: "text-asset hover:text-asset-hover",
   },
   warning: {
-    soft: "border border-warning/35 bg-warning/10 text-warning",
+    soft: "border border-warning/35 bg-warning/5 text-warning",
     solid: "bg-warning text-bg hover:bg-warning-hover",
     text: "text-warning hover:text-warning-hover",
   },

@@ -282,7 +282,7 @@ export default function PrPage() {
             <button
               onClick={generate}
               disabled={generating || selectedAchievements.length === 0}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md text-[13px] font-semibold bg-accent text-black hover:bg-accent-hover transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md text-[13px] font-semibold bg-accent text-bg hover:bg-accent-hover transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {generating ? (
                 <>

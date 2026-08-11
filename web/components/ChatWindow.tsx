@@ -425,7 +425,7 @@ export function ChatWindow({
             }}
             className={`text-xs px-2 py-1 border border-border rounded transition flex items-center gap-1 ${
               historyOpen
-                ? "bg-accent text-black"
+                ? "bg-accent text-bg"
                 : "bg-bg-secondary text-fg-secondary hover:border-border-hover hover:text-fg"
             }`}
             title="历史对话"
@@ -469,7 +469,7 @@ export function ChatWindow({
               <div
                 className={`rounded-lg px-4 py-2.5 ${
                   m.role === "user"
-                    ? "bg-accent text-black"
+                    ? "bg-accent text-bg"
                     : "bg-bg-secondary border border-border text-fg"
                 }`}
               >
@@ -548,7 +548,7 @@ export function ChatWindow({
           <button
             type="submit"
             disabled={loading || !input.trim()}
-            className="p-2 bg-accent text-black rounded-lg hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition shrink-0"
+            className="p-2 bg-accent text-bg rounded-lg hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition shrink-0"
           >
             <Send size={16} />
           </button>

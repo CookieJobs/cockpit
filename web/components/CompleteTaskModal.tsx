@@ -563,7 +563,7 @@ export function CompleteTaskModal({
           <button
             onClick={submit}
             disabled={!outcome.trim() || !cv.trim() || submitting}
-            className="px-4 py-1.5 text-[13px] font-medium bg-accent text-black rounded-md hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1.5"
+            className="px-4 py-1.5 text-[13px] font-medium bg-accent text-bg rounded-md hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1.5"
           >
             <Check size={13} strokeWidth={2.5} />
             {submitting ? "沉淀中..." : "沉淀成就"}

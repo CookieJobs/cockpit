@@ -447,7 +447,7 @@ function LLMConfigForm({
         <button
           onClick={save}
           disabled={saving}
-          className="text-xs px-3 py-1.5 bg-accent text-black rounded hover:bg-accent-hover disabled:opacity-50 transition flex items-center gap-1"
+          className="text-xs px-3 py-1.5 bg-accent text-bg rounded hover:bg-accent-hover disabled:opacity-50 transition flex items-center gap-1"
         >
           <Save size={12} />
           {saving ? "保存中..." : "保存"}

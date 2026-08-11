@@ -1474,7 +1474,7 @@ function ProjectCard({
                 <button
                   type="submit"
                   disabled={!newTaskTitle.trim() || addingBusy}
-                  className="px-2.5 py-1.5 bg-accent text-black text-[13px] font-medium rounded-md hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  className="px-2.5 py-1.5 bg-accent text-bg text-[13px] font-medium rounded-md hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition"
                 >
                   添加
                 </button>
@@ -1978,7 +1978,7 @@ function PriorityMenu({
   //   3. 升 4 档 (P0/P1/P2/P3) 顺便跟业界 incident / 故障分级对齐, 沟通更精准。
   // 视觉设计:
   //   软底色 (color/15) + 同色描边 (color/30) + 同色文字 (color) + 圆角 4px
-  //   P0 红 (最急) → P1 橙 → P2 琥珀 → P3 灰 (不急) — 颜色饱和度跟紧急度匹配
+  //   P0 红 (最急) → P1 橙 → P2 蓝 → P3 绿 (不急) — 颜色饱和度跟紧急度匹配
   //   hover brightness 提亮, open 状态 ring-accent — 跟 StatusMenu 视觉语言一致
   // (2026-07-22) 抽 usePopover: 跟 StatusMenu 共用 web/components/Popover.tsx 的 hook
   //   (click-outside / Esc / focus trigger / Portal+fixed 全部复用)
@@ -2466,7 +2466,7 @@ function DescriptionEditor({
           className="w-full bg-bg border border-border rounded px-2 py-1 text-xs text-fg placeholder-fg-muted resize-none focus:outline-none focus:border-accent"
         />
         <div className="flex items-center gap-2 text-[10px] text-fg-muted">
-          <button onClick={save} className="px-2 py-0.5 bg-accent text-black rounded">
+          <button onClick={save} className="px-2 py-0.5 bg-accent text-bg rounded">
             保存
           </button>
           <button onClick={cancel} className="px-2 py-0.5 hover:text-fg">

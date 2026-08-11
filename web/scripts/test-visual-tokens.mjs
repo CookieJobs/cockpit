@@ -49,6 +49,21 @@ function contrastAgainstWhite(rgb) {
   return 1.05 / (relativeLuminance(rgb) + 0.05);
 }
 
+function contrastRatio(first, second) {
+  const [lighter, darker] = [relativeLuminance(first), relativeLuminance(second)].sort((a, b) => b - a);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function blend(foreground, background, opacity) {
+  return foreground.map((value, index) => Math.round(value * opacity + background[index] * (1 - opacity)));
+}
+
+function softOpacity(role) {
+  const treatment = getVisualTone(role, "soft");
+  const match = treatment.match(new RegExp(`bg-${role === "interaction" ? "accent" : role}/(\\d+)`));
+  return match ? Number(match[1]) / 100 : null;
+}
+
 function hue([red, green, blue]) {
   const [r, g, b] = [red, green, blue].map((value) => value / 255);
   const max = Math.max(r, g, b);
@@ -96,6 +111,21 @@ check("dark secondary token exists", Array.isArray(darkSecondary), String(darkSe
 if (darkBg && darkSecondary) {
   const channelDelta = Math.max(...darkSecondary.map((value, index) => Math.abs(value - darkBg[index])));
   check("dark secondary 比 bg 至少亮 8 个通道值", channelDelta >= 8, String(channelDelta));
+}
+
+section("soft treatment contrast");
+for (const [label, scope] of [["light", ":root"], ["dark", ".dark"]]) {
+  const surface = readRgbToken(scope, "bg");
+  for (const role of ["asset", "warning"]) {
+    const tone = readRgbToken(scope, role);
+    const opacity = softOpacity(role);
+    check(`${label} ${role} soft treatment has an opacity`, opacity !== null, String(opacity));
+    if (surface && tone && opacity !== null) {
+      const renderedSurface = blend(tone, surface, opacity);
+      const ratio = contrastRatio(tone, renderedSurface);
+      check(`${label} ${role} soft text reaches AA on its rendered surface`, ratio >= 4.5, ratio.toFixed(2));
+    }
+  }
 }
 
 section("Tailwind runtime compilation");
