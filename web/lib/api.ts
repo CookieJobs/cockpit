@@ -40,6 +40,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
+async function backupRequest<T>(path: string, body?: FormData): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { method: "POST", body });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
 // ===== 类型 =====
 
 /** 任务优先级（4 档）。2026-07-22 从「高/中/低」3 档升级：
@@ -125,6 +131,26 @@ export interface Achievement {
   follow_up_answers: Record<string, string>;
   distillation_trace_id?: string | null;
   unmet_reasons: string[];
+}
+
+export type OutputType = "weekly" | "monthly" | "review" | "cv";
+
+export interface ComposeOutputResponse {
+  markdown: string;
+  ready_achievement_count: number;
+  needs_attention_count: number;
+  used_achievement_ids: string[];
+}
+
+export interface BackupPreview {
+  schema_version: number;
+  counts: Record<string, number>;
+  conflicts: Record<string, string[]>;
+}
+
+export interface BackupImportResult {
+  imported_counts: Record<string, number>;
+  backup_path: string;
 }
 
 export interface FocusItem {
@@ -300,6 +326,31 @@ export const api = {
     name: string;
     data_recovery: null | { kind: string; message: string; target: string; misplaced: string };
   }>("/api/health"),
+
+  composeOutput: (data: { type: OutputType; since?: string; until?: string; weekly_style?: "product" | "engineering" }) =>
+    request<ComposeOutputResponse>("/api/outputs/compose", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  exportBackup: async (): Promise<Blob> => {
+    const res = await fetch(`${API_BASE}/api/backup/export`);
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    return res.blob();
+  },
+
+  previewBackup: (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    return backupRequest<BackupPreview>("/api/backup/import/preview", body);
+  },
+
+  importBackup: (file: File, confirmed: boolean) => {
+    const body = new FormData();
+    body.append("file", file);
+    body.append("confirmed", String(confirmed));
+    return backupRequest<BackupImportResult>("/api/backup/import", body);
+  },
 
   listProjects: (include_archived = false) =>
     request<Project[]>(`/api/projects?include_archived=${include_archived}`),

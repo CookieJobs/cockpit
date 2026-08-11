@@ -53,6 +53,7 @@ async def test_formal_weekly_report_reads_only_ready_achievements(temp_db):
 def test_report_page_uses_a_ready_only_collection_for_markdown_and_keeps_recovery_separate():
     source = REPORT_PAGE.read_text(encoding="utf-8")
 
-    assert "only_ready: true" in source
-    assert "generateReport(readyItems" in source
+    assert "api.composeOutput" in source
+    assert '"/api/outputs/compose"' in source
+    assert "generateReport" not in source
     assert "recoveryItems" in source

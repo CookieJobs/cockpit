@@ -14,7 +14,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import useSWR from "swr";
-import { api, type ChatMessage } from "@/lib/api";
+import { api, type BackupPreview, type ChatMessage } from "@/lib/api";
 import { useState, useEffect } from "react";
 import { DataState } from "@/components/DataState";
 
@@ -170,9 +170,11 @@ export default function SettingsPage() {
             <p>数据目录：~/.cockpit/</p>
             <p>数据库：cockpit.db (SQLite)</p>
             <p>配置存：settings 表（key-value）</p>
-            <p>备份：v1.1 接入 iCloud Drive 同步</p>
+            <p>导出包不含 API Key 或其他 settings 配置。</p>
           </div>
         </section>
+
+        <DataAndBackup />
 
         <section className="rounded-lg border border-border bg-bg-secondary p-4 mt-4">
           <h2 className="text-sm font-semibold text-fg-secondary uppercase tracking-wider mb-2">
@@ -188,6 +190,63 @@ export default function SettingsPage() {
       </div>
     </div>
   );
+}
+
+function DataAndBackup() {
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<BackupPreview | null>(null);
+  const [busy, setBusy] = useState<"export" | "preview" | "import" | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const hasConflicts = Boolean(preview && Object.values(preview.conflicts).some((ids) => ids.length));
+
+  const exportData = async () => {
+    setBusy("export"); setMessage(null);
+    try {
+      const blob = await api.exportBackup();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url; link.download = "cockpit-career-memory.zip"; link.click();
+      URL.revokeObjectURL(url);
+      setMessage("已下载本地数据包。设置与 API Key 不包含在内。");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "导出失败"); }
+    finally { setBusy(null); }
+  };
+  const selectFile = async (selected: File | null) => {
+    setFile(selected); setPreview(null); setMessage(null);
+    if (!selected) return;
+    setBusy("preview");
+    try { setPreview(await api.previewBackup(selected)); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "无法预览该文件"); }
+    finally { setBusy(null); }
+  };
+  const importData = async () => {
+    if (!file || !preview || hasConflicts) return;
+    setBusy("import"); setMessage(null);
+    try {
+      const result = await api.importBackup(file, true);
+      setMessage(`导入完成；导入前备份已保存到 ${result.backup_path}`);
+      setFile(null); setPreview(null);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "导入失败；原有数据未被覆盖。"); }
+    finally { setBusy(null); }
+  };
+
+  return <section className="rounded-lg border border-border bg-bg-secondary p-4 mt-4">
+    <h2 className="text-sm font-semibold text-fg-secondary uppercase tracking-wider mb-2">数据与备份</h2>
+    <p className="text-xs text-fg-muted mb-3">导入只接受 Cockpit 本地数据包；先预览，再明确确认。遇到相同 ID 不会合并或覆盖。</p>
+    <div className="flex flex-wrap gap-2 items-center">
+      <button onClick={exportData} disabled={busy !== null} className="text-xs px-3 py-1.5 bg-bg border border-border rounded text-fg hover:border-accent disabled:opacity-50">{busy === "export" ? "导出中…" : "导出本地数据"}</button>
+      <label className="text-xs px-3 py-1.5 bg-bg border border-border rounded text-fg hover:border-accent cursor-pointer">
+        选择导入文件
+        <input className="sr-only" type="file" accept="application/zip,.zip" onChange={(event) => void selectFile(event.target.files?.[0] || null)} />
+      </label>
+      {file && <span className="text-xs text-fg-muted">{file.name}{busy === "preview" ? "（预览中…）" : ""}</span>}
+    </div>
+    {preview && <div className="mt-3 text-xs text-fg-secondary space-y-2">
+      <p>将处理：{Object.entries(preview.counts).map(([name, count]) => `${name} ${count}`).join(" · ")}</p>
+      {hasConflicts ? <p className="text-warning">发现 ID 冲突：{Object.entries(preview.conflicts).filter(([, ids]) => ids.length).map(([name, ids]) => `${name} (${ids.length})`).join("、")}。请使用空数据库或不同数据包；不会覆盖原数据。</p> : <button onClick={importData} disabled={busy !== null} className="px-3 py-1.5 rounded bg-danger text-white disabled:opacity-50">{busy === "import" ? "导入中…" : "确认导入并创建备份"}</button>}
+    </div>}
+    {message && <p className="mt-3 text-xs text-fg-muted break-all">{message}</p>}
+  </section>;
 }
 
 function LLMConfigForm({

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import achievements, chat, chat_sessions, integrations, llm, llm_settings, projects, reminders, snapshot, tasks
+from app.api import achievements, backup, chat, chat_sessions, integrations, llm, llm_settings, outputs, projects, reminders, snapshot, tasks
 from app.core import storage
 from app.core.config import settings
 from app.main_static import register_static_routes
@@ -78,6 +78,8 @@ app.include_router(llm.router, prefix="/api/llm", tags=["llm"])
 app.include_router(llm_settings.router, prefix="/api/settings", tags=["llm-settings"])
 # 2026-08-01: 补全追问提醒端点 (Reminders)
 app.include_router(reminders.router, prefix="/api/reminders", tags=["reminders"])
+app.include_router(outputs.router, prefix="/api/outputs", tags=["outputs"])
+app.include_router(backup.router, prefix="/api/backup", tags=["backup"])
 # 2026-08-02: v0.5a.1 接入中心 — 一键把 cockpit MCP server 注册到 Claude Code / Cursor / Trae / Cline / Continue / WorkBuddy
 #   router 在 integrations.py 构造时已带 prefix="/api/integrations", 这里不再传 (会双 prefix)
 app.include_router(integrations.router)

@@ -206,7 +206,7 @@ export interface GeneratedReport {
   projectOrder: string[];
 }
 
-export function generateReport(
+function buildLegacyMarkdown(
   achievements: Achievement[],
   range: TimeRange,
   template: Template

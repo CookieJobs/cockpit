@@ -1015,7 +1015,7 @@ async def complete_task(
         if distillation_trace_id and readiness.status == CVStatus.PENDING:
             from app.harness.feedback import record_confirmation_feedback_in_session
 
-            record_confirmation_feedback_in_session(
+            await record_confirmation_feedback_in_session(
                 session,
                 trace_id=distillation_trace_id,
                 original_cv=cv,
@@ -1025,7 +1025,7 @@ async def complete_task(
         elif distillation_trace_id and confirmed_cv:
             from app.harness.feedback import record_confirmation_feedback_in_session
 
-            record_confirmation_feedback_in_session(
+            await record_confirmation_feedback_in_session(
                 session,
                 trace_id=distillation_trace_id,
                 original_cv=cv,
@@ -1175,7 +1175,7 @@ async def resolve_achievement(
         if trace_id:
             from app.harness.feedback import record_confirmation_feedback_in_session
 
-            record_confirmation_feedback_in_session(
+            await record_confirmation_feedback_in_session(
                 session,
                 trace_id=trace_id,
                 original_cv=previous_cv,

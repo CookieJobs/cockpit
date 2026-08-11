@@ -268,25 +268,16 @@ async def tool_query_snapshot() -> dict:
 
 
 async def tool_generate_weekly_report() -> str:
-    """生成本周周报 markdown（基于本周 ready 成就）。"""
+    """生成本周周报 markdown（统一 Composer，仅读取 ready 成就）。"""
     from datetime import date, timedelta
+    from app.core.composer import ComposeOutputRequest, OutputType, compose_output
+
     today = date.today()
     monday = today - timedelta(days=today.weekday())
-    items = await storage.list_output_ready_achievements(since=monday)
-    if not items:
-        return "本周还没有完成的成就。"
-
-    by_project: dict[str, list] = {}
-    for a in items:
-        by_project.setdefault(a.project, []).append(a)
-
-    lines = [f"## 本周完成（{monday} ~ {today}）\n"]
-    for proj, list_ in by_project.items():
-        lines.append(f"### {proj}")
-        for a in list_:
-            lines.append(f"- {a.cv}")
-        lines.append("")
-    return "\n".join(lines)
+    result = await compose_output(
+        ComposeOutputRequest(type=OutputType.WEEKLY, since=monday, until=today)
+    )
+    return result.markdown
 
 
 # ===== Schema 定义 =====

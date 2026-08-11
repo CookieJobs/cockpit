@@ -1,34 +1,34 @@
-/** Generate a ready-only report artefact through Cockpit's existing template layer. */
+/** Generate a ready-only synthetic artefact without depending on product UI templates. */
 
 import { readFile } from "node:fs/promises";
-import { TEMPLATES, generateReport } from "../lib/templates.ts";
 
 function isInWindow(achievement, since, until) {
   return achievement.date >= since && achievement.date <= until;
 }
 
 export function generateSyntheticReport(achievements, window) {
-  const template = TEMPLATES.find((item) => item.key === "product_weekly");
-  if (!template) throw new Error("product_weekly template is unavailable");
-
   const readyInWindow = achievements.filter(
     (achievement) =>
       achievement.cv_status === "ready" &&
       isInWindow(achievement, window.since, window.until),
   );
-  const range = {
-    key: `synthetic_${window.since}_${window.until}`,
-    label: window.label,
-    description: "Synthetic dogfooding coverage window",
-    since: () => window.since,
-    until: () => window.until,
-  };
-  const generated = generateReport(readyInWindow, range, template);
+  const projects = new Map();
+  for (const achievement of readyInWindow) {
+    const name = achievement.project || "未分类";
+    projects.set(name, [...(projects.get(name) || []), achievement]);
+  }
+  const lines = [`## ${window.label}周报（${window.since} ~ ${window.until}）`, "", "### 已完成"];
+  if (projects.size === 0) lines.push("- 本时间范围内没有可直接使用的成果。");
+  for (const name of [...projects.keys()].sort((left, right) => left.localeCompare(right, "zh-CN"))) {
+    lines.push(`### ${name}`);
+    for (const achievement of projects.get(name)) lines.push(`- ${achievement.cv || achievement.outcome || achievement.title}`);
+    lines.push("");
+  }
   return {
     synthetic: true,
     window,
-    markdown: generated.markdown,
-    usedAchievementIds: generated.usedAchievements.map((achievement) => achievement.id),
+    markdown: `${lines.join("\n").trim()}\n`,
+    usedAchievementIds: readyInWindow.map((achievement) => achievement.id),
   };
 }
 

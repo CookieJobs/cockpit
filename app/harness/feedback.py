@@ -64,7 +64,7 @@ def classify_confirmation_feedback(
     return "rewrite"
 
 
-def record_confirmation_feedback_in_session(
+async def record_confirmation_feedback_in_session(
     session,
     *,
     trace_id: str,
@@ -72,7 +72,18 @@ def record_confirmation_feedback_in_session(
     final_cv: str,
     action: ConfirmationAction,
 ) -> None:
-    """Append confirmation feedback beside the achievement write transaction."""
+    """Persist one confirmation decision per trace/action in its write transaction.
+
+    Browser retries are expected on weak networks.  A confirmation is an adoption
+    event, not an analytics counter, so a repeated request must not duplicate it.
+    """
+    existing = (await session.execute(
+        select(storage.DistillationFeedbackORM).where(
+            storage.DistillationFeedbackORM.trace_id == trace_id
+        )
+    )).scalars()
+    if any(json.loads(row.diff_json).get("action") == action for row in existing):
+        return
     edit_type = classify_confirmation_feedback(original_cv, final_cv, action=action)
     session.add(storage.DistillationFeedbackORM(
         id=_new_id("feedback"),

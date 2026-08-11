@@ -32,12 +32,18 @@ import {
   Calendar,
   AlertCircle,
 } from "lucide-react";
-import { api, type Achievement } from "@/lib/api";
-import { TIME_RANGES, TEMPLATES, generateReport, type TemplateKind } from "@/lib/templates";
+import { api, type Achievement, type OutputType } from "@/lib/api";
+import { TIME_RANGES } from "@/lib/templates";
 import { getVisualTone } from "@/lib/visual-system";
 import { DataState } from "@/components/DataState";
 
-const OUTPUT_TYPES: TemplateKind[] = ["product_weekly", "eng_weekly", "review_quarterly", "cv"];
+const OUTPUT_TYPES: OutputType[] = ["weekly", "monthly", "review", "cv"];
+const OUTPUT_META: Record<OutputType, { label: string; emoji: string; description: string }> = {
+  weekly: { label: "周报", emoji: "📊", description: "已完成、风险/阻塞与下周计划" },
+  monthly: { label: "月度总结", emoji: "🗓️", description: "关键成果、项目进展、问题与下月重点" },
+  review: { label: "述职材料", emoji: "🏆", description: "核心成果、行动、证据与复盘" },
+  cv: { label: "CV", emoji: "📄", description: "按项目归纳全部可直接使用的成果" },
+};
 
 export default function ReportPage() {
   const searchParams = useSearchParams();
@@ -48,36 +54,26 @@ export default function ReportPage() {
   const [rangeKey, setRangeKey] = useState(() =>
     TIME_RANGES.some((range) => range.key === requestedRange) ? requestedRange! : "this_week"
   );
-  const [templateKey, setTemplateKey] = useState<TemplateKind>(() =>
-    TEMPLATES.some((template) => template.key === requestedType)
-      ? requestedType as TemplateKind
-      : "product_weekly"
+  const [templateKey, setTemplateKey] = useState<OutputType>(() =>
+    OUTPUT_TYPES.includes(requestedType as OutputType)
+      ? requestedType as OutputType
+      : "weekly"
   );
 
   const range = useMemo(
     () => TIME_RANGES.find((r) => r.key === rangeKey) || TIME_RANGES[1],
     [rangeKey]
   );
-  const template = useMemo(
-    () => TEMPLATES.find((t) => t.key === templateKey) || TEMPLATES[1],
-    [templateKey]
-  );
-
-  // 正式 markdown 只读取统一 ready 边界；补证卡使用独立集合。
-  const { data: readyItems, error: readyError, isLoading: readyLoading, mutate: refreshReady } = useSWR<Achievement[]>(
-    ["/api/achievements", range.since(), "ready"],
-    () => api.listAchievements({ since: range.since(), only_ready: true })
+  const template = OUTPUT_META[templateKey];
+  // Formal markdown is composed server-side through the shared ready-only boundary.
+  const { data: report, error: reportError, isLoading: reportLoading, mutate: refreshReport } = useSWR(
+    ["/api/outputs/compose", templateKey, range.since(), range.until()],
+    () => api.composeOutput({ type: templateKey, since: range.since(), until: range.until() })
   );
   const { data: recoveryItems, error: recoveryError, isLoading: recoveryLoading, mutate: refreshRecovery } = useSWR<Achievement[]>(
     ["/api/achievements", range.since(), "recovery"],
     () => api.listAchievements({ since: range.since() })
   );
-
-  // 生成报告
-  const report = useMemo(() => {
-    if (!readyItems) return null;
-    return generateReport(readyItems, range, template);
-  }, [readyItems, range, template]);
 
   // 编辑模式
   const [editing, setEditing] = useState(false);
@@ -125,8 +121,8 @@ export default function ReportPage() {
     { refreshInterval: 60000 },
   );
 
-  if (readyLoading || recoveryLoading || readyError || recoveryError) {
-    return <DataState loading={readyLoading || recoveryLoading} error={readyError || recoveryError} onRetry={() => { refreshReady(); refreshRecovery(); }} />;
+  if (reportLoading || recoveryLoading || reportError || recoveryError) {
+    return <DataState loading={reportLoading || recoveryLoading} error={reportError || recoveryError} onRetry={() => { refreshReport(); refreshRecovery(); }} />;
   }
 
   return (
@@ -237,13 +233,13 @@ export default function ReportPage() {
               </div>
               <div className="flex gap-1.5 flex-wrap">
                 {OUTPUT_TYPES.map((outputType) => {
-                  const t = TEMPLATES.find((template) => template.key === outputType)!;
+                  const t = OUTPUT_META[outputType];
                   return (
                   <button
-                    key={t.key}
-                    onClick={() => setTemplateKey(t.key)}
+                    key={outputType}
+                    onClick={() => setTemplateKey(outputType)}
                     className={`px-3 py-1.5 rounded text-[13px] transition ${
-                      t.key === templateKey
+                      outputType === templateKey
                         ? "bg-accent/10 text-accent border border-accent/40"
                         : "bg-bg border border-border text-fg-secondary hover:text-fg hover:border-border-hover"
                     }`}
@@ -287,16 +283,11 @@ export default function ReportPage() {
                   <span className="font-semibold text-fg-secondary">本次报告</span>
                 </div>
                 <div>
-                  使用 <span data-testid="report-value-count" className="font-semibold tabular-nums text-asset">{report.usedAchievements.length}</span> 条成就
-                  {template.key === "review_quarterly" && (
+                  使用 <span data-testid="report-value-count" className="font-semibold tabular-nums text-asset">{report.ready_achievement_count}</span> 条成就
+                  {templateKey === "review" && (
                     <span className="ml-1">(述职只取 ready, 其他状态先升级)</span>
                   )}
                 </div>
-                {report.projectOrder.length > 0 && (
-                  <div className="mt-1">
-                    覆盖 {report.projectOrder.length} 个项目: {report.projectOrder.join("、")}
-                  </div>
-                )}
               </div>
             )}
           </div>
