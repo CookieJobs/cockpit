@@ -43,9 +43,10 @@ CSS-variable token 层已经覆盖这次需要；新增依赖会把现有主题�
 
 - `web/scripts/test-visual-tokens.mjs` 直接运行角色映射，并编译 Tailwind 临时产物，
   断言 `asset` / `warning` 工具类仍保留 CSS 变量；覆盖同角色软底色、嵌套表面与
-  light/dark composited text contrast。当前任务 3 完成时为 **84 passed**。
-- 本轮 scoped checks 已通过：visual token contract（84）、achievement stats（64）、
+  light/dark composited text contrast。移动端修正后为 **85 passed**。
+- 本轮 scoped checks 已通过：visual token contract（85）、achievement stats（64）、
   synthetic report、report readiness、`npx tsc --noEmit` 和 `git diff --check`。
 - 没有运行 `next build`，避免污染正在使用的开发产物（lesson #16）。
-- 浏览器的 390×844、1280px 和 light/dark 截图验收属于整轮最终验收，尚未在本记录中
-  声称已完成。
+- 最终浏览器验收完成：1280px 下首页、成就库、报告页保持桌面层级；390×844 下首页
+  看板与全屏对话可往返、成就库与报告页无横向溢出，报告页按单列展示恢复摘要再展示预览；
+  light/dark 切换均已实测。
