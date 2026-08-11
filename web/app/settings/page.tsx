@@ -290,7 +290,7 @@ function LLMConfigForm({
               ● 已连接 · {settings.active_model}
             </span>
           ) : (
-            <span className="px-2 py-0.5 rounded bg-warning/10 text-warning">
+            <span className="px-2 py-0.5 rounded bg-warning/5 text-warning">
               ○ 未连接
             </span>
           )}

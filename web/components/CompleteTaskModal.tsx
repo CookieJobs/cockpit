@@ -280,7 +280,7 @@ export function CompleteTaskModal({
                 "text-[11px] px-2.5 py-1 rounded transition flex items-center gap-1 " +
                 (polishing || !outcome.trim()
                   ? "bg-bg-tertiary text-fg-muted cursor-not-allowed"  // disabled: 灰底灰字, 强对比
-                  : "bg-accent/15 text-accent hover:bg-accent/25")  // enabled: accent 色调
+                  : "bg-accent/5 text-accent hover:bg-accent/10")  // enabled: accent 色调
               }
               title={
                 outcome.trim()
@@ -407,7 +407,7 @@ export function CompleteTaskModal({
                 <button
                   type="button"
                   onClick={acceptSuggestion}
-                  className="text-[11px] px-2.5 py-1 rounded bg-accent/20 text-accent hover:bg-accent/30 transition flex items-center gap-1"
+                  className="text-[11px] px-2.5 py-1 rounded bg-accent/5 text-accent hover:bg-accent/10 transition flex items-center gap-1"
                 >
                   <Check size={10} />
                   采纳
@@ -526,7 +526,7 @@ export function CompleteTaskModal({
                     onClick={() => setCvStatus("needs_data")}
                     className={`flex-1 px-2 py-2 rounded-md text-[12px] border transition ${
                       cvStatus === "needs_data"
-                        ? "bg-warning/10 border-warning text-warning"
+                        ? "bg-warning/5 border-warning text-warning"
                         : "bg-bg border-border text-fg-muted hover:text-fg"
                     }`}
                   >

@@ -35,7 +35,7 @@ export function FollowUpReminder() {
   return (
     <Link
       href="/achievements/follow-up"
-      className="inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full font-medium bg-warning/10 text-warning hover:bg-warning/20 transition"
+      className="inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full font-medium bg-warning/5 text-warning hover:bg-warning/5 transition"
       title={`有 ${data.total} 个成就待补追问 — 补全后 cv_status 自动升级 ready`}
     >
       <FileQuestion size={11} />

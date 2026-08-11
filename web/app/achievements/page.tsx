@@ -239,7 +239,7 @@ export default function AchievementsPage() {
                 onClick={() => updateViewMode(it.k)}
                 className={`text-[11.5px] px-2.5 py-1 rounded transition flex items-center gap-1 ${
                   viewMode === it.k
-                    ? "bg-accent/15 text-accent border border-accent/30"
+                    ? "bg-accent/10 text-accent border border-accent/30"
                     : "text-fg-muted hover:text-fg border border-transparent hover:bg-bg-tertiary"
                 }`}
                 title={
@@ -268,7 +268,7 @@ export default function AchievementsPage() {
                 onClick={() => setFilter(it.k)}
                 className={`px-2.5 py-1 rounded text-[12px] transition ${
                   filter === it.k
-                    ? "bg-accent/15 text-accent"
+                    ? "bg-accent/10 text-accent"
                     : "text-fg-muted hover:text-fg hover:bg-bg-tertiary"
                 }`}
               >
@@ -295,7 +295,7 @@ export default function AchievementsPage() {
             <div className="flex items-center justify-center gap-2 pt-1">
               <Link
                 href="/"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 transition"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/5 text-accent border border-accent/30 hover:bg-accent/10 transition"
               >
                 打开看板
               </Link>
@@ -441,7 +441,7 @@ function AchievementItem({
             {a.cv_status === "needs_data" && (
               <Link
                 href={`/achievements/follow-up?focus=${a.id}`}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning font-medium"
+                className="text-[10px] px-1.5 py-0.5 rounded bg-warning/5 text-warning font-medium"
                 title="补全追问后会自动进入 ready"
               >
                 📊 还差数据 · 去补全
@@ -654,7 +654,7 @@ function AchievementCard({
             <button
               onClick={save}
               disabled={saving}
-              className="text-[11px] px-2 py-1 rounded bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40"
+              className="text-[11px] px-2 py-1 rounded bg-accent/5 text-accent hover:bg-accent/10 disabled:opacity-40"
             >
               {saving ? "保存中..." : "保存"}
             </button>

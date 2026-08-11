@@ -255,7 +255,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
               <span className="text-[12px] text-fg-secondary">条已沉淀成就</span>
               {readyFlash && (
                 <span
-                  className="text-[10px] text-accent font-medium px-1.5 py-0.5 rounded bg-accent/15 animate-pulse"
+                  className="text-[10px] text-accent font-medium px-1.5 py-0.5 rounded bg-accent/10 animate-pulse"
                   data-testid="achievement-spotlight-flash"
                 >
                   +1
@@ -502,7 +502,7 @@ function FocusSection({
           </div>
           <button
             onClick={onRequestFocusChat}
-            className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 transition"
+            className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/5 text-accent border border-accent/30 hover:bg-accent/10 transition"
           >
             {isNewUser ? "去对话建项目" : "加新任务"}
           </button>
@@ -730,7 +730,7 @@ function DoneTodaySection({
                       <Check size={12} className="text-success flex-shrink-0" strokeWidth={2.5} />
                       <span className="text-[13px] text-fg truncate">{a.title}</span>
                       {a.cv_status === "pending" && (
-                        <span className="text-[10px] px-1.5 py-0 rounded bg-warning/20 text-warning font-medium flex-shrink-0">
+                        <span className="text-[10px] px-1.5 py-0 rounded bg-warning/5 text-warning font-medium flex-shrink-0">
                           CV 待补
                         </span>
                       )}
@@ -1010,7 +1010,7 @@ function ProjectsSection({
                 </div>
                 <button
                   onClick={onRequestFocusChat}
-                  className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 transition"
+                  className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/5 text-accent border border-accent/30 hover:bg-accent/10 transition"
                 >
                   去对话建项目
                 </button>
@@ -1531,7 +1531,7 @@ function ProjectCard({
                         {a.title}
                       </span>
                       {a.cv_status === "pending" && (
-                        <span className="text-[9px] px-1 py-0 rounded bg-warning/20 text-warning font-medium flex-shrink-0">
+                        <span className="text-[9px] px-1 py-0 rounded bg-warning/5 text-warning font-medium flex-shrink-0">
                           CV 待补
                         </span>
                       )}

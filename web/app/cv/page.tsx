@@ -154,7 +154,7 @@ export default function CvPage() {
                 className={
                   "text-[11.5px] px-2.5 py-1 rounded transition " +
                   (rangePreset === opt.key
-                    ? "bg-accent/15 text-accent border border-accent/30"
+                    ? "bg-accent/10 text-accent border border-accent/30"
                     : "text-fg-muted hover:text-fg border border-transparent hover:bg-bg-tertiary")
                 }
               >
@@ -184,7 +184,7 @@ export default function CvPage() {
               type="button"
               onClick={copy}
               disabled={!markdown}
-              className="text-[12px] px-2.5 py-1 rounded bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1"
+              className="text-[12px] px-2.5 py-1 rounded bg-accent/5 text-accent hover:bg-accent/10 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1"
               title="复制 markdown 到剪贴板"
             >
               {copied ? <Check size={12} /> : <Copy size={12} />}

@@ -151,7 +151,7 @@ export default function FollowUpPage() {
             </div>
             <Link
               href="/"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 transition"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium bg-accent/5 text-accent border border-accent/30 hover:bg-accent/10 transition"
             >
               打开看板
             </Link>

@@ -309,7 +309,7 @@ function IntegrationCard({
                 className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                   agent.scope === "user"
                     ? "bg-bg-tertiary text-fg-secondary"
-                    : "bg-warning/10 text-warning"
+                    : "bg-warning/5 text-warning"
                 }`}
                 title={agent.scope === "user" ? "全机器生效" : "只在当前项目生效"}
               >

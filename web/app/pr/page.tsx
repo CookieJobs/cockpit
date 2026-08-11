@@ -189,7 +189,7 @@ export default function PrPage() {
                       onClick={() => setSelectedProjectId(p.id)}
                       className={`text-[12px] px-2.5 py-1.5 rounded transition ${
                         selectedProjectId === p.id
-                          ? "bg-accent/15 text-accent border border-accent/30"
+                          ? "bg-accent/10 text-accent border border-accent/30"
                           : "bg-bg-tertiary text-fg-secondary hover:text-fg border border-transparent"
                       }`}
                     >

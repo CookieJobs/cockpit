@@ -195,7 +195,7 @@ export default function ReportPage() {
                     onClick={() => setRangeKey(r.key)}
                     className={`px-3 py-1.5 rounded text-[12px] transition ${
                       r.key === rangeKey
-                        ? "bg-accent/15 text-accent border border-accent/40"
+                        ? "bg-accent/10 text-accent border border-accent/40"
                         : "bg-bg border border-border text-fg-secondary hover:text-fg hover:border-border-hover"
                     }`}
                     title={r.description}
@@ -219,7 +219,7 @@ export default function ReportPage() {
                     onClick={() => setTemplateKey(t.key)}
                     className={`px-3 py-1.5 rounded text-[12px] transition ${
                       t.key === templateKey
-                        ? "bg-accent/15 text-accent border border-accent/40"
+                        ? "bg-accent/10 text-accent border border-accent/40"
                         : "bg-bg border border-border text-fg-secondary hover:text-fg hover:border-border-hover"
                     }`}
                     title={t.description}

@@ -11,6 +11,15 @@
 export type VisualRole = "interaction" | "asset" | "warning";
 export type VisualTreatment = "soft" | "solid" | "text";
 
+// The only tints allowed behind same-role text. They are verified against both
+// theme surfaces in test-visual-tokens.mjs; product call sites must not invent
+// a stronger value without extending that behavioral contrast contract.
+export const SOFT_TONE_OPACITIES: Record<VisualRole, readonly number[]> = {
+  interaction: [5, 10],
+  asset: [5],
+  warning: [5],
+};
+
 const VISUAL_TONES: Record<VisualRole, Record<VisualTreatment, string>> = {
   interaction: {
     soft: "border border-accent/35 bg-accent/10 text-accent",

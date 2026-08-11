@@ -72,7 +72,7 @@ export type CVStatus = "pending" | "needs_data" | "ready";
 //     (0° → 30° → 220° → 142°), 不急 = 放松, 绿色符合直觉。
 export const PRIORITY_BADGE_STYLES: Record<Priority, string> = {
   P0: "bg-danger/15 text-danger border-danger/30",
-  P1: "bg-warning/15 text-warning border-warning/30",
+  P1: "bg-warning/5 text-warning border-warning/30",
   P2: "bg-info/15 text-info border-info/30",
   P3: "bg-success/15 text-success border-success/30",
 };

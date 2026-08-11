@@ -402,7 +402,7 @@ export function ChatWindow({
             onClick={toggleShowCot}
             className={`text-xs px-2 py-1 border border-border rounded transition flex items-center gap-1 ${
               showCot
-                ? "bg-accent/20 text-accent border-accent/40"
+                ? "bg-accent/10 text-accent border-accent/40"
                 : "bg-bg-secondary text-fg-secondary hover:border-border-hover hover:text-fg"
             }`}
             title={showCot ? "隐藏 AI 思维链" : "显示 AI 思维链"}

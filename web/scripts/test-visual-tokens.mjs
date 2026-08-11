@@ -5,9 +5,9 @@
 // 真正 import 供组件使用的映射，而非扫描 CSS 源码。这样如果某一角色
 // 被错误复用成另一个角色的视觉处理，测试会直接失败。
 
-import { getVisualTone } from "../lib/visual-system.ts";
+import { getVisualTone, SOFT_TONE_OPACITIES } from "../lib/visual-system.ts";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -64,6 +64,38 @@ function softOpacity(role) {
   return match ? Number(match[1]) / 100 : null;
 }
 
+const CLASS_TOKEN_TO_ROLE = { accent: "interaction", warning: "warning" };
+
+function colorToken(role) {
+  return role === "interaction" ? "accent" : role;
+}
+
+function walkCodeFiles(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return walkCodeFiles(path);
+    return /\.(ts|tsx)$/.test(entry.name) ? [path] : [];
+  });
+}
+
+function collectProductSoftTreatments() {
+  const results = [];
+  for (const root of ["app", "components", "lib"]) {
+    for (const path of walkCodeFiles(root)) {
+      const lines = readFileSync(path, "utf8").split("\n");
+      lines.forEach((line, index) => {
+        for (const [token, role] of Object.entries(CLASS_TOKEN_TO_ROLE)) {
+          if (!line.includes(`text-${token}`)) continue;
+          for (const match of line.matchAll(new RegExp(`bg-${token}/(\\d+)`, "g"))) {
+            results.push({ path, line: index + 1, role, opacity: Number(match[1]) });
+          }
+        }
+      });
+    }
+  }
+  return results;
+}
+
 function hue([red, green, blue]) {
   const [r, g, b] = [red, green, blue].map((value) => value / 255);
   const max = Math.max(r, g, b);
@@ -113,17 +145,28 @@ if (darkBg && darkSecondary) {
   check("dark secondary 比 bg 至少亮 8 个通道值", channelDelta >= 8, String(channelDelta));
 }
 
-section("soft treatment contrast");
+section("soft treatment contract and contrast");
+for (const role of ["interaction", "asset", "warning"]) {
+  const mappedOpacity = softOpacity(role);
+  check(`${role} mapped soft treatment is an approved opacity`,
+    mappedOpacity !== null && SOFT_TONE_OPACITIES[role].includes(mappedOpacity * 100), String(mappedOpacity));
+}
+const productSoftTreatments = collectProductSoftTreatments();
+for (const treatment of productSoftTreatments) {
+  check(`${treatment.path}:${treatment.line} ${treatment.role}/${treatment.opacity} is approved`,
+    SOFT_TONE_OPACITIES[treatment.role].includes(treatment.opacity),
+    JSON.stringify(treatment));
+}
 for (const [label, scope] of [["light", ":root"], ["dark", ".dark"]]) {
   const surface = readRgbToken(scope, "bg");
-  for (const role of ["asset", "warning"]) {
-    const tone = readRgbToken(scope, role);
-    const opacity = softOpacity(role);
-    check(`${label} ${role} soft treatment has an opacity`, opacity !== null, String(opacity));
-    if (surface && tone && opacity !== null) {
-      const renderedSurface = blend(tone, surface, opacity);
-      const ratio = contrastRatio(tone, renderedSurface);
-      check(`${label} ${role} soft text reaches AA on its rendered surface`, ratio >= 4.5, ratio.toFixed(2));
+  for (const role of ["interaction", "asset", "warning"]) {
+    const tone = readRgbToken(scope, colorToken(role));
+    for (const opacityPct of SOFT_TONE_OPACITIES[role]) {
+      const opacity = opacityPct / 100;
+      const renderedSurface = surface && tone ? blend(tone, surface, opacity) : null;
+      const ratio = renderedSurface && tone ? contrastRatio(tone, renderedSurface) : 0;
+      check(`${label} ${role}/${opacityPct} soft text reaches AA on its rendered surface`,
+        Boolean(surface && tone) && ratio >= 4.5, ratio.toFixed(2));
     }
   }
 }
