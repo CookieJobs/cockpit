@@ -383,7 +383,7 @@ export function CompleteTaskModal({
             跟原"✨ 润色"按钮形成"主动建议 + 手动精修"双轨. */}
         {autoSuggestedCv && (
           <div className="px-5 pt-3">
-            <div className="rounded-md bg-accent/8 border border-accent/25 px-3 py-2.5">
+            <div className="rounded-md bg-accent/5 border border-accent/25 px-3 py-2.5">
               <div className="flex items-center justify-between mb-1.5">
                 <div className="text-[11px] text-accent font-medium flex items-center gap-1.5">
                   <Sparkles size={12} />

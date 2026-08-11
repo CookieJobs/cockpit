@@ -64,7 +64,38 @@ function softOpacity(role) {
   return match ? Number(match[1]) / 100 : null;
 }
 
-const CLASS_TOKEN_TO_ROLE = { accent: "interaction", warning: "warning" };
+const CLASS_TOKEN_TO_ROLE = { accent: "interaction", asset: "asset", warning: "warning" };
+
+// A compact, named contract for JSX treatments where the role-coloured surface
+// is on a parent and role text is rendered by a descendant. Keeping this list
+// explicit is more stable than a partial JSX parser and documents the few
+// intentional nested role surfaces that must stay inside the opacity boundary.
+const NESTED_ROLE_TREATMENTS = [
+  {
+    name: "AI suggestion container",
+    path: "components/CompleteTaskModal.tsx",
+    anchor: "{autoSuggestedCv && (",
+    role: "interaction",
+    container: /bg-accent\/(\d+)/,
+    descendant: "text-[11px] text-accent",
+  },
+  {
+    name: "achievement spotlight",
+    path: "components/MainBoard.tsx",
+    anchor: 'data-testid="achievement-spotlight"',
+    role: "interaction",
+    container: /bg-accent\/(\d+)/,
+    descendant: 'readyFlash ? "text-accent"',
+  },
+  {
+    name: "commitment row",
+    path: "components/MainBoard.tsx",
+    anchor: 'isCommitment ? "bg-accent/',
+    role: "interaction",
+    container: /bg-accent\/(\d+)/,
+    descendant: 'className="flex-shrink-0 text-accent text-[12px]"',
+  },
+];
 
 function colorToken(role) {
   return role === "interaction" ? "accent" : role;
@@ -156,6 +187,16 @@ for (const treatment of productSoftTreatments) {
   check(`${treatment.path}:${treatment.line} ${treatment.role}/${treatment.opacity} is approved`,
     SOFT_TONE_OPACITIES[treatment.role].includes(treatment.opacity),
     JSON.stringify(treatment));
+}
+for (const treatment of NESTED_ROLE_TREATMENTS) {
+  const source = readFileSync(treatment.path, "utf8");
+  const scope = source.slice(source.indexOf(treatment.anchor));
+  const container = scope.match(treatment.container);
+  check(`${treatment.name} anchor exists`, source.includes(treatment.anchor));
+  check(`${treatment.name} renders its role text descendant`, scope.includes(treatment.descendant));
+  check(`${treatment.name} container opacity is approved`,
+    container !== null && SOFT_TONE_OPACITIES[treatment.role].includes(Number(container[1])),
+    container?.[1] ?? "no matching role container");
 }
 for (const [label, scope] of [["light", ":root"], ["dark", ".dark"]]) {
   const surface = readRgbToken(scope, "bg");
