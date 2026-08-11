@@ -98,6 +98,19 @@ def _replay_persona(persona: Persona, events: list[WorkEvent]) -> PersonaReplay:
                     raise RuntimeError(
                         f"{event.id}: expected {event.expected_readiness}, got {achievement['cv_status']}"
                     )
+                if event.recovered_cv is not None:
+                    answers_response = client.patch(
+                        f"/api/achievements/{achievement['id']}/follow_ups",
+                        json={"answers": {str(index): answer for index, answer in enumerate(event.follow_up_answers)}},
+                    )
+                    answers_response.raise_for_status()
+                    if answers_response.json()["cv_status"] != "ready":
+                        raise RuntimeError(f"{event.id}: follow-up answers did not recover ready status")
+                    revised_cv_response = client.patch(
+                        f"/api/achievements/{achievement['id']}",
+                        json={"cv": event.recovered_cv},
+                    )
+                    revised_cv_response.raise_for_status()
 
             achievements_response = client.get("/api/achievements")
             achievements_response.raise_for_status()

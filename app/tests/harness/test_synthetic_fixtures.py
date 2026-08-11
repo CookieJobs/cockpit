@@ -46,3 +46,21 @@ def test_work_event_rejects_cv_number_that_has_no_evidence_anchor() -> None:
             evidence=["首日漏斗数据已整理"],
             expected_readiness="ready",
         )
+
+
+def test_recovery_requires_answers_and_an_evidence_grounded_revised_cv() -> None:
+    with pytest.raises(ValidationError, match="recovery answers and recovered_cv"):
+        WorkEvent(
+            id="incomplete_recovery",
+            persona_id="product_manager",
+            week=1,
+            completed_on="2026-07-06",
+            project_name="新手引导优化",
+            task_title="复盘首日数据",
+            outcome="整理了首日漏斗数据。",
+            cv="整理首日漏斗数据，待补充转化证据。",
+            evidence=["首日漏斗数据已整理"],
+            follow_up_questions=["转化数据是什么？"],
+            follow_up_answers=["激活率提升 10%"],
+            expected_readiness="needs_data",
+        )

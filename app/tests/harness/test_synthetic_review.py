@@ -11,8 +11,9 @@ def test_review_reports_coverage_and_rejects_non_ready_output_leaks(tmp_path) ->
 
     assert review.synthetic is True
     assert review.metrics.completion_rate == 1.0
-    assert review.metrics.ready_rate == 0.75
+    assert review.metrics.ready_rate == 0.8125
     assert review.metrics.weekly_coverage == 1.0
     assert review.metrics.full_window_coverage == 1.0
+    assert review.metrics.recovery_rate == 0.25
     assert review.p0_findings == []
     assert review.limitations

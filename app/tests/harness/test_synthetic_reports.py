@@ -23,3 +23,6 @@ def test_runner_generates_ready_only_weekly_and_full_window_report_artefacts(tmp
     }
     assert "待补充留存证据" not in full_window["markdown"]
     assert all("待补充留存证据" not in report["markdown"] for report in weekly)
+
+    designer = json.loads((tmp_path / "reports" / "independent_designer" / "full-window.json").read_text())
+    assert "咨询表单增加 6 条" in designer["markdown"]

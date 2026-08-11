@@ -30,6 +30,12 @@ def test_runner_replays_each_persona_through_isolated_api_backed_database(tmp_pa
         for achievement in product_manager.achievements
     )
 
+    designer = next(run for run in result.personas if run.persona_id == "independent_designer")
+    recovered = next(achievement for achievement in designer.achievements if achievement["title"] == "等待上线反馈")
+    assert recovered["cv_status"] == "ready"
+    assert recovered["cv"] == "完成官网上线前走查，并根据首周反馈确认咨询表单增加 6 条。"
+    assert recovered["follow_up_answers"] == {"0": "客户确认首周咨询表单较改版前增加 6 条。"}
+
     replay = json.loads((tmp_path / "replay.json").read_text(encoding="utf-8"))
     assert replay["synthetic"] is True
     assert replay["database_location"] == "temporary and discarded"

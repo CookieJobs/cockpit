@@ -33,15 +33,26 @@ class WorkEvent(SyntheticModel):
     evidence: list[str] = Field(min_length=1, max_length=20)
     follow_up_questions: list[str] = Field(default_factory=list, max_length=3)
     follow_up_answers: list[str] = Field(default_factory=list, max_length=10)
+    recovered_cv: str | None = Field(default=None, min_length=1, max_length=5000)
     expected_readiness: Literal["ready", "needs_data"]
 
     @model_validator(mode="after")
     def cv_numbers_must_be_anchored_in_evidence(self) -> "WorkEvent":
         evidence_text = " ".join([self.outcome, *self.evidence, *self.follow_up_answers])
-        numeric_claims = re.findall(r"\d+(?:\.\d+)?\s*(?:%|个百分点|小时|分钟|天|个|位|条|项|张)?", self.cv)
+        numeric_claims = re.findall(
+            r"\d+(?:\.\d+)?\s*(?:%|个百分点|小时|分钟|天|个|位|条|项|张)?",
+            " ".join(value for value in [self.cv, self.recovered_cv] if value),
+        )
         unsupported = [claim for claim in numeric_claims if claim and claim not in evidence_text]
         if unsupported:
             raise ValueError(f"unsupported numeric claim in cv: {', '.join(unsupported)}")
+        has_recovery = bool(self.follow_up_answers) or self.recovered_cv is not None
+        if has_recovery and (not self.follow_up_answers or self.recovered_cv is None):
+            raise ValueError("recovery answers and recovered_cv must be provided together")
+        if has_recovery and self.expected_readiness != "needs_data":
+            raise ValueError("recovery is only valid for an initially needs_data event")
+        if has_recovery and not self.follow_up_questions:
+            raise ValueError("recovery requires follow_up_questions")
         return self
 
 
