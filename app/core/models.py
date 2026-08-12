@@ -196,6 +196,10 @@ def mask_key(key: Optional[str]) -> Optional[str]:
 class ProjectBase(CockpitModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: str = Field(default="", max_length=2000, description="项目描述 / 目标")
+    # 2026-08-11: 用户手动指定的项目 emoji (从 50 池子里选)。
+    # None = 用 hash 兜底 (老项目视觉零变化); "" = 显式清空 (回 hash)。
+    # max_length=32 容纳 ZWJ 复合 emoji (如 👨‍👩‍👧‍👦)。
+    emoji: Optional[str] = Field(default=None, max_length=32, description="项目 emoji, NULL/空=用 hash 兜底")
 
 
 class ProjectCreate(ProjectBase):
@@ -204,10 +208,17 @@ class ProjectCreate(ProjectBase):
 
 
 class ProjectUpdate(CockpitModel):
-    """更新项目的入参。"""
+    """更新项目的入参。
+
+    emoji 字段语义:
+    - None (不传) = 不改
+    - "" (空串) = 显式清空, 回 hash 兜底
+    - "🎯" 等非空 = 设置为这个 emoji
+    """
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=2000)
     archived: Optional[bool] = None
+    emoji: Optional[str] = Field(default=None, max_length=32)
 
 
 class Project(ProjectBase):
@@ -347,6 +358,9 @@ class ProjectSnapshot(CockpitModel):
     tasks: list[Task]
     # 2026-08-01: 项目内已完成 task 数 (默认 0), 看板"查看已完成 N" 折叠区用
     done_count: int = 0
+    # 2026-08-11: 用户手动指定的 emoji (NULL = 用 hash 兜底), 跟 Project.emoji 语义一致。
+    # 必须透传, 否则前端看板 emoji 跟用户选的永远对不上 (lesson #10 同款 silent failure)。
+    emoji: Optional[str] = None
 
 
 class Snapshot(CockpitModel):

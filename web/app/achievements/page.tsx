@@ -13,7 +13,7 @@
  * 折叠: localStorage 持久化每个项目的展开/收起, 默认全部展开
  */
 import useSWR from "swr";
-import { api, type Achievement, type CVStatus, projectEmoji } from "@/lib/api";
+import { api, type Achievement, type CVStatus, type Project, projectEmoji } from "@/lib/api";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -40,6 +40,8 @@ type ViewMode = "project" | "timeline";
 interface ProjectGroup {
   project: string; // 项目名 (snapshot)
   project_id: string | null; // 一些成就是孤儿的 (project 被删了), id 为 null
+  // 2026-08-11: 同步项目的自定义 emoji (跟主看板一致), null = 用 hash 兜底
+  emoji: string | null;
   ready: number;
   pending: number;
   needs_data: number;
@@ -76,6 +78,15 @@ export default function AchievementsPage() {
     () => (filter === "all" ? api.listAchievements() : api.listAchievements({ cv_status: filter as CVStatus }))
   );
 
+  // 2026-08-11: 顺手 fetch projects 拿 emoji, 让成就页也跟主看板视觉一致。
+  // 关键: 同一个 SWR key 全局共享, 主看板改了 emoji 后成就页会一起更新 (无需手动 revalidate)。
+  const { data: projects } = useSWR<Project[]>("/api/projects", () => api.listProjects());
+  const projectsById = useMemo(() => {
+    const m = new Map<string, Project>();
+    for (const p of projects || []) m.set(p.id, p);
+    return m;
+  }, [projects]);
+
   // 折叠状态 — 哪些 project 是收起的
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   useEffect(() => {
@@ -111,6 +122,7 @@ export default function AchievementsPage() {
         g = {
           project: a.project || "(未命名项目)",
           project_id: a.project_id || null,
+          emoji: (a.project_id && projectsById.get(a.project_id)?.emoji) || null,
           ready: 0,
           pending: 0,
           needs_data: 0,
@@ -131,7 +143,7 @@ export default function AchievementsPage() {
       if (b.total !== a.total) return b.total - a.total;
       return a.project.localeCompare(b.project);
     });
-  }, [items]);
+  }, [items, projectsById]);
 
   if (isLoading || error) {
     return <DataState loading={isLoading} error={error} onRetry={() => mutate()} />;
@@ -211,7 +223,7 @@ export default function AchievementsPage() {
 
         {/* v0.4.1 立: 按时间倒序拉平视图 (跨项目) */}
         {viewMode === "timeline" && items && items.length > 0 && (
-          <TimelineView items={items} mutate={mutate} />
+          <TimelineView items={items} mutate={mutate} projectsById={projectsById} />
         )}
 
         {projectGroups.length === 0 ? (
@@ -244,6 +256,7 @@ export default function AchievementsPage() {
                   collapsed={isCollapsed}
                   onToggle={() => toggleProject(key)}
                   onMutate={mutate}
+                  projectsById={projectsById}
                 />
               );
             })}
@@ -261,11 +274,14 @@ function ProjectSection({
   collapsed,
   onToggle,
   onMutate,
+  projectsById,
 }: {
   group: ProjectGroup;
   collapsed: boolean;
   onToggle: () => void;
   onMutate: () => void;
+  // 2026-08-11: 传 projects map 进来, 让单个成就卡 (AchievementItem) 也能查到项目 emoji
+  projectsById: Map<string, Project>;
 }) {
   // 按日期分组 (二级)
   const dateGroups: Record<string, Achievement[]> = {};
@@ -281,7 +297,7 @@ function ProjectSection({
         onClick={onToggle}
         className="w-full flex items-center gap-3 px-4 py-3 hover:bg-bg-tertiary/40 transition text-left"
       >
-        <span className="text-[18px] flex-shrink-0">{projectEmoji(group.project_id || group.project)}</span>
+        <span className="text-[18px] flex-shrink-0">{projectEmoji({ id: group.project_id, emoji: group.emoji })}</span>
         <span className="flex-1 min-w-0">
           <span className="font-semibold text-fg truncate block">{group.project}</span>
           <span className="text-[11px] text-fg-muted tabular-nums">
@@ -318,7 +334,12 @@ function ProjectSection({
                 </h2>
                 <div className="divide-y divide-border/70">
                   {list.map((a) => (
-                    <AchievementItem key={a.id} a={a} onMutate={onMutate} />
+                    <AchievementItem
+                      key={a.id}
+                      a={a}
+                      onMutate={onMutate}
+                      emoji={(a.project_id && projectsById.get(a.project_id)?.emoji) || null}
+                    />
                   ))}
                 </div>
               </div>
@@ -334,9 +355,12 @@ function ProjectSection({
 function AchievementItem({
   a,
   onMutate,
+  emoji,
 }: {
   a: Achievement;
   onMutate: () => void;
+  // 2026-08-11: 项目级 emoji (null = 用 hash 兜底), 跟主看板一致
+  emoji: string | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [editCv, setEditCv] = useState("");
@@ -449,9 +473,12 @@ function AchievementItem({
 function TimelineView({
   items,
   mutate,
+  projectsById,
 }: {
   items: Achievement[];
   mutate: () => void;
+  // 2026-08-11: 传 projects map, 让每条卡的 emoji 跟用户选的一致
+  projectsById: Map<string, Project>;
 }) {
   // 按日期 desc 排 (新→旧)
   const sorted = useMemo(
@@ -462,7 +489,12 @@ function TimelineView({
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-bg-secondary divide-y divide-border">
       {sorted.map((a) => (
-        <AchievementCard key={a.id} achievement={a} mutate={mutate} />
+        <AchievementCard
+          key={a.id}
+          achievement={a}
+          mutate={mutate}
+          emoji={(a.project_id && projectsById.get(a.project_id)?.emoji) || null}
+        />
       ))}
     </div>
   );
@@ -472,9 +504,12 @@ function TimelineView({
 function AchievementCard({
   achievement: a,
   mutate,
+  emoji,
 }: {
   achievement: Achievement;
   mutate: () => void;
+  // 2026-08-11: 项目级 emoji (null = 用 hash 兜底), 跟主看板一致
+  emoji: string | null;
 }) {
   // inline edit cv 状态
   const [editing, setEditing] = useState(false);
@@ -534,7 +569,7 @@ function AchievementCard({
       <div className="flex items-start justify-between gap-2 mb-1.5">
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           <span className="text-[12px] flex-shrink-0 opacity-70">
-            {projectEmoji(a.project_id)}
+            {projectEmoji({ id: a.project_id, emoji: emoji })}
           </span>
           <span className="text-[13px] font-medium text-fg truncate">{a.title}</span>
           <span className={`text-[10.5px] flex items-center gap-0.5 ${statusBadge.color} flex-shrink-0`}>

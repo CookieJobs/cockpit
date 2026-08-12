@@ -482,6 +482,18 @@ async def test_build_snapshot_includes_project_description(temp_db):
         assert orphan_groups[0].description == ""
 
 
+@pytest.mark.asyncio
+async def test_build_snapshot_includes_project_emoji(temp_db):
+    """用户选定的项目 emoji 必须透传给看板快照；空值保持 hash 回退语义。"""
+    custom = await storage.add_project(ProjectCreate(name="自定义 emoji", emoji="🦄"))
+    fallback = await storage.add_project(ProjectCreate(name="hash emoji"))
+
+    snapshot = await storage.build_snapshot()
+    by_id = {project.id: project for project in snapshot.projects}
+    assert by_id[custom.id].emoji == "🦄"
+    assert by_id[fallback.id].emoji is None
+
+
 # ===== Priority 迁移 (2026-07-22 立) =====
 
 

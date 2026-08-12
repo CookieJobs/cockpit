@@ -236,3 +236,17 @@ body {
 .fade-in {
   animation: fade-in 0.2s ease-out;
 }
+
+/* 2026-08-12 立: popover 弹出动画 (scale + fade 复合)
+ * 用于 ProjectEmojiPicker 等 popover 组件, 从 trigger 位置"展开" 而不是从屏幕中心。
+ * transform-origin: top left 让 picker 看起来从 trigger 角展开, 视觉锚点更明确。
+ * 150ms 比纯 fade (200ms) 稍快 — popover 是高频交互, 长了会显得"卡"。
+ */
+@keyframes popover-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.popover-in {
+  animation: popover-in 150ms ease-out;
+  transform-origin: top left;
+}

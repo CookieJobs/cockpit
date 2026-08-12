@@ -125,6 +125,26 @@ async def test_reorder_tasks_empty_is_noop(temp_db):
 # ===== 端点级测试 =====
 
 
+def test_api_project_emoji_create_update_and_clear(client: TestClient):
+    """项目 emoji 经 HTTP 创建/更新后必须持久化；空串明确回退 hash 兜底。"""
+    created = client.post("/api/projects", json={"name": "emoji", "emoji": "🎯"})
+    assert created.status_code == 200, created.text
+    project = created.json()
+    assert project["emoji"] == "🎯"
+
+    renamed = client.patch(f"/api/projects/{project['id']}", json={"name": "emoji-renamed"})
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["emoji"] == "🎯"  # 不传 emoji 不能静默清掉已有选择
+
+    updated = client.patch(f"/api/projects/{project['id']}", json={"emoji": "🦄"})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["emoji"] == "🦄"
+
+    cleared = client.patch(f"/api/projects/{project['id']}", json={"emoji": ""})
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["emoji"] is None
+
+
 def test_api_reorder_projects_endpoint(client: TestClient):
     """POST /api/projects/reorder 端到端。"""
     p1 = client.post("/api/projects", json={"name": "A"}).json()

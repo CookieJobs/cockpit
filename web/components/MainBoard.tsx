@@ -31,6 +31,7 @@ import { OnboardingTooltip } from "./OnboardingTooltip";
 import { DataState } from "./DataState";
 import { usePopover, usePopoverPosition } from "./Popover";
 import { useToast } from "./Toast";
+import { ProjectEmojiPicker } from "./ProjectEmojiPicker";
 import Link from "next/link";
 import { getVisualTone } from "@/lib/visual-system";
 
@@ -844,7 +845,7 @@ function ProjectsSection({
                 className="rounded-xl bg-bg-tertiary/20 border border-border/40 px-3 py-2 flex items-center gap-2"
               >
                 <span className="text-[14px] flex-shrink-0 opacity-60">
-                  {projectEmoji(p.id)}
+                  {projectEmoji({ id: p.id, emoji: p.emoji })}
                 </span>
                 <span className="flex-1 text-[14px] text-fg-muted truncate">
                   {p.name}
@@ -972,6 +973,15 @@ function ProjectCard({
     const trimmed = newName.trim();
     if (!project.id || !trimmed || trimmed === project.name) return;
     await api.updateProject(project.id, { name: trimmed });
+    onChange();
+  };
+
+  // 2026-08-11: 手动更换项目 emoji。
+  // 2026-08-11 v2 调整: picker 不再传 null (✕ 清除按钮删了, "当前 hash" 按钮点了也是发字符串),
+  //   所以签名简化为只接 string。后端 PATCH 端点仍接受 null/"" 用于高级场景。
+  const updateEmoji = async (emoji: string) => {
+    if (!project.id) return;
+    await api.updateProject(project.id, { emoji });
     onChange();
   };
 
@@ -1106,9 +1116,17 @@ function ProjectCard({
                 className="flex-1 text-left text-[15px] font-medium text-fg truncate flex items-center gap-1.5"
                 title="双击编辑名称"
               >
-                <span className="text-[15px] flex-shrink-0">
-                  {projectEmoji(project.id)}
-                </span>
+                {/* 2026-08-11: 项目 emoji 加 picker 交互入口 (单击弹, hover 浅色圆圈)。
+                    传 project 对象, 升级后的 projectEmoji 优先用 project.emoji 否则 hash 兜底。 */}
+                <ProjectEmojiPicker
+                  value={project.emoji ?? null}
+                  hashEmoji={projectEmoji(project.id)}
+                  onChange={updateEmoji}
+                >
+                  <span className="text-[15px] flex-shrink-0">
+                    {projectEmoji(project)}
+                  </span>
+                </ProjectEmojiPicker>
                 {project.name}
               </span>
             )}

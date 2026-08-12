@@ -9,6 +9,10 @@
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    // 2026-08-11: 允许 import 带 .ts 后缀 (lib/api.ts 抽 projectEmojis 时需要,
+    // 因为 web/scripts/*.mjs 用 node --experimental-strip-types 真跑 lib/api.ts 时
+    // 强制要 .ts 后缀, 跟 bundler 解析保持一致)
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",

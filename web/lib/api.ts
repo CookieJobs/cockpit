@@ -96,6 +96,8 @@ export interface Project {
   archived: boolean;
   // 2026-07-30: 拖动排序。间隔 10 存, 给插入留空间。
   sort_order: number;
+  // 2026-08-11: 用户手动指定的项目 emoji。null/undefined = 用 hash 兜底 (老项目视觉不变)。
+  emoji?: string | null;
 }
 
 export interface Task {
@@ -171,6 +173,8 @@ export interface ProjectSnapshot {
   sort_order: number;
   // 2026-08-01: 项目内已完成 task 数 (后端 build_snapshot 算, 前端"查看已完成 N" 折叠区用)
   done_count: number;
+  // 2026-08-11: 用户手动指定的 emoji (build_snapshot 透传)。null = 用 hash 兜底。
+  emoji?: string | null;
 }
 
 export interface Snapshot {
@@ -765,18 +769,25 @@ export function daysAgoISO(days: number): string {
 }
 
 // ===== 项目 deterministic emoji（继承自 task-cockpit dashboard.html）=====
-// 50 个 emoji 池子，按项目 id 字符串哈希取模——同一项目永远拿到同一个图标
-// （视觉稳定 + 跨刷新一致 + 跟项目名解耦可改）
-const PROJECT_EMOJIS = [
-  "🎯", "🌟", "🔥", "💡", "🛠️", "🎨", "🚀", "📐", "🧩", "⚡️",
-  "🌈", "🎪", "🔮", "🏆", "🌱", "🦋", "🐬", "🦊", "🌊", "🍀",
-  "🎸", "🏔️", "🌙", "☀️", "🎭", "🧲", "🪄", "🦄", "🐉", "🍭",
-  "🎲", "🧪", "🔭", "🗺️", "🎵", "🏄", "🌺", "🦅", "🍋", "🎃",
-  "🧸", "🪐", "🌴", "🦁", "🐙", "🎋", "🍄", "🧊", "🪩", "🎠",
-] as const;
+// 50 个 emoji 池子集中放在 lib/projectEmojis.ts (单一来源, picker 跟这里共用)。
+// 2026-08-11 升级: projectEmoji 接受 string (旧调用, 走 hash) 或 {id, emoji} 对象
+// (新调用, 优先用 project.emoji, 否则走 hash 兜底)。老项目 emoji=null 视觉零变化。
+import { PROJECT_EMOJIS } from "./projectEmojis.ts";
 
-export function projectEmoji(id: string | null | undefined): string {
-  if (!id) return "📁"; // 未分组的兜底
+type ProjectLike = { id?: string | null; emoji?: string | null };
+
+export function projectEmoji(input: string | null | undefined): string;
+export function projectEmoji(input: ProjectLike | null | undefined): string;
+export function projectEmoji(input: string | ProjectLike | null | undefined): string {
+  if (input == null) return "📁"; // 未分组的兜底
+  if (typeof input === "string") return hashEmoji(input);
+  // 对象入参: 优先用用户手动指定的 emoji, 没有再走 hash 兜底
+  if (input.emoji && input.emoji.length > 0) return input.emoji;
+  if (!input.id) return "📁";
+  return hashEmoji(input.id);
+}
+
+function hashEmoji(id: string): string {
   let h = 0;
   for (let i = 0; i < id.length; i++) {
     h = (h * 31 + id.charCodeAt(i)) >>> 0;

@@ -134,6 +134,8 @@ class ProjectORM(StringPKMixin, CreatedDateMixin, Base):
     archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # 2026-07-30: 拖动排序。间隔 10 存 (0/10/20/...), 跟 Task 同样策略。
     sort_order: Mapped[int] = mapped_column(default=0, nullable=False)
+    # 2026-08-11: 用户手动指定的项目 emoji (NULL = 用 hash 兜底, 保持老数据视觉稳定)。
+    emoji: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
 
 
 class TaskORM(StringPKMixin, CreatedDateMixin, Base):
@@ -340,6 +342,8 @@ async def _run_schema_migrations(conn) -> Path | None:
     await _migrate_add_column(conn, "achievements", "distillation_trace_id", "TEXT")
     # 2026-08-01: task.completed_at 字段 (task 保留后记录何时完成)
     await _migrate_add_column(conn, "tasks", "completed_at", "DATE")
+    # 2026-08-11: project.emoji 字段 (NULL 允许, 老数据走 hash 兜底零破坏)
+    await _migrate_add_column(conn, "projects", "emoji", "VARCHAR(32)")
     return await _migrate_drop_task_draft_column(conn)
 
 
@@ -463,6 +467,7 @@ def _project_to_pydantic(p: ProjectORM) -> Project:
         created_at=p.created_at,
         archived=p.archived,
         sort_order=p.sort_order,
+        emoji=p.emoji,
     )
 
 
@@ -547,6 +552,7 @@ async def add_project(data: ProjectCreate) -> Project:
             created_at=date.today(),
             archived=False,
             sort_order=new_order,
+            emoji=data.emoji,
         )
         session.add(project)
         await session.flush()
@@ -612,6 +618,10 @@ async def update_project(pid: str, data: ProjectUpdate) -> Optional[Project]:
             p.description = data.description
         if data.archived is not None:
             p.archived = data.archived
+        # emoji 字段: None = 不传 (不改), "" = 显式清空, 其他 = 设置。
+        # Pydantic Optional 字段缺省 None, 显式传 "" 也会触发这个分支 (is not None)。
+        if data.emoji is not None:
+            p.emoji = data.emoji if data.emoji else None
         await session.flush()
         return _project_to_pydantic(p)
 
@@ -1648,6 +1658,7 @@ async def build_snapshot() -> Snapshot:
             id=p.id, name=p.name, description=p.description, tasks=p_active,
             done_count=p_done,
             sort_order=p.sort_order,  # 2026-07-30: 透传 sort_order 给前端
+            emoji=p.emoji,  # 2026-08-11: 透传 emoji, 不传前端显示就跟用户选的对不上
         ))
 
     # 未分组的 task (孤儿, project 已被删/不存在)。sort_order 用 0 兜底
@@ -1655,6 +1666,7 @@ async def build_snapshot() -> Snapshot:
     if orphans:
         projects_grouped.append(ProjectSnapshot(
             id=None, name="未分组", tasks=orphans, done_count=0, sort_order=0,
+            emoji=None,  # 未分组没用 emoji, 走 📁 兜底
         ))
 
     return Snapshot(
