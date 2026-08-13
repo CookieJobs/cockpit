@@ -1019,7 +1019,7 @@ function ProjectCard({
                   e.stopPropagation();
                   if (project.id) setEditingName(true);
                 }}
-                className="flex-1 text-left text-[15px] font-medium text-fg truncate flex items-center gap-1.5"
+                className="flex-1 text-left text-[15px] font-medium text-fg flex items-center gap-1.5"
                 title="双击编辑名称"
               >
                 {/* 2026-08-11: 项目 emoji 加 picker 交互入口 (单击弹, hover 浅色圆圈)。
@@ -1033,7 +1033,7 @@ function ProjectCard({
                     {projectEmoji(project)}
                   </span>
                 </ProjectEmojiPicker>
-                {project.name}
+                <span className="min-w-0 truncate">{project.name}</span>
               </span>
             )}
             {totalTaskCount > 0 ? (

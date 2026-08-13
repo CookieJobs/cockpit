@@ -250,3 +250,16 @@ body {
   animation: popover-in 150ms ease-out;
   transform-origin: top left;
 }
+
+/* 2026-08-12 立: tooltip 淡入动画 (纯 fade)
+ * 用于 ProjectEmojiPicker 的自定义 tooltip。不含 transform —
+ * tooltip 用 inline transform 做定位 (translate(-50%, ...)), keyframes 里的
+ * transform 会覆盖定位。120ms 比 popover-in 更快: tooltip 是被动提示, 不该有"弹"感。
+ */
+@keyframes tooltip-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.tooltip-in {
+  animation: tooltip-in 120ms ease-out;
+}

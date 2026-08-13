@@ -242,6 +242,18 @@ check("achievement distribution uses asset", achievementSource.includes('classNa
 check("project achievement items are divider rows, not cards", achievementSource.includes('className="divide-y divide-border/70"') && achievementSource.includes('className="px-1 py-3 hover:bg-bg-tertiary/40 transition"'));
 check("timeline achievement items are divider rows, not cards", achievementSource.includes('className="overflow-hidden rounded-xl border border-border bg-bg-secondary divide-y divide-border"') && achievementSource.includes('className="px-3 py-3 hover:bg-bg-tertiary/40 transition"'));
 
+section("project emoji trigger hover");
+const emojiPickerSource = readFileSync("components/ProjectEmojiPicker.tsx", "utf8");
+const emojiTriggerClass = emojiPickerSource.match(/className="([^"]*rounded-full[^"]*hover:shadow-\[[^"]*)"/)?.[1] ?? "";
+check("project emoji trigger uses a circular hover shadow",
+  emojiTriggerClass.includes("rounded-full") && emojiTriggerClass.includes("hover:shadow-[") && !emojiTriggerClass.includes("hover:bg-"),
+  emojiTriggerClass || "no circular shadow trigger class");
+const boardSource = readFileSync("components/MainBoard.tsx", "utf8");
+check("project title clips only its text, not the emoji trigger",
+  boardSource.includes('className="flex-1 text-left text-[15px] font-medium text-fg flex items-center gap-1.5"') &&
+    boardSource.includes('<span className="min-w-0 truncate">{project.name}</span>'),
+  "emoji trigger must be outside the truncate element");
+
 section("report value and recovery hierarchy");
 const reportSource = readFileSync("app/report/page.tsx", "utf8");
 const reportAssetUtilities = reportSource.match(/\b(?:bg|text|border)-asset(?:\b|\/)/g) ?? [];

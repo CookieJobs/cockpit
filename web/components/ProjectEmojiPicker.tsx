@@ -35,6 +35,13 @@
  *    - 内部 button 双重 stopPropagation (onClick + onMouseDown) 保留
  *    - 顶 div 也 stopPropagation 兜底 (mousedown capture 阶段)
  *
+ * 2026-08-12 v6 调整 (用户反馈 hover 太丑):
+ *   - 原生 title tooltip 是 OS 级灰底黑箭头框, 跟 app 设计语言完全不搭,
+ *     还直接压在项目描述文字上 → 换成 portal 渲染的自定义 tooltip
+ *     (复用 popover 设计 token, 400ms 延迟, 优先在 trigger 上方展开, 不遮内容)
+ *   - trigger hover: 仅显示细圆环阴影；不填充背景、不改变尺寸，保留 emoji 本身的轻量感
+ *   - 可达性: 去掉 title 后用 aria-label 保留屏幕阅读器信息
+ *
  * 2026-08-12 v5 调整 (AI CTO 反思, 跟整个 app 的 hover 语言对齐):
  *   - trigger: 彻底去掉 scale/box-shadow/accent 撞色, 改用 bg-tertiary + 1px border 浮现
  *   - trigger 内的 emoji span: 不再 scale
@@ -48,7 +55,7 @@
  *   - 顶 div 加 onMouseDownCapture 兜底 (保留)
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePopover, usePopoverPosition } from "./Popover";
 import { PROJECT_EMOJIS } from "@/lib/projectEmojis";
@@ -78,6 +85,37 @@ export function ProjectEmojiPicker({
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  // v6: 自定义 tooltip (替代原生 title) — 400ms 延迟浮现, 优先在 trigger 上方,
+  // 上方空间不够 (视口顶部) 时翻到下方。portal 渲染跳出 ProjectCard overflow-hidden。
+  const [tip, setTip] = useState<{ top: number; left: number; above: boolean } | null>(null);
+  const tipTimer = useRef<number | null>(null);
+  const clearTipTimer = () => {
+    if (tipTimer.current !== null) {
+      window.clearTimeout(tipTimer.current);
+      tipTimer.current = null;
+    }
+  };
+  const showTipSoon = () => {
+    clearTipTimer();
+    tipTimer.current = window.setTimeout(() => {
+      const el = pop.triggerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      // 上方至少留 36px (tooltip 高 ~24px + 间距), 否则翻到下方
+      const above = rect.top > 36;
+      setTip({
+        top: above ? rect.top - 6 : rect.bottom + 6,
+        left: rect.left + rect.width / 2,
+        above,
+      });
+    }, 400);
+  };
+  const hideTip = () => {
+    clearTipTimer();
+    setTip(null);
+  };
+  useEffect(() => clearTipTimer, []);
+
   // v3: 不再 pop.close() — 让用户连续微调, 由 usePopover 的 click-outside / Esc 统一关闭
   const selectEmoji = (emoji: string) => {
     if (value !== emoji) onChange(emoji);
@@ -103,22 +141,39 @@ export function ProjectEmojiPicker({
         type="button"
         onClick={(e) => {
           e.stopPropagation();
+          hideTip();
           pop.toggle();
         }}
         onMouseDown={(e) => e.stopPropagation()}
-        // v5 hover: 跟整个 app 的 hover 语言对齐
-        //   - bg-bg-tertiary 浅色背景 (跟 StatusMenu / 归档按钮一致)
-        //   - 1px border 浮现 (跟 popover 边框语言一致)
-        //   - 不 scale, 不 box-shadow, 不用 accent 撞色
-        //   - 唯一保留的 focus-visible 键盘可达性
-        className="inline-flex items-center justify-center p-1 -m-1 rounded-full cursor-pointer border border-transparent transition-colors duration-150 hover:bg-bg-tertiary hover:border-border active:bg-bg-tertiary/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-        title="点击更换项目 emoji"
+        onMouseEnter={showTipSoon}
+        onMouseLeave={hideTip}
+        // hover 只给圆形细阴影，不做背景填充或缩放；原生 title 换成 portal tooltip,
+        // 这里用 aria-label 保留可达性。
+        className="inline-flex items-center justify-center p-1 -m-1 rounded-full cursor-pointer transition-shadow duration-150 hover:shadow-[0_0_0_1px_rgb(var(--color-border-hover))] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        aria-label="点击更换项目 emoji"
         aria-haspopup="dialog"
         aria-expanded={pop.open}
       >
         {/* v5: 不再 scale, 静态 emoji */}
         {children}
       </button>
+      {/* v6: 自定义 tooltip — picker 打开时不显示 (跟 trigger 状态互斥) */}
+      {tip && !pop.open && mounted && createPortal(
+        <div
+          style={{
+            position: "fixed",
+            top: tip.top,
+            left: tip.left,
+            zIndex: 70,
+            transform: tip.above ? "translate(-50%, -100%)" : "translate(-50%, 0)",
+          }}
+          className="tooltip-in pointer-events-none bg-bg-secondary border border-border rounded-md shadow-md px-2 py-1 text-[11px] text-fg-secondary whitespace-nowrap"
+          role="tooltip"
+        >
+          更换项目 emoji
+        </div>,
+        document.body
+      )}
       {pop.open && mounted && createPortal(
         <div
           ref={pop.popoverRef}

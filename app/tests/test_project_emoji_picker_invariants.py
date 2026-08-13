@@ -40,15 +40,16 @@ def code_lines(source: str) -> list[str]:
     return [line for line in source.splitlines() if not line.lstrip().startswith("//")]
 
 
-def test_trigger_hover_is_quiet_and_layout_stable():
+def test_trigger_hover_uses_a_circular_outline_without_layout_shift():
     source = read_picker()
-    trigger = section(source, 'ref={pop.triggerRef}', 'title="点击更换项目 emoji"')
+    trigger = section(source, 'ref={pop.triggerRef}', 'aria-expanded={pop.open}')
 
-    assert "border border-transparent" in trigger
-    assert "hover:bg-bg-tertiary" in trigger
-    assert "hover:border-border" in trigger
+    assert "rounded-full" in trigger
+    assert "transition-shadow" in trigger
+    assert "hover:shadow-[0_0_0_1px_rgb(var(--color-border-hover))]" in trigger
+    assert "aria-label=\"点击更换项目 emoji\"" in trigger
     assert "focus-visible:ring-2 focus-visible:ring-accent/60" in trigger
-    for forbidden in ("hover:scale-", "hover:shadow-", "hover:ring-", "hover:transform"):
+    for forbidden in ("hover:scale-", "hover:bg-", "hover:ring-", "hover:transform"):
         assert forbidden not in trigger
 
 
