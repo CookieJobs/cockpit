@@ -351,11 +351,14 @@ class FocusItem(CockpitModel):
 
 
 class ProjectSnapshot(CockpitModel):
-    """项目快照（含任务）。"""
+    """项目快照（活动任务 + 已完成任务）。"""
     id: Optional[str]
     name: str
     description: str = ""
     tasks: list[Task]
+    # 2026-08-13: 项目内已完成 task 列表, 看板展开时按 completed_at desc 常驻展示。
+    #   `tasks` 保持活动任务语义不变, 已完成走独立字段, 不污染拖拽 / 添加入口。
+    done_tasks: list[Task] = []
     # 2026-08-01: 项目内已完成 task 数 (默认 0), 看板"查看已完成 N" 折叠区用
     done_count: int = 0
     # 2026-08-11: 用户手动指定的 emoji (NULL = 用 hash 兜底), 跟 Project.emoji 语义一致。

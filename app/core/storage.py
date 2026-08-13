@@ -1632,6 +1632,11 @@ async def build_snapshot() -> Snapshot:
     active_tasks = [t for t in all_tasks if t.status != TaskStatus.COMPLETED.value]
     done_tasks = [t for t in all_tasks if t.status == TaskStatus.COMPLETED.value]
 
+    # 2026-08-13: 项目内已完成任务按 completed_at desc 排, 同时间用 sort_order + id 兜底保稳定
+    def completed_task_sort_key(task: Task) -> tuple[int, int, str]:
+        completed = task.completed_at or date.min
+        return (-completed.toordinal(), task.sort_order, task.id)
+
     # 算 focus (只看 active, 用户最该被聚焦的是"还没完成的")
     focus_tasks = sort_focus(active_tasks)[:5]
     focus = [
@@ -1653,10 +1658,15 @@ async def build_snapshot() -> Snapshot:
         if p.archived:
             continue
         p_active = [t for t in active_tasks if t.project == p.id]
-        p_done = sum(1 for t in done_tasks if t.project == p.id)
+        # 2026-08-13: 已完成列表按 completed_at desc 排序, 跟 done_count 计数同源
+        p_done = sorted(
+            (t for t in done_tasks if t.project == p.id),
+            key=completed_task_sort_key,
+        )
         projects_grouped.append(ProjectSnapshot(
             id=p.id, name=p.name, description=p.description, tasks=p_active,
-            done_count=p_done,
+            done_tasks=p_done,
+            done_count=len(p_done),
             sort_order=p.sort_order,  # 2026-07-30: 透传 sort_order 给前端
             emoji=p.emoji,  # 2026-08-11: 透传 emoji, 不传前端显示就跟用户选的对不上
         ))
@@ -1665,7 +1675,7 @@ async def build_snapshot() -> Snapshot:
     orphans = [t for t in active_tasks if t.project not in known_pids]
     if orphans:
         projects_grouped.append(ProjectSnapshot(
-            id=None, name="未分组", tasks=orphans, done_count=0, sort_order=0,
+            id=None, name="未分组", tasks=orphans, done_tasks=[], done_count=0, sort_order=0,
             emoji=None,  # 未分组没用 emoji, 走 📁 兜底
         ))
 

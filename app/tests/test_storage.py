@@ -1,4 +1,6 @@
 """存储层单元测试。"""
+from datetime import date
+
 import pytest
 
 from app.core import storage
@@ -456,6 +458,46 @@ async def test_build_snapshot_groups_by_project(temp_db):
     project_names = [ps.name for ps in snapshot.projects]
     assert "P1" in project_names
     assert "P2" in project_names
+
+
+@pytest.mark.asyncio
+async def test_build_snapshot_keeps_project_completed_tasks_separate_and_ordered(
+    temp_db, monkeypatch
+):
+    """Project snapshot exposes its completed history without polluting active work."""
+    p1 = await storage.add_project(ProjectCreate(name="P1"))
+    p2 = await storage.add_project(ProjectCreate(name="P2"))
+    active = await storage.add_task(TaskCreate(project=p1.id, title="仍在进行"))
+    older = await storage.add_task(TaskCreate(project=p1.id, title="较早完成"))
+    newer = await storage.add_task(TaskCreate(project=p1.id, title="较晚完成"))
+    other_project_done = await storage.add_task(TaskCreate(project=p2.id, title="P2 完成"))
+
+    class FrozenDate(date):
+        current = date(2026, 8, 1)
+
+        @classmethod
+        def today(cls):
+            return cls.current
+
+    monkeypatch.setattr(storage, "date", FrozenDate)
+    await storage.complete_task(older.id, outcome="o", cv="cv", cv_status=CVStatus.PENDING)
+    FrozenDate.current = date(2026, 8, 2)
+    await storage.complete_task(newer.id, outcome="o", cv="cv", cv_status=CVStatus.PENDING)
+    await storage.complete_task(
+        other_project_done.id, outcome="o", cv="cv", cv_status=CVStatus.PENDING
+    )
+
+    snapshot = await storage.build_snapshot()
+    by_id = {project.id: project for project in snapshot.projects}
+
+    assert [task.id for task in by_id[p1.id].tasks] == [active.id]
+    assert [task.id for task in by_id[p1.id].done_tasks] == [newer.id, older.id]
+    assert by_id[p1.id].done_count == 2
+    assert [task.id for task in by_id[p2.id].done_tasks] == [other_project_done.id]
+    assert all(task.status != TaskStatus.COMPLETED for task in by_id[p1.id].tasks)
+    assert {task.id for task in snapshot.done_tasks} == {
+        older.id, newer.id, other_project_done.id
+    }
 
 
 @pytest.mark.asyncio
