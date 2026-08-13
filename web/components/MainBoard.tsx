@@ -578,102 +578,6 @@ function LegacyDailyCompletionView({
   );
 }
 
-function LegacyCompletedTaskView({
-  items,
-  onChange,
-}: {
-  items: NonNullable<Snapshot["done_tasks"]>;
-  onChange: () => void;
-}) {
-  // 2026-08-01 立: 全局"已完成 task" 折叠区 (跨 project, 不只是今天)
-  //   旧版 task 完成即删, 用户"看回" 自己干的活要去 /achievements 才能找到
-  //   新版 task 保留 (status=已完成), 主页底部加这个折叠区, 立刻看回所有 done
-  //   - 默认收起 (done 多了不打扰主页)
-  //   - 展开后按 completed_at desc 排 (最近完成的在前)
-  //   - 每条带项目 emoji + 标题 + 撤销按钮
-  const [expanded, setExpanded] = useState(false);
-  if (!items || items.length === 0) return null;
-
-  // 拿每个 task 对应的 achievement (task_id + date 是关键) — 简化: 调后端
-  // 撤销走原 achievement 路径, 不用 task_id
-  // 实际: 我们展示 task 但撤销是按 task_id 找最新 achievement, 简化展示
-  return (
-    <div className="rounded-lg border border-border bg-bg-secondary/50 overflow-hidden">
-      <div
-        className="px-3 py-2.5 flex items-center justify-between cursor-pointer hover:bg-bg-tertiary/40 transition select-none"
-        onClick={() => setExpanded((e) => !e)}
-      >
-        <div className="flex items-center gap-2">
-          <ChevronRight
-            size={12}
-            strokeWidth={2}
-            className={`text-fg-muted transition-transform flex-shrink-0 ${
-              expanded ? "rotate-90" : ""
-            }`}
-          />
-          <span className="text-[11px] uppercase tracking-[0.1em] text-fg-muted font-semibold">
-            📦 已完成任务
-          </span>
-          <span className="text-[11px] text-fg-secondary tabular-nums">
-            {items.length}
-          </span>
-        </div>
-        <span className="text-[10px] text-fg-muted/60">
-          {expanded ? "收起" : "展开"}
-        </span>
-      </div>
-
-      {expanded && (
-        <div className="border-t border-border/40 divide-y divide-border/30">
-          {items.map((t) => (
-            <div key={t.id} className="px-3 py-2.5 group/item">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <Check size={12} className="text-success flex-shrink-0" strokeWidth={2.5} />
-                    {/* 项目 emoji — 跟 projectCard 头部一致 (复用 projectEmoji) */}
-                    <span className="text-[12px] flex-shrink-0 opacity-70">
-                      {projectEmoji(t.project)}
-                    </span>
-                    <span className="text-[13px] text-fg-muted line-through truncate">
-                      {t.title}
-                    </span>
-                  </div>
-                  {t.completed_at && (
-                    <div className="text-[10px] text-fg-muted mt-1">
-                      完成于 {t.completed_at}
-                    </div>
-                  )}
-                </div>
-                {/* 撤销按钮 (2026-08-01: 按 task.id 调后端, 后端找最近一条 achievement 撤销) */}
-                <button
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    if (!confirm(`撤销「${t.title}」的完成状态？任务会恢复到进行中。`)) return;
-                    // 后端需要新端点: POST /api/tasks/{id}/undo 找最新 achievement 撤销
-                    // 简化: 调 list_achievements 找该 task_id 对应的最新 achievement, 再 undo
-                    // 实际: 我加新端点 /api/tasks/{id}/undo 走 storage.undo_by_task_id
-                    try {
-                      await api.undoTask(t.id);
-                      onChange();
-                    } catch (err) {
-                      alert("撤销失败: " + (err instanceof Error ? err.message : err));
-                    }
-                  }}
-                  className="opacity-0 group-hover/item:opacity-100 text-fg-muted hover:text-danger transition p-1 rounded hover:bg-bg-tertiary flex-shrink-0"
-                  title="撤销（恢复任务到进行中）"
-                >
-                  <Undo2 size={12} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ProjectsSection({
   snapshot,
   onChange,
@@ -941,7 +845,12 @@ function ProjectCard({
   // 2026-07-30: 拖动句柄 (GripVertical button) 从 SortableProjectCard 注入
   dragHandle?: React.ReactNode;
 }) {
-  const taskCount = project.tasks.length;
+  // 2026-08-13: 项目内活动任务 / 已完成任务分区, 拖拽/添加只走活动侧,
+  //   已完成走独立"已完成 N 项" 常驻区域。`project.tasks` 保持活动任务语义。
+  const activeTasks = project.tasks;
+  const completedTasks = project.done_tasks;
+  const doneCount = completedTasks.length;
+  const totalTaskCount = activeTasks.length + completedTasks.length;
   const [editingName, setEditingName] = useState(false);
   const [editingDesc, setEditingDesc] = useState(false);
   const [descText, setDescText] = useState(project.description);
@@ -1013,10 +922,6 @@ function ProjectCard({
     }
   };
 
-  const doneCount = project.tasks.filter(
-    (t) => t.status === "已完成"
-  ).length;
-
   // ===== 任务拖动 (2026-07-30 立) =====
   // 项目内嵌独立 DndContext, 跟 ProjectsSection 外层互不干扰 (嵌套 DndContext
   // 各自独立 sensors, 拖 task 不会触发 project 拖动)。
@@ -1029,7 +934,8 @@ function ProjectCard({
   const handleTaskDragEnd = async (e: DragEndEvent) => {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
-    const tasks = project.tasks;
+    // 2026-08-13: 只在活动任务序列内重排, 已完成行不在 SortableContext 里。
+    const tasks = activeTasks;
     const oldIndex = tasks.findIndex((t) => t.id === active.id);
     const newIndex = tasks.findIndex((t) => t.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
@@ -1130,12 +1036,12 @@ function ProjectCard({
                 {project.name}
               </span>
             )}
-            {taskCount > 0 ? (
+            {totalTaskCount > 0 ? (
               <span className="text-[12px] text-fg-secondary tabular-nums flex-shrink-0">
-                <span className={doneCount === taskCount ? "text-success" : "text-fg-secondary"}>
+                <span className={doneCount === totalTaskCount ? "text-success" : "text-fg-secondary"}>
                   {doneCount}
                 </span>
-                <span className="text-fg-muted">/{taskCount}</span>
+                <span className="text-fg-muted">/{totalTaskCount}</span>
               </span>
             ) : (
               <span className="text-[12px] text-fg-muted flex-shrink-0">0</span>
@@ -1212,11 +1118,11 @@ function ProjectCard({
         <div className="px-2 pb-2 pt-1 bg-bg-tertiary/20 border-t border-border/40">
           <DndContext sensors={taskSensors} collisionDetection={closestCenter} onDragEnd={handleTaskDragEnd}>
             <SortableContext
-              items={project.tasks.map((t) => t.id)}
+              items={activeTasks.map((t) => t.id)}
               strategy={verticalListSortingStrategy}
             >
               <div className="space-y-0.5">
-                {project.tasks.map((t) => (
+                {activeTasks.map((t) => (
                   <SortableTaskRow
                     key={t.id}
                     task={t}
@@ -1224,7 +1130,7 @@ function ProjectCard({
                     onRequestComplete={onRequestComplete}
                   />
                 ))}
-                {project.tasks.length === 0 && !addingTask && (
+                {activeTasks.length === 0 && !addingTask && (
                   <div className="px-3 py-3 text-[13px] text-fg-muted text-center">
                     项目下还没有任务 — 在下面加一个
                   </div>
@@ -1276,8 +1182,61 @@ function ProjectCard({
             )}
           </div>
 
+          {/* 2026-08-13: 项目内已完成任务常驻区域, 永远在添加任务之后、不可折叠。
+              区域非空才渲染, 空时不显示占位符 (避免"空 completed 区域" 噪声)。 */}
+          {completedTasks.length > 0 && (
+            <section
+              className="mt-3 border-t border-border/40 pt-2"
+              aria-label={`已完成 ${doneCount} 项`}
+            >
+              <div className="px-2 pb-1.5 flex items-center gap-1.5 text-[12px] font-medium text-success">
+                <Check size={13} strokeWidth={2.5} />
+                已完成 {doneCount} 项
+              </div>
+              <div className="divide-y divide-border/30 rounded-md bg-bg-secondary/40">
+                {completedTasks.map((task) => (
+                  <CompletedTaskRow key={task.id} task={task} onChange={onChange} />
+                ))}
+              </div>
+            </section>
+          )}
+
         </div>
       )}
+    </div>
+  );
+}
+
+// 2026-08-13: 已完成任务行。不可拖拽, 不暴露完成入口, 只允许确认后撤销。
+//   复用既有的 api.undoTask(task.id) 走 project_id + task_id 撤销路径, 不绕成就库。
+function CompletedTaskRow({ task, onChange }: { task: Task; onChange: () => void }) {
+  const undo = async () => {
+    if (!confirm(`撤销「${task.title}」的完成状态？任务会恢复到进行中。`)) return;
+    try {
+      await api.undoTask(task.id);
+      onChange();
+    } catch (err) {
+      alert("撤销失败: " + (err instanceof Error ? err.message : err));
+    }
+  };
+
+  return (
+    <div className="group/completed flex items-center gap-2 px-3 py-2 text-[13px]">
+      <Check size={13} className="text-success flex-shrink-0" strokeWidth={2.5} />
+      <div className="min-w-0 flex-1">
+        <div className="text-fg-muted line-through truncate">{task.title}</div>
+        {task.completed_at && (
+          <div className="mt-0.5 text-[11px] text-fg-muted">完成于 {task.completed_at}</div>
+        )}
+      </div>
+      <button
+        onClick={undo}
+        className="text-[12px] text-fg-muted hover:text-fg transition flex items-center gap-1"
+        title="撤销完成"
+      >
+        <Undo2 size={12} />
+        撤销完成
+      </button>
     </div>
   );
 }

@@ -169,6 +169,9 @@ export interface ProjectSnapshot {
   name: string;
   description: string;
   tasks: Task[];
+  // 2026-08-13: 项目内已完成 task 列表, 看板展开后常驻展示在活动任务之后。
+  //   `tasks` 保持活动任务语义不变, 已完成走独立字段, 不参与拖拽/添加入口。
+  done_tasks: Task[];
   // 2026-07-30: 拖动排序字段同步到 snapshot (后端 build_snapshot 已经透传)
   sort_order: number;
   // 2026-08-01: 项目内已完成 task 数 (后端 build_snapshot 算, 前端"查看已完成 N" 折叠区用)
