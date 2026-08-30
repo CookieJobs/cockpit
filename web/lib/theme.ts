@@ -1,15 +1,13 @@
 "use client";
 
-// 2026-08-01 立: 主题 React hook (useTheme)。
+// 2026-08-23 改: cockpit v2 — useTheme 仍存在, 但 theme 永远是 "dark"。
 //
-// 纯函数 (getStoredTheme / setStoredTheme / applyTheme / getCurrentTheme /
-// toggleTheme / 订阅源) 在 lib/theme-core.ts, 这个文件只做:
-//   1) re-export 纯函数 (向后兼容, 其它文件 import { useTheme } from
-//      '@/lib/theme' 仍能拿到)
-//   2) useTheme hook 用 useSyncExternalStore 订阅 theme-core 的版本号
+// 保留 hook API 的原因:
+//   - ThemeToggle.tsx / 其他组件可能 import { useTheme }
+//   - 突然删 hook = 整个项目编译失败
+//   - 退一步: hook 永远返 { theme: "dark", setTheme, toggle } 让调用方不报错
 //
-// 多 tab 同步: 监听 localStorage 'storage' 事件, 其他 tab 切了主题
-// 这边也跟切。
+// 跨 tab 同步: 保留 storage 事件监听 (理论上永远不会再触发, 但不删)
 
 import { useSyncExternalStore, useCallback } from "react";
 import {
@@ -34,16 +32,13 @@ export {
   getCurrentTheme,
 };
 
-// 跨 tab 同步: 在 module 加载时注册一次, 全局唯一监听。
+// 跨 tab 同步: 保留 (虽然 v2 主题不会变, 但 storage 事件可能有其他用途)
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (e) => {
     if (e.key !== THEME_STORAGE_KEY) return;
-    const newTheme = getStoredTheme();
-    const current = getCurrentTheme();
-    if (newTheme !== current) {
-      applyTheme(newTheme);
-      bumpThemeVersion();
-    }
+    // v2: 任何 storage 变化都同步到 dark, 不再切 light
+    applyTheme("dark");
+    bumpThemeVersion();
   });
 }
 
@@ -52,7 +47,6 @@ function getThemeSnapshot(): Theme {
 }
 
 function getThemeServerSnapshot(): Theme {
-  // SSR: 返默认主题, 早期同步脚本在 client mount 时覆盖。
   return DEFAULT_THEME;
 }
 
@@ -63,15 +57,17 @@ export function useTheme() {
     getThemeServerSnapshot,
   );
 
-  const setTheme = useCallback((next: Theme) => {
-    applyTheme(next);
-    setStoredTheme(next);
+  const setTheme = useCallback((_next: Theme) => {
+    // v2: setTheme 永远设置 dark, 不接受 light
+    applyTheme("dark");
+    setStoredTheme("dark");
     bumpThemeVersion();
   }, []);
 
   const toggle = useCallback(() => {
-    return setTheme(theme === "dark" ? "light" : "dark");
-  }, [theme, setTheme]);
+    // v2: toggle 是 no-op, 永远返 dark
+    return DEFAULT_THEME;
+  }, []);
 
   return { theme, setTheme, toggle } as const;
 }

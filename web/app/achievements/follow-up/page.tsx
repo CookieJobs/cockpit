@@ -139,7 +139,7 @@ export default function FollowUpPage() {
             加载中…
           </div>
         ) : items.length === 0 ? (
-          <div className="rounded-lg border border-border bg-bg-secondary p-8 text-center space-y-3">
+          <div className="glass rounded-glass p-8 text-center space-y-3">
             <div className="text-[28px]">✨</div>
             <div className="text-[15px] text-fg-secondary font-medium">
               没有待补追问
@@ -166,7 +166,7 @@ export default function FollowUpPage() {
               return (
                 <div
                   key={item.id}
-                  className={`rounded-lg border bg-bg-secondary p-4 space-y-3 transition ${
+                  className={`rounded-glass p-4 space-y-3 transition glass ${
                     saved ? "border-success/40 bg-success/5" : "border-border"
                   }`}
                 >

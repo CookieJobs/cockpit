@@ -149,12 +149,13 @@ def test_no_top_level_loading_thinking_indicator():
     """
     src = read_chatwindow()
     # 找 messages.map 之后、 输入区之前那一片区域
-    # 简化: 找 "messages.map" 在源码里的最后出现 (新流式就是这里), 然后扫到下一个 "</form>" 或 "border-t border-border p-3" (输入区)
+    # 简化: 找 "messages.map" 在源码里的最后出现 (新流式就是这里),
+    # 然后扫到下一个输入区 marker (2026-08-23 v2: 用 placeholder 文本, 比 class 字符串稳定)
     last_map_idx = src.rfind("messages.map")
     assert last_map_idx > 0, "ChatWindow 找不到 messages.map, 组件结构大改需手动检查"
-    # 输入区标记: <form 或 border-t border-border p-3
-    input_marker = src.find("border-t border-border p-3", last_map_idx)
-    assert input_marker > 0, "ChatWindow 找不到输入区 marker, 组件结构大改需手动检查"
+    # 输入区标记: textarea 的 placeholder 文本 (v2 跨 className 改动仍稳定)
+    input_marker = src.find("说点什么", last_map_idx)
+    assert input_marker > 0, "ChatWindow 找不到输入区 marker (placeholder), 组件结构大改需手动检查"
     # 中间这片区就是 "messages 之后 到 输入区之前"
     between = src[last_map_idx:input_marker]
     # 不能有顶层 `{loading && (` 块

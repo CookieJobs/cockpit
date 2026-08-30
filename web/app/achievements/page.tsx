@@ -291,11 +291,12 @@ function ProjectSection({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-bg-secondary overflow-hidden">
+    // 2026-08-23 v2 改: 玻璃拟态 project section 卡
+    <div className="glass rounded-glass overflow-hidden">
       {/* Header — 项目级别 */}
       <button
         onClick={onToggle}
-        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-bg-tertiary/40 transition text-left"
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-glass/[0.04] transition text-left"
       >
         <span className="text-[18px] flex-shrink-0">{projectEmoji({ id: group.project_id, emoji: group.emoji })}</span>
         <span className="flex-1 min-w-0">
@@ -321,7 +322,7 @@ function ProjectSection({
 
       {/* Body — 按日期分组的成就列表 (展开时) */}
       {!collapsed && (
-        <div className="border-t border-border px-3 py-3 space-y-4">
+        <div className="border-t border-glass-border/30 px-3 py-3 space-y-4">
           {Object.entries(dateGroups)
             .sort(([a], [b]) => b.localeCompare(a))
             .map(([date, list]) => (
@@ -381,7 +382,7 @@ function AchievementItem({
   };
 
   return (
-    <div className="px-1 py-3 hover:bg-bg-tertiary/40 transition">
+    <div className="px-1 py-3 hover:bg-glass/[0.04] transition">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">

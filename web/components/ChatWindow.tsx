@@ -353,14 +353,15 @@ export function ChatWindow({
   // send 来自 useChatStream hook（2026-07-20 重构）— 流式状态机已抽到 web/lib/hooks/useChatStream.ts
 
   return (
-    <div className="flex flex-col h-full bg-bg relative">
+    // 2026-08-23 v2 改: 透明底, 玻璃风由外层 CHAT_PANEL_CLASS 提供
+    <div className="flex flex-col h-full bg-transparent relative">
       {/* 顶部工具栏 */}
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <div className="flex items-center gap-2 text-xs text-fg-muted">
-          <MessageSquare size={12} />
-          <span>对话</span>
+      <div className="flex items-center justify-between border-b border-glass-border/30 px-3 py-2">
+        <div className="flex items-center gap-2 text-xs text-fg-secondary">
+          <MessageSquare size={12} className="text-accent" />
+          <span>AI 助手</span>
           {sessionId && (
-            <span className="text-[10px] text-fg-muted opacity-60">
+            <span className="text-[10px] text-fg-muted opacity-60 tabular-nums">
               · {sessionId.slice(-8)}
             </span>
           )}
@@ -368,7 +369,7 @@ export function ChatWindow({
         <div className="flex items-center gap-1">
           <button
             onClick={startNewSession}
-            className="text-xs px-2 py-1 bg-bg-secondary border border-border rounded text-fg-secondary hover:border-border-hover hover:text-fg transition flex items-center gap-1"
+            className="text-xs px-2 py-1 glass rounded text-fg-secondary hover:text-accent hover:border-accent/30 transition flex items-center gap-1"
             title="开始新对话"
           >
             <Plus size={11} />
@@ -379,10 +380,10 @@ export function ChatWindow({
               setHistoryOpen((v) => !v);
               if (!historyOpen) refreshSessions();
             }}
-            className={`text-xs px-2 py-1 border border-border rounded transition flex items-center gap-1 ${
+            className={`text-xs px-2 py-1 border rounded transition flex items-center gap-1 ${
               historyOpen
-                ? "bg-accent text-bg"
-                : "bg-bg-secondary text-fg-secondary hover:border-border-hover hover:text-fg"
+                ? "bg-accent text-bg border-accent shadow-glow-accent-sm"
+                : "glass text-fg-secondary hover:text-fg"
             }`}
             title="历史对话"
           >
@@ -392,7 +393,7 @@ export function ChatWindow({
           {onCollapse && (
             <button
               onClick={onCollapse}
-              className="text-xs px-1.5 py-1 bg-bg-secondary border border-border rounded text-fg-secondary hover:border-border-hover hover:text-fg transition flex items-center gap-1"
+              className="text-xs px-1.5 py-1 glass rounded text-fg-secondary hover:text-fg transition flex items-center gap-1"
               title="收起对话(给项目视图让出空间)"
             >
               <PanelRightClose size={11} />
@@ -423,10 +424,11 @@ export function ChatWindow({
           >
             <div className="max-w-[85%] min-w-[200px]">
               <div
-                className={`rounded-lg px-4 py-2.5 ${
+                // 2026-08-23 v2 改: user 消息加 glow 增强霓虹绿, agent 消息玻璃化
+                className={`rounded-glass-sm px-4 py-2.5 ${
                   m.role === "user"
-                    ? "bg-accent text-bg"
-                    : "bg-bg-secondary border border-border text-fg"
+                    ? "bg-accent text-bg shadow-glow-accent-sm"
+                    : "glass text-fg"
                 }`}
               >
                 {m.role === "agent" ? (
@@ -454,7 +456,7 @@ export function ChatWindow({
             <button
               key={s}
               onClick={() => send(s)}
-              className="text-xs px-3 py-1.5 bg-bg-secondary border border-border rounded-full text-fg-secondary hover:border-border-hover hover:text-fg transition"
+              className="text-xs px-3 py-1.5 glass rounded-full text-fg-secondary hover:text-accent hover:border-accent/30 transition"
             >
               {s}
             </button>
@@ -463,7 +465,7 @@ export function ChatWindow({
       )}
 
       {/* 输入区 */}
-      <div className="border-t border-border p-3">
+      <div className="border-t border-glass-border/30 p-3">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -497,13 +499,13 @@ export function ChatWindow({
             }}
             placeholder="说点什么... (Enter 发送 / Shift+Enter 换行)"
             rows={1}
-            className="flex-1 resize-none bg-bg-secondary border border-border rounded-lg px-3 py-2 text-sm leading-6 text-fg placeholder-fg-muted focus:outline-none focus:border-accent min-h-[2.5rem] max-h-36 overflow-y-auto"
+            className="flex-1 resize-none glass rounded-glass-sm px-3 py-2 text-sm leading-6 text-fg placeholder-fg-muted focus:outline-none focus:border-accent/50 focus:shadow-glow-accent-sm min-h-[2.5rem] max-h-36 overflow-y-auto transition"
             disabled={loading}
           />
           <button
             type="submit"
             disabled={loading || !input.trim()}
-            className="p-2 bg-accent text-bg rounded-lg hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition shrink-0"
+            className="p-2 bg-accent text-bg rounded-glass-sm hover:bg-accent-hover shadow-glow-accent-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none transition shrink-0"
           >
             <Send size={16} />
           </button>

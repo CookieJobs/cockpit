@@ -22,7 +22,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { api, type Snapshot, type Project, type Task, type Achievement, type TaskStatus, statusIcon, dueColor, dueLabel, projectEmoji, relativeDate, daysAgoISO, type Priority, PRIORITY_BADGE_STYLES } from "@/lib/api";
-import { Check, Trash2, ChevronRight, ChevronDown, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2, Archive, ArchiveRestore, Sparkles, GripVertical, Star, FileText, Plug } from "lucide-react";
+import { Check, Trash2, ChevronRight, ChevronDown, Plus, CheckSquare, Square, X, Edit2, Settings, Calendar, Flag, MessageSquare, PanelRightOpen, Undo2, Archive, ArchiveRestore, Sparkles, GripVertical, Star, FileText, Plug, Target, CheckCircle2, AlertTriangle, Trophy } from "lucide-react";
 import { ChatWindow } from "./ChatWindow";
 import { CompleteTaskModal } from "./CompleteTaskModal";
 import { ThemeToggle } from "./ThemeToggle";
@@ -32,6 +32,9 @@ import { DataState } from "./DataState";
 import { usePopover, usePopoverPosition } from "./Popover";
 import { useToast } from "./Toast";
 import { ProjectEmojiPicker } from "./ProjectEmojiPicker";
+import { StatCard } from "./StatCard";
+// 2026-08-26 v2 删: HeroStack / HeroStackCard — 3D 堆叠视觉跟 4 stat 卡 + focus
+//   列表挤一起太乱, 删掉, 留干净的 4 stat + focus 列表 + project 列表
 import Link from "next/link";
 import { getVisualTone } from "@/lib/visual-system";
 
@@ -40,10 +43,12 @@ const CHAT_COLLAPSED_KEY = "cockpit_chat_collapsed";
 // Keep these responsive utilities in this JSX consumer file. Tailwind's dev JIT can
 // then regenerate both sides of the breakpoint from a MainBoard edit, instead of
 // leaving a stale fixed mobile rule when a helper-module scan is not refreshed.
+//
+// 2026-08-23 v2 改: chat 栏改成玻璃风 (从纯色 bg-bg 改成 glass-strong)
 const CHAT_PANEL_CLASS =
-  "fixed inset-0 z-30 flex flex-col bg-bg md:static md:z-auto md:w-[35%] md:min-w-[360px] md:max-w-[640px]";
+  "fixed inset-0 z-30 flex flex-col glass-strong md:static md:z-auto md:w-[35%] md:min-w-[360px] md:max-w-[640px]";
 const CHAT_LAUNCHER_CLASS =
-  "fixed bottom-4 right-4 z-20 h-11 w-11 rounded-full border border-border bg-bg-secondary shadow-lg hover:bg-bg-tertiary transition flex items-center justify-center text-fg-muted hover:text-fg group md:static md:h-auto md:w-11 md:rounded-none md:shadow-none md:border-0 md:border-l md:flex-col md:items-center md:justify-start md:pt-4 md:gap-3";
+  "fixed bottom-4 right-4 z-20 h-11 w-11 rounded-full border border-glass-border bg-bg-secondary/80 backdrop-blur-glass shadow-lg hover:bg-bg-tertiary transition flex items-center justify-center text-fg-muted hover:text-accent group md:static md:h-auto md:w-11 md:rounded-none md:shadow-none md:border-0 md:border-l md:flex-col md:items-center md:justify-start md:pt-4 md:gap-3";
 
 export function MainBoard({ refreshKey }: { refreshKey: number }) {
   const { data: snapshot, error: snapshotError, isLoading: snapshotLoading, mutate: refreshSnapshot } = useSWR<Snapshot>(
@@ -118,6 +123,21 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
   const pendingCount = snapshot?.counts.achievementsPending ?? 0;
   const focusCount = snapshot?.focus.length ?? 0;
   const doneTodayCount = snapshot?.done_today.length ?? 0;
+  // 2026-08-23 立: 逾期任务数 (从 focus 项 + 项目任务合并算, 仅用于 stat card)
+  //   简化: 用 dueColor === "danger" 标记, 跟 lessons #api.ts:702 的 overdue 定义保持一致
+  const overdueCount = useMemo(() => {
+    if (!snapshot) return 0;
+    let n = 0;
+    for (const f of snapshot.focus) {
+      if (f.due && dueColor(f.due) === "danger") n++;
+    }
+    for (const p of snapshot.projects) {
+      for (const t of p.tasks) {
+        if (t.due && dueColor(t.due) === "danger") n++;
+      }
+    }
+    return n;
+  }, [snapshot]);
 
   // 2026-08-02 立 (投资人 Round 1 优化): 成就数字增加时 highlight 1.5s
   //   - 任务完成 → 沉淀成就 → readyCount +1 → 数字 + 背景 +1s 闪一下
@@ -141,20 +161,21 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
 
   return (
     <div className="flex h-screen bg-bg">
-      {/* 左栏:项目 + 任务 — 主视图,占主空间 */}
-      <div className="flex-1 min-w-0 border-r border-border flex flex-col bg-bg-secondary">
-        <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-border flex items-center gap-3">
+      {/* 左栏:项目 + 任务 — 主视图,占主空间
+       * 2026-08-23 v2 改: 玻璃拟态 wrapper (从 bg-bg-secondary 实色改成 glass) */}
+      <div className="flex-1 min-w-0 border-r border-glass-border/50 flex flex-col bg-bg-secondary/30 backdrop-blur-glass">
+        <div className="px-4 py-3 sm:px-5 sm:py-4 border-b border-glass-border/30 flex items-center gap-3">
           <h1 className="shrink-0 text-[17px] font-semibold text-fg tracking-tight">
             Cockpit
           </h1>
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:gap-3">
-            {/* LLM 状态徽章 */}
+            {/* LLM 状态徽章 — 2026-08-23 v2 改: 玻璃底替代平涂 */}
             {llmStatus && (
               <span
-                className={`shrink-0 text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                className={`shrink-0 text-[11px] px-2 py-0.5 rounded-full font-medium border ${
                   llmStatus.available
-                    ? "bg-success/10 text-success"
-                    : "bg-fg-muted/10 text-fg-muted"
+                    ? "bg-success/10 text-success border-success/30"
+                    : "bg-fg-muted/10 text-fg-muted border-fg-muted/20"
                 }`}
                 title={llmStatus.available ? `LLM: ${llmStatus.model}` : "无 LLM,使用关键词模式"}
               >
@@ -167,7 +188,7 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
             <FollowUpReminder />
             <Link
               href="/report"
-              className="shrink-0 text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary flex items-center gap-1"
+              className="shrink-0 text-[12px] text-fg-secondary hover:text-accent transition px-2 py-1 rounded hover:bg-glass/[0.04] flex items-center gap-1"
               title="周报/述职 workspace"
             >
               <Sparkles size={11} />
@@ -175,93 +196,116 @@ export function MainBoard({ refreshKey }: { refreshKey: number }) {
             </Link>
             <Link
               href="/achievements"
-              className="shrink-0 text-[12px] text-fg-secondary hover:text-fg transition px-2 py-1 rounded hover:bg-bg-tertiary"
+              className="shrink-0 text-[12px] text-fg-secondary hover:text-accent transition px-2 py-1 rounded hover:bg-glass/[0.04]"
             >
               成就
             </Link>
             <Link
               href="/settings"
-              className="shrink-0 text-fg-muted hover:text-fg transition p-1.5 rounded hover:bg-bg-tertiary"
+              className="shrink-0 text-fg-muted hover:text-fg transition p-1.5 rounded hover:bg-glass/[0.04]"
               title="设置"
             >
               <Settings size={14} />
             </Link>
-            {/* 2026-08-01 立: 主题切换 (light/dark), 跟 Settings 同位置同尺寸 */}
+            {/* 2026-08-23 v2 改: ThemeToggle 改只读指示器, 见 ThemeToggle.tsx */}
             <ThemeToggle />
           </div>
         </div>
 
-        {/* 2026-08-02 立: 本期成就卡片 (投资人 Round 1 优化 — 5 秒 Wow 时刻)
+        {/* 2026-08-23 v2 立: 4 stat 卡片 (cockpit v2 视觉重设计 — 取代 v1 单条"成就 spotlight" 卡)
          *
-         * 升级: 原来是一条窄 counter text, 现在改成有视觉重量的卡片。
-         * 目的: 用户进入 cockpit 第一眼看到 "我这段时间沉淀了 X 条成就" +
-         *   "今日 +N" + "查看全部 →" — 把心理重心从"待办焦虑"切到"已有积累"。
+         * 变化:
+         *   v1 (2026-08-02): 1 条 spotlight 卡, 只显示 readyCount + 今日/待补/待办
+         *   v2 (本次): 2x2 网格 4 张, 对标参考图 stat 卡片组:
+         *     1. 今日聚焦 (focus.length) — accent 霓虹绿 dot, Target icon
+         *     2. 今日已完成 (done_today.length) — success 绿 dot, CheckCircle icon
+         *     3. 逾期任务 (overdueCount, focus + project tasks 合并) — danger 红 + 红色 glow
+         *     4. 已沉淀成就 (readyCount) — asset 金, Trophy icon, 保留 v1 的 readyFlash 行为
          *
-         * 设计决定:
-         * - 大数字 readyCount (text-asset 28px) — 跟 "12 条成就" 文案对比明显
-         * - 右侧 stack: 今日 +N (fg) + 待补 N (warning) + 待办 N (fg-muted)
-         * - 底部: "查看全部 →" 链接到 /achievements — 闭环
-         * - highlight 动画: readyCount +1 时 readyFlash=true, 数字 + 卡片背景闪
-         *   accent 色 1.5s, 让用户看到 "我刚做的事被记下来了"
-         * - 不动 FocusSection 顺序: 本卡片在 counter 条位置, 不进 overflow 滚动区
+         * 行为不变量:
+         *   - readyFlash 仍然在 readyCount +1 时触发 1.5s 高亮 (lesson #ai 数字 +1 心理闭环)
+         *   - "查看全部 N 条成就" 链接从第 4 张卡底部进入
+         *   - data-testid 保持向后兼容 ("achievement-spotlight" 移到第 4 张)
          */}
-        <div
-          data-testid="achievement-spotlight"
-          className={`mx-4 mt-3 mb-2 px-4 py-3 rounded-lg border transition-colors duration-500 ${
-            readyFlash
-              ? getVisualTone("asset")
-              : "bg-bg-tertiary border-border"
-          }`}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-baseline gap-2 min-w-0">
-              <strong className="text-[28px] font-bold tabular-nums leading-none text-asset transition-colors duration-500">
-                {readyCount}
-              </strong>
-              <span className="text-[12px] text-fg-secondary">条已沉淀成就</span>
-              {readyFlash && (
-                <span
-                  className="text-[10px] font-medium px-1.5 py-0.5 rounded border border-asset/40 text-fg animate-pulse"
-                  data-testid="achievement-spotlight-flash"
-                >
-                  +1
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-3 text-[11px] text-fg-muted shrink-0">
-              {doneTodayCount > 0 && (
-                <span className="flex items-center gap-1">
-                  <span className="text-fg-secondary">今日</span>
-                  <strong className="text-fg tabular-nums">+{doneTodayCount}</strong>
-                </span>
-              )}
-              {pendingCount > 0 && (
-                <span className="flex items-center gap-1">
-                  <span className="text-fg-secondary">待补</span>
-                  <strong className="text-warning tabular-nums">{pendingCount}</strong>
-                </span>
-              )}
-              {focusCount > 0 && (
-                <span className="flex items-center gap-1">
-                  <span className="text-fg-secondary">待办</span>
-                  <strong className="text-fg tabular-nums">{focusCount}</strong>
-                </span>
-              )}
-            </div>
-          </div>
-          {readyCount > 0 && (
-            <Link
-              href="/achievements"
-              className="mt-2 inline-flex items-center gap-1 text-[11px] text-fg-secondary hover:text-asset transition group"
-            >
-              查看全部 {readyCount} 条成就
-              <ChevronRight
-                size={11}
-                className="transition-transform group-hover:translate-x-0.5"
+        <div className="mx-4 mt-3 mb-3 grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+          <StatCard
+            label="今日聚焦"
+            value={focusCount}
+            tone="accent"
+            icon={<Target size={12} strokeWidth={2} />}
+          />
+          <StatCard
+            label="今日已完成"
+            value={doneTodayCount}
+            tone="success"
+            icon={<CheckCircle2 size={12} strokeWidth={2} />}
+          />
+          <StatCard
+            label="逾期任务"
+            value={overdueCount}
+            tone={overdueCount > 0 ? "danger" : "muted"}
+            icon={<AlertTriangle size={12} strokeWidth={2} />}
+          />
+          {/* 第 4 张: 已沉淀成就 (含 readyFlash 行为, data-testid 保持兼容) */}
+          <div
+            data-testid="achievement-spotlight"
+            className={`rounded-glass p-4 transition-all duration-500 ${
+              readyFlash
+                ? "border border-asset/50 bg-asset/10 glow-accent-sm"
+                : "glass"
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <span
+                className={`inline-block w-1.5 h-1.5 rounded-full ${
+                  readyFlash ? "bg-asset" : "bg-asset/70"
+                }`}
+                aria-hidden
               />
-            </Link>
-          )}
+              <span className="text-[11px] text-fg-secondary tracking-wide uppercase font-medium">
+                已沉淀成就
+              </span>
+              <Trophy size={12} className="ml-auto text-asset" strokeWidth={2} />
+            </div>
+            <div
+              className={`text-stat-lg ${readyFlash ? "text-asset" : "text-asset"} tabular-nums transition-colors duration-500`}
+            >
+              {readyCount}
+            </div>
+            {readyFlash && (
+              <span
+                className="inline-block mt-1 text-[10px] font-medium px-1.5 py-0.5 rounded border border-asset/40 animate-pulse"
+                data-testid="achievement-spotlight-flash"
+              >
+                +1
+              </span>
+            )}
+            {readyCount > 0 && (
+              <Link
+                href="/achievements"
+                className="mt-1.5 inline-flex items-center gap-0.5 text-[10px] text-fg-muted hover:text-asset transition group"
+              >
+                查看全部
+                <ChevronRight
+                  size={10}
+                  className="transition-transform group-hover:translate-x-0.5"
+                />
+              </Link>
+            )}
+          </div>
         </div>
+
+        {/* 2026-08-23 v2 立: Hero 3D 卡片堆叠 — cockpit 标志性视觉元素
+         *   - CSS perspective + rotateX 透视堆叠 5 张 focus 任务卡
+         *   - 顶层卡发光绿 accent 边
+         *   - hover 整叠"摊开"
+         *   - 没 focus 任务时整段不渲染
+         */}
+        {/* 2026-08-26 v2 删: HeroStack 3D 堆叠删掉
+         *   原因: 3 张卡透视堆叠 + 4 stat 卡 + focus 列表挤一起, 视觉太乱
+         *   实际试过 depth 3 / translateY 减半 / 改 raw ID 查项目名,
+         *   都不如直接删干净. 4 stat 卡已经是视觉锚点, focus 列表自带 P2 徽章
+         *   不需要再多一个"焦点卡"抢戏. 改完后面板会干净很多. */}
 
         <div className="flex-1 overflow-y-auto px-4 py-5 space-y-6">
           {snapshot && (
@@ -338,12 +382,14 @@ function SectionHeader({
   count?: number;
   right?: React.ReactNode;
 }) {
+  // 2026-08-23 v2 改: 标题字号略大 + accent 色横条做 section 分隔视觉锚点
   return (
-    <div className="px-1 mb-2 flex items-center justify-between">
-      <h2 className="text-[11px] uppercase tracking-[0.12em] text-fg-muted font-semibold">
+    <div className="px-1 mb-3 flex items-center justify-between">
+      <h2 className="text-[11px] uppercase tracking-[0.12em] text-fg-secondary font-semibold flex items-center gap-2">
+        <span className="inline-block w-3 h-px bg-accent" aria-hidden />
         {title}
         {count !== undefined && (
-          <span className="ml-2 text-fg-secondary tabular-nums">{count}</span>
+          <span className="text-fg-muted tabular-nums font-normal normal-case">{count}</span>
         )}
       </h2>
       {right}
@@ -435,9 +481,11 @@ function FocusItem({
 
   return (
     <div
-      className={`group flex flex-col gap-0.5 rounded-lg pl-3 pr-3 py-2.5 cursor-pointer hover:bg-bg-tertiary/60 transition ${
-        item.blocked ? "opacity-70" : ""
-      }`}
+      className={`group flex flex-col gap-0.5 rounded-glass-sm pl-3 pr-3 py-2.5 cursor-pointer
+        transition-all duration-200
+        hover:bg-glass/[0.06] hover:border-glass-border/20
+        border border-transparent
+        ${item.blocked ? "opacity-70" : ""}`}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       onClick={onRequestComplete}
@@ -958,24 +1006,19 @@ function ProjectCard({
   };
 
   return (
-    // 2026-08-01 v2 改: light/dark 双模式视觉层次
-    //   light 模式: bg-bg (#ffffff 纯白) + 显式 border, 跟主区 wrapper
-    //     (#f8fafc slate-50) 对比, 卡片"立"出来 (light 模式卡片**比主区亮**)
-    //   dark 模式: dark:bg-bg-tertiary (#1e1e1e) + border, 跟主区 wrapper
-    //     (#141414) 对比, 卡片也"立"出来 (dark 模式卡片**比主区亮**)
-    //   关键: light/dark 模式里卡片都比主区 wrapper 亮, 视觉"凸"的方向一致,
-    //     但实现上不能简单用 bg-bg (dark 模式 bg = #0a0a0a 跟 body 同色,
-    //     卡片"沉"回去), 必须 conditional class。
+    // 2026-08-23 v2 改: 玻璃拟态 project 卡片
+    //   收起: 标准玻璃, border + 内部高光
+    //   展开: 玻璃 + 霓虹绿 accent 环 (跟 user 选中的"现在干啥" 项目对齐)
     <div
-      className={`rounded-xl overflow-hidden transition-all ${
+      className={`rounded-glass overflow-hidden transition-all duration-200 ${
         expanded
-          ? "bg-bg dark:bg-bg-tertiary ring-1 ring-accent/60 border border-accent/40"
-          : "bg-bg dark:bg-bg-tertiary border border-border hover:border-border-hover"
+          ? "glass ring-1 ring-accent/50 border-accent/40"
+          : "glass hover:glass-hover"
       }`}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
     >
-      <div className="group px-3 pt-2.5 pb-1.5 hover:bg-bg-tertiary/60 transition">
+      <div className="group px-3 pt-2.5 pb-1.5 hover:bg-glass/[0.04] transition">
         {/* 标题行:chevron + name + count + 操作按钮 */}
         <div className="flex items-center gap-2.5">
           {/* 拖动句柄 (2026-07-30 立) — 平时 opacity-0 不打扰, group hover 时

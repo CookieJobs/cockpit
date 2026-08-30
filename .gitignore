@@ -110,3 +110,9 @@ docker-compose.override.yml
 # Docker 构建产物 (一般用 .dockerignore 排除, 这里兜底)
 *.tar
 *.dockerfile.local
+
+# ===== 本地开发 artifacts (2026-08-30 立) =====
+# workbuddy 跨 session 记忆目录
+.workbuddy/
+# 本地下载的视频文件
+videos/

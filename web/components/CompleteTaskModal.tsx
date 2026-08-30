@@ -207,16 +207,18 @@ export function CompleteTaskModal({
     (followUpQuestions.length > 0 || !isCvModified || outcome.trim().length < 10);
 
   return (
+    // 2026-08-23 v2 改: 黑色半透遮罩 + 背景模糊, modal 容器玻璃化
     <div
-      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] flex items-center justify-center"
+      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-glass flex items-center justify-center"
       onClick={onClose}
     >
       <div
-        className="bg-bg-secondary border border-border rounded-2xl w-[min(480px,94vw)] max-h-[90vh] overflow-y-auto shadow-2xl"
+        // 2026-08-23 v2 改: glass-strong 容器, 更大圆角, 跟主页 hero 一致的 premium 感
+        className="glass-strong rounded-glass-lg w-[min(520px,94vw)] max-h-[90vh] overflow-y-auto shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-glass-border/30">
           <div className="flex items-center gap-2">
             <Sparkles size={16} className="text-accent" />
             <h2 className="text-[15px] font-semibold text-fg">完成任务 ✨</h2>
@@ -255,8 +257,7 @@ export function CompleteTaskModal({
             placeholder={guidance.placeholder}
             rows={2}
             className={
-              "w-full bg-bg border rounded-md px-3 py-2 text-[14px] text-fg placeholder-fg-muted/60 focus:outline-none focus:border-accent resize-none transition-colors " +
-              "border-border"
+              "w-full glass rounded-glass-sm px-3 py-2 text-[14px] text-fg placeholder-fg-muted/60 focus:outline-none focus:border-accent/50 focus:shadow-glow-accent-sm resize-none transition "
             }
           />
 
@@ -453,7 +454,7 @@ export function CompleteTaskModal({
             value={cv}
             onChange={(e) => setCv(e.target.value)}
             rows={2}
-            className="w-full bg-bg border border-border rounded-md px-3 py-2 text-[13px] text-fg-secondary placeholder-fg-muted/60 focus:outline-none focus:border-accent resize-none"
+            className="w-full glass rounded-glass-sm px-3 py-2 text-[13px] text-fg-secondary placeholder-fg-muted/60 focus:outline-none focus:border-accent/50 focus:shadow-glow-accent-sm resize-none transition"
             placeholder={
               outcome.trim()
                 ? "例如：定位并修复高优先级登录鉴权 bug, 消除用户阻塞, DAU 提升 5%"
@@ -499,7 +500,7 @@ export function CompleteTaskModal({
                   onChange={(e) => setReflection(e.target.value)}
                   placeholder="这次有什么收获或教训..."
                   rows={2}
-                  className="w-full bg-bg border border-border rounded-md px-3 py-2 text-[13px] text-fg placeholder-fg-muted/60 focus:outline-none focus:border-accent resize-none"
+                  className="w-full glass rounded-glass-sm px-3 py-2 text-[13px] text-fg placeholder-fg-muted/60 focus:outline-none focus:border-accent/50 focus:shadow-glow-accent-sm resize-none transition"
                 />
               </div>
 
@@ -551,19 +552,19 @@ export function CompleteTaskModal({
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-4 mt-4 border-t border-border">
+        {/* Footer — 2026-08-23 v2 改: 取消按钮玻璃化, 主按钮加 glow */}
+        <div className="flex items-center justify-end gap-2 px-5 py-4 mt-4 border-t border-glass-border/30">
           <button
             onClick={onClose}
             disabled={polishing}
-            className="px-3 py-1.5 text-[13px] text-fg-muted hover:text-fg rounded-md hover:bg-bg-tertiary transition disabled:opacity-40"
+            className="px-3 py-1.5 text-[13px] text-fg-secondary hover:text-fg rounded-glass-sm glass transition disabled:opacity-40"
           >
             取消
           </button>
           <button
             onClick={submit}
             disabled={!outcome.trim() || !cv.trim() || submitting}
-            className="px-4 py-1.5 text-[13px] font-medium bg-accent text-bg rounded-md hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1.5"
+            className="px-4 py-1.5 text-[13px] font-medium bg-accent text-bg rounded-glass-sm hover:bg-accent-hover shadow-glow-accent-sm hover:shadow-glow-accent disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none transition flex items-center gap-1.5"
           >
             <Check size={13} strokeWidth={2.5} />
             {submitting ? "沉淀中..." : "沉淀成就"}

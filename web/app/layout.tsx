@@ -2,45 +2,33 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ToastProvider } from "@/components/Toast";
 
-// icon 由 app/icon.tsx + app/apple-icon.tsx 动态生成 (Satori + Twemoji 渲染 🚀)
-// Next.js 15 会自动注入 <link rel="icon"> 和 <link rel="apple-touch-icon">
+// 2026-08-23 改: cockpit v2 — 单 dark 主题, layout 不再依赖早期同步脚本切主题。
+// 早期脚本保留 (兼容老用户 localStorage), 但永远加 .dark, 不读 light。
 export const metadata: Metadata = {
   title: "Cockpit · 你的个人项目驾驶舱",
   description: "不替你干活，替你记住你干过什么、要干什么。",
   applicationName: "Cockpit",
 };
 
-// 2026-08-01 改: 不再硬编码 themeColor/dark, 改成依赖 CSS color-scheme +
-//   早期同步脚本切 html class。viewport 只留 device-width 必填项。
-//   原因: Next.js viewport export 是静态的, 不能在切主题时改 meta;
-//   但浏览器看 color-scheme 决定原生组件 (scrollbar / 表单) 颜色已够。
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // 2026-08-23 加: 浏览器 UI 跟主题色对齐 (地址栏/状态栏/表单原生控件)
+  themeColor: "#000000",
 };
 
-// 2026-08-01 立: 早期同步脚本 — 必须在 React 渲染前执行, 读 localStorage
-//   切 html class 防 FOUC (Flash of unstyled content)。放在 <head> 顶部,
-//   同步执行 (无 defer/async), 不依赖 React hydration。
+// 2026-08-23 改: 早期同步脚本简化, 永远加 .dark (v2 单 dark 模式)
 //
-//   行为: 读 localStorage['cockpit_theme'], 合法值 'light' / 'dark' 才应用;
-//   非法或缺失默认 dark (保留产品原观感, 渐进增强, 不打扰老用户)。
+// 行为: 同步执行, 加 .dark class + 设 data-theme, 防 FOUC
+// 兼容老用户: 读 localStorage 但忽略 "light" 值 (永远当 dark 处理)
 const themeInitScript = `
 (function() {
   try {
-    var stored = localStorage.getItem('cockpit_theme');
-    var theme = stored === 'light' || stored === 'dark' ? stored : 'dark';
-    var root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-      root.classList.remove('light');
-    } else {
-      root.classList.add('light');
-      root.classList.remove('dark');
-    }
-    root.setAttribute('data-theme', theme);
+    document.documentElement.classList.add('dark');
+    document.documentElement.classList.remove('light');
+    document.documentElement.setAttribute('data-theme', 'dark');
+    document.documentElement.style.backgroundColor = '#000000';
   } catch (e) {
-    // localStorage 不可用 (隐私模式 / SSR 异常), 静默走默认 dark
     document.documentElement.classList.add('dark');
     document.documentElement.setAttribute('data-theme', 'dark');
   }
@@ -53,15 +41,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    // 2026-08-01 改: 去掉 <html> 上预设的 dark 类, 让早期同步脚本决定。
-    //   suppressHydrationWarning 防止 React 警告: server 渲染时无 class,
-    //   client 早期脚本立即加 class, 这之间的"不一致"是设计如此。
-    <html lang="zh-CN" suppressHydrationWarning>
+    <html lang="zh-CN" className="dark" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="bg-bg text-fg">
-        {/* ToastProvider (2026-07-28 立): 全局轻量 toast, 完成任务庆祝用 */}
         <ToastProvider>{children}</ToastProvider>
       </body>
     </html>

@@ -116,7 +116,7 @@ export default function IntegrationsPage() {
   return (
     <div className="min-h-screen bg-bg text-fg">
       {/* 顶栏 */}
-      <div className="border-b border-border bg-bg-secondary/40 sticky top-0 z-10 backdrop-blur">
+      <div className="border-b border-glass-border/30 bg-bg-secondary/40 sticky top-0 z-10 backdrop-blur-glass">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link
@@ -173,7 +173,7 @@ export default function IntegrationsPage() {
         {data && (
           <>
             {/* 总览条 */}
-            <div className="mb-6 p-4 rounded-lg border border-border bg-bg-secondary/30 flex items-center justify-between">
+            <div className="mb-6 p-4 glass rounded-glass flex items-center justify-between">
               <div className="text-[13px] text-fg-secondary">
                 已接入{" "}
                 <strong className="text-accent font-semibold tabular-nums">
@@ -204,7 +204,7 @@ export default function IntegrationsPage() {
             </div>
 
             {/* 底部说明 */}
-            <div className="mt-10 p-5 rounded-lg border border-border bg-bg-secondary/20 text-[12px] text-fg-muted space-y-2">
+            <div className="mt-10 p-5 glass rounded-glass text-[12px] text-fg-muted space-y-2">
               <div className="text-fg-secondary font-medium text-[13px]">
                 设计说明
               </div>
@@ -293,7 +293,7 @@ function IntegrationCard({
       className={`p-4 rounded-lg border transition ${
         isInstalled
           ? "border-accent/40 bg-accent/5"
-          : "border-border bg-bg-secondary/30 hover:border-fg-muted"
+          : "border-glass-border/30 bg-bg-secondary/30 hover:border-accent/40"
       }`}
     >
       {/* 头部: 名字 + 状态 badge */}

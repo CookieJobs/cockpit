@@ -200,8 +200,8 @@ export default function ReportPage() {
           </div>
         )}
 
-        {/* 时间范围 + 模板选择 */}
-        <div className="rounded-lg border border-border bg-bg-secondary p-4 mb-4">
+        {/* 时间范围 + 模板选择 — 2026-08-23 v2 改: 玻璃卡 */}
+        <div className="glass rounded-glass p-4 mb-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <div className="text-[11px] uppercase tracking-[0.1em] text-fg-muted font-semibold mb-2">
@@ -277,7 +277,7 @@ export default function ReportPage() {
             />
             {/* 报告内数据统计 */}
             {report && (
-              <div className="rounded-lg border border-border bg-bg-secondary p-3 text-[13px] text-fg-muted">
+              <div className="glass rounded-glass p-3 text-[13px] text-fg-muted">
                 <div className="flex items-center gap-2 mb-1">
                   <Filter size={11} />
                   <span className="font-semibold text-fg-secondary">本次报告</span>
@@ -294,7 +294,7 @@ export default function ReportPage() {
 
           {/* 右侧 60%: 报告预览 / 编辑 */}
           <div className="col-span-1 md:col-span-7">
-            <div className="rounded-lg border border-border bg-bg-secondary overflow-hidden flex flex-col" style={{ minHeight: 480 }}>
+            <div className="glass rounded-glass overflow-hidden flex flex-col" style={{ minHeight: 480 }}>
               {/* 工具条 */}
               <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-bg-tertiary/30">
                 <div className="flex items-center gap-2">

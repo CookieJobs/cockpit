@@ -125,7 +125,7 @@ export default function SettingsPage() {
         </div>
 
         {/* 后端状态 */}
-        <section className="rounded-lg border border-border bg-bg-secondary p-4 mb-4">
+        <section className="glass rounded-glass p-4 mb-4">
           <h2 className="text-sm font-semibold text-fg-secondary uppercase tracking-wider mb-3">
             后端连接
           </h2>
@@ -162,7 +162,7 @@ export default function SettingsPage() {
         )}
 
         {/* 数据 */}
-        <section className="rounded-lg border border-border bg-bg-secondary p-4 mt-4">
+        <section className="glass rounded-glass p-4 mt-4">
           <h2 className="text-sm font-semibold text-fg-secondary uppercase tracking-wider mb-3">
             数据
           </h2>
@@ -176,7 +176,7 @@ export default function SettingsPage() {
 
         <DataAndBackup />
 
-        <section className="rounded-lg border border-border bg-bg-secondary p-4 mt-4">
+        <section className="glass rounded-glass p-4 mt-4">
           <h2 className="text-sm font-semibold text-fg-secondary uppercase tracking-wider mb-2">
             高级接入
           </h2>
@@ -230,7 +230,7 @@ function DataAndBackup() {
     finally { setBusy(null); }
   };
 
-  return <section className="rounded-lg border border-border bg-bg-secondary p-4 mt-4">
+  return <section className="glass rounded-glass p-4 mt-4">
     <h2 className="text-sm font-semibold text-fg-secondary uppercase tracking-wider mb-2">数据与备份</h2>
     <p className="text-xs text-fg-muted mb-3">导入只接受 Cockpit 本地数据包；先预览，再明确确认。遇到相同 ID 不会合并或覆盖。</p>
     <div className="flex flex-wrap gap-2 items-center">
@@ -363,7 +363,7 @@ function LLMConfigForm({
   const currentSource = settings?.db_config ? "DB 用户配置" : "env 默认";
 
   return (
-    <section className="rounded-lg border border-border bg-bg-secondary p-4 mb-4">
+    <section className="glass rounded-glass p-4 mb-4">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-fg-secondary uppercase tracking-wider">
           LLM 配置
@@ -578,7 +578,7 @@ function EnvConfigDisplay({
   activeSource: string;
 }) {
   return (
-    <section className="rounded-lg border border-border bg-bg-secondary p-4 mb-4">
+    <section className="glass rounded-glass p-4 mb-4">
       <h2 className="text-sm font-semibold text-fg-secondary uppercase tracking-wider mb-3">
         .env 默认配置（只读）
       </h2>

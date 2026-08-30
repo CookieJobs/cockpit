@@ -3,75 +3,55 @@
 @tailwind utilities;
 
 /* ===========================================================================
- * 2026-08-01 立: 主题 token 系统 (light / dark 双套 CSS variables)
+ * 2026-08-23 v2 立: 主题 token 系统 — 深色玻璃拟态 + 霓虹绿 (cockpit v2 视觉重设计)
  *
- * 全部颜色存 "R G B" 三元组 (无 rgb() 包装), 引用时用
- *   rgb(var(--color-X) / <alpha-value>)
- * Tailwind 自动展开 alpha 变体 (bg-danger/15 → rgb(239 68 68 / 0.15)),
- * 切 html class 即可换主题。
+ * v1 (2026-08-01) 是双主题 (light + dark indigo), v2 改成单深色主题:
+ *   - 不再保留 light 模式 (lesson: v1 双主题维护成本高, 实际 95% 用户用 dark)
+ *   - accent 从 indigo (#4f46e5) 改成霓虹绿 (#00ff88)
+ *   - 全部颜色存 "R G B" 三元组 (无 rgb() 包装), 引用时用
+ *     rgb(var(--color-X) / <alpha-value>)
+ *   - Tailwind 函数形式 color 映射 (config 里) 仍生效, lesson #27 立的
  *
- * 交互、成就价值、风险/待补数据使用独立语义 token，避免一种暖色同时
- * 表示“点这里”“这是资产”“需要注意”。
+ * 玻璃拟态专用:
+ *   --color-glass (255 255 255) — 叠加白, alpha 4-8% 控强度
+ *   --color-glass-border (255 255 255) — 边框白, alpha 8-12% 控强度
  * ========================================================================= */
 :root {
-  /* 2026-08-01 v2 改: light 模式色阶重新设计。
-   *
-   * 旧版: bg=#f5f5f5 / bg-secondary=#e8e8e8 (差 13) — 看着"灰扑扑" 的根因。
-   *   半透明叠加 (bg-tertiary/30) 后实际差值只剩 4, 卡片在主背景上分不出。
-   * 新版: 用 slate 蓝调浅灰 (#f8fafc / #f1f5f9), 看着"冷干净" 不"灰" ,
-   *   卡片改用纯白 + 显式 border (不靠半透明叠加)。Stripe / Linear /
-   *   Notion 浅色仪表盘都这套路 — 主区浅灰, 卡片纯白。
-   *
-   * 关键对比:
-   *   主区 bg-secondary #f8fafc (slate-50, 蓝调极浅灰)
-   *   卡片 bg          #ffffff (纯白, 最亮, 跟主区对比 7 个色值以上)
-   *   input    bg-tertiary #f1f5f9 (slate-100, 跟主区差 13, input 框可识别)
-   *   border         #cbd5e1 (slate-300, light 模式需要更明显, 旧 #d4d4d4 太淡)
-   *   border-hover   #94a3b8 (slate-400, 跟 border 跨度 ~20, hover 反馈明显)
-   */
-  --color-bg: 255 255 255;
-  --color-bg-secondary: 248 250 252;
-  --color-bg-tertiary: 241 245 249;
-  --color-border: 203 213 225;
-  --color-border-hover: 148 163 184;
-  --color-fg: 10 10 10;
-  --color-fg-secondary: 71 85 105;
-  --color-fg-muted: 100 116 139;
-  /* Interaction / selection: indigo gives controls a calm, unambiguous home. */
-  --color-accent: 79 70 229;
-  --color-accent-hover: 67 56 202;
-  /* Achievement value: gold is reserved for evidence and reusable assets. */
-  --color-asset: 143 106 0;
-  --color-asset-hover: 117 87 0;
-  --color-success: 22 163 74;
-  /* Risk / missing data: orange must not be confused with achievement gold. */
-  --color-warning: 194 65 12;
-  --color-warning-hover: 154 52 18;
-  --color-danger: 220 38 38;
-  --color-info: 37 99 235;
-  color-scheme: light;
-}
-
-.dark {
-  /* Blue-grey surfaces make panel hierarchy perceptible without a harsh black void. */
-  --color-bg: 15 23 42;
-  --color-bg-secondary: 23 32 51;
-  --color-bg-tertiary: 30 41 59;
-  --color-border: 51 65 85;
-  --color-border-hover: 71 85 105;
-  --color-fg: 241 245 249;
-  --color-fg-secondary: 203 213 225;
-  --color-fg-muted: 148 163 184;
-  --color-accent: 129 140 248;
-  --color-accent-hover: 165 180 252;
-  --color-asset: 251 191 36;
-  --color-asset-hover: 253 230 138;
-  --color-success: 34 197 74;
-  --color-warning: 251 146 60;
-  --color-warning-hover: 253 186 116;
-  --color-danger: 239 68 68;
-  --color-info: 59 130 246;
+  /* v2: 单 dark 主题, no light mode */
   color-scheme: dark;
+
+  /* 表面层: 纯黑底 + 极深的渐变层次 */
+  --color-bg: 0 0 0;                     /* 纯黑, 参考图同 */
+  --color-bg-secondary: 10 10 10;        /* 卡片底 */
+  --color-bg-tertiary: 18 18 18;         /* input / hover */
+
+  /* 玻璃拟态专用 token — 都是 (255 255 255), 用 alpha 调强度 */
+  --color-glass: 255 255 255;            /* bg-glass/4 = bg-glass/8 */
+  --color-glass-border: 255 255 255;    /* border-glass-border/8 = border-glass-border/12 */
+
+  /* 边框: 中性灰, 不用蓝调 */
+  --color-border: 38 38 38;              /* #262626, 跟 bg-secondary 拉开 */
+  --color-border-hover: 64 64 64;        /* #404040, hover 反馈 */
+
+  /* 文字: 不纯白 (#f5f5f5 留 4% 灰, 看起来更高级) */
+  --color-fg: 245 245 245;               /* #f5f5f5, 主文字 */
+  --color-fg-secondary: 163 163 163;     /* #a3a3a3, 次要文字 (亮一档过 WCAG AA) */
+  --color-fg-muted: 115 115 115;         /* #737373, 提示文字 (要警惕对比度) */
+
+  /* 主 accent: 霓虹绿 — 对标参考图主调 */
+  --color-accent: 0 255 136;             /* #00ff88 */
+  --color-accent-hover: 56 255 156;      /* #38ff9c, hover 稍亮 */
+
+  /* 成就/资产: 金 (跟霓虹绿区分, lesson #asset 立) */
+  --color-asset: 251 191 36;             /* #fbbf24 amber-400 */
+  --color-asset-hover: 253 224 71;       /* #fde047 amber-300 */
+
+  /* 语义色 (亮一档, 适配纯黑底) */
+  --color-success: 34 220 122;           /* #22dc7a, 亮绿, 区别于 accent 霓虹 */
+  --color-warning: 251 176 60;           /* #fbb03c, 暖橙 (避跟 asset 金撞色) */
+  --color-warning-hover: 253 200 90;
+  --color-danger: 248 80 80;             /* #f85050, 亮红 */
+  --color-info: 96 165 250;              /* #60a5fa, 亮蓝 */
 }
 
 * {
@@ -86,10 +66,11 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /* 2026-08-01 立: 切主题时平滑过渡 (避免闪) */
+  /* 2026-08-23 改: 平滑过渡保持, 但因为 v2 只有 dark, 实际不会切主题, 留作 0.15s 视觉反馈 */
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
+/* 2026-08-23 加: 滚动条 — 玻璃拟态风, 用半透明白叠加 */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -98,14 +79,68 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--color-border));
+  background: rgb(var(--color-border) / 0.6);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--color-border-hover));
+  background: rgb(var(--color-border-hover) / 0.8);
 }
 
-/* 打字机光标（流式 chat 用）— 2026-08-01 改 var: 跟 accent 同色 */
+/* ===========================================================================
+ * 2026-08-23 立: 玻璃拟态工具类 (.glass / .glass-strong)
+ *  设计原因: backdrop-filter 跟 bg-white/4 配对是玻璃拟态的标志
+ *  抽成 utility 避免每个组件重复写 className 串
+ * ========================================================================= */
+@layer utilities {
+  /* 标准玻璃: 模糊 24px + 半透白底 + 1px 半透白边 + 内部高光 */
+  .glass {
+    background: rgb(var(--color-glass) / 0.04);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgb(var(--color-glass-border) / 0.08);
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.06),
+      0 8px 32px rgb(0 0 0 / 0.4);
+  }
+  /* 加强玻璃: 模糊 32px + 更明显底色, 适合 modal / 浮层 */
+  .glass-strong {
+    background: rgb(10 10 10 / 0.85);
+    backdrop-filter: blur(32px) saturate(180%);
+    -webkit-backdrop-filter: blur(32px) saturate(180%);
+    border: 1px solid rgb(var(--color-glass-border) / 0.12);
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.08),
+      0 16px 64px rgb(0 0 0 / 0.6);
+  }
+  /* hover 状态: 内部高光 + 边框加强 */
+  .glass-hover {
+    background: rgb(var(--color-glass) / 0.06);
+    border-color: rgb(var(--color-glass-border) / 0.14);
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.10),
+      0 12px 40px rgb(0 0 0 / 0.5);
+  }
+  /* 霓虹绿发光环 (主按钮/active 状态用) */
+  .glow-accent {
+    box-shadow:
+      0 0 0 1px rgb(var(--color-accent) / 0.5),
+      0 0 16px rgb(var(--color-accent) / 0.4),
+      0 0 32px rgb(var(--color-accent) / 0.2);
+  }
+  /* 3D 透视容器 (卡片堆叠用) */
+  .perspective-card {
+    perspective: 1200px;
+    perspective-origin: 50% 30%;
+  }
+  /* 保留 3D (子元素需要 preserve-3d) */
+  .preserve-3d {
+    transform-style: preserve-3d;
+  }
+}
+
+/* ===========================================================================
+ * 打字机光标 (流式 chat 用) — 2026-08-23 改 var: 跟 accent 霓虹绿同色
+ * ========================================================================= */
 .cursor-blink {
   display: inline-block;
   margin-left: 1px;
@@ -117,6 +152,9 @@ body {
   50% { opacity: 0; }
 }
 
+/* ===========================================================================
+ * Markdown 样式 — 2026-08-23 改: 适配黑底, 链接用霓虹绿, 代码块用玻璃
+ * ========================================================================= */
 .markdown {
   line-height: 1.7;
 }
@@ -156,17 +194,17 @@ body {
   color: rgb(var(--color-accent));
 }
 .markdown code {
-  background: rgb(var(--color-bg-tertiary));
+  background: rgb(var(--color-glass) / 0.06);
+  border: 1px solid rgb(var(--color-glass-border) / 0.08);
   padding: 0.1em 0.3em;
-  border-radius: 3px;
+  border-radius: 4px;
   font-size: 0.9em;
   font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
 }
-/* 代码块 (GFM / rehype-highlight, 2026-07-22 立) — 2026-08-01 改 var */
 .markdown pre {
   background: rgb(var(--color-bg-secondary));
   border: 1px solid rgb(var(--color-border));
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 12px;
   overflow-x: auto;
   margin: 0.75em 0;
@@ -175,12 +213,12 @@ body {
 }
 .markdown pre code {
   background: transparent;
+  border: none;
   padding: 0;
   font-size: inherit;
   color: inherit;
   border-radius: 0;
 }
-/* 引用块 — 2026-08-01 改 var */
 .markdown blockquote {
   border-left: 3px solid rgb(var(--color-accent));
   padding: 0.25em 0 0.25em 1em;
@@ -190,7 +228,6 @@ body {
 }
 .markdown blockquote > :first-child { margin-top: 0; }
 .markdown blockquote > :last-child { margin-bottom: 0; }
-/* 表格 (GFM) — 2026-08-01 改 var */
 .markdown table {
   border-collapse: collapse;
   margin: 0.75em 0;
@@ -207,28 +244,30 @@ body {
   background: rgb(var(--color-bg-secondary));
   font-weight: 600;
 }
-/* 链接 — 2026-08-01 改 var */
 .markdown a {
   color: rgb(var(--color-accent));
   text-decoration: underline;
   text-underline-offset: 2px;
+  text-decoration-color: rgb(var(--color-accent) / 0.4);
 }
 .markdown a:hover {
   color: rgb(var(--color-accent-hover));
+  text-decoration-color: rgb(var(--color-accent));
 }
-/* 分割线 — 2026-08-01 改 var */
 .markdown hr {
   border: none;
   border-top: 1px solid rgb(var(--color-border));
   margin: 1em 0;
 }
-/* GFM 任务清单 — 2026-08-01 改 var */
 .markdown input[type="checkbox"] {
   margin-right: 0.4em;
   vertical-align: middle;
   accent-color: rgb(var(--color-accent));
 }
 
+/* ===========================================================================
+ * 动画 (lesson #popover-in 立) — 2026-08-23 保留并加固
+ * ========================================================================= */
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
@@ -237,11 +276,6 @@ body {
   animation: fade-in 0.2s ease-out;
 }
 
-/* 2026-08-12 立: popover 弹出动画 (scale + fade 复合)
- * 用于 ProjectEmojiPicker 等 popover 组件, 从 trigger 位置"展开" 而不是从屏幕中心。
- * transform-origin: top left 让 picker 看起来从 trigger 角展开, 视觉锚点更明确。
- * 150ms 比纯 fade (200ms) 稍快 — popover 是高频交互, 长了会显得"卡"。
- */
 @keyframes popover-in {
   from { opacity: 0; transform: scale(0.96); }
   to   { opacity: 1; transform: scale(1); }
@@ -251,15 +285,49 @@ body {
   transform-origin: top left;
 }
 
-/* 2026-08-12 立: tooltip 淡入动画 (纯 fade)
- * 用于 ProjectEmojiPicker 的自定义 tooltip。不含 transform —
- * tooltip 用 inline transform 做定位 (translate(-50%, ...)), keyframes 里的
- * transform 会覆盖定位。120ms 比 popover-in 更快: tooltip 是被动提示, 不该有"弹"感。
- */
 @keyframes tooltip-in {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
 .tooltip-in {
   animation: tooltip-in 120ms ease-out;
+}
+
+/* 2026-08-23 立: 3D 卡片堆叠入场动画 (HeroStack 用) */
+@keyframes stack-in {
+  0% { opacity: 0; transform: translateY(40px) rotateX(-20deg); }
+  100% { opacity: 1; transform: translateY(0) rotateX(0); }
+}
+.stack-in {
+  animation: stack-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 2026-08-23 立: 霓虹绿脉冲 (focus 任务/active 元素用) */
+@keyframes glow-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* ===========================================================================
+ * 2026-08-23 立: prefers-reduced-motion 适配
+ * 用户系统设了"减少动效"时, 关闭 3D 旋转 + 大位移动画, 保留基础 fade
+ * ========================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .stack-in,
+  .popover-in,
+  .tooltip-in,
+  .fade-in {
+    animation: none !important;
+  }
 }
