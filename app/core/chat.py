@@ -116,11 +116,18 @@ async def cmd_complete(text: str) -> ChatResponse:
         )
     task = matches[0]
     cv = f"完成「{task.title}」"
+    # 2026-08-23 修: 对话路径没有 outcome, 后端 storage 已强制 cv_status=pending
+    # (outcome 为空 = 用户选了"先存草稿稍后再补"), 文案必须如实说"草稿", 不能误导成
+    # "已沉淀进成就库"。用户能去 /achievements 或弹窗补全 outcome + cv 才升级 ready。
     achievement = await storage.complete_task(
-        task.id, outcome="", reflection="", cv=cv, cv_status=CVStatus.READY,
+        task.id, outcome="", reflection="", cv=cv, cv_status=CVStatus.PENDING,
     )
     return ChatResponse(
-        text=f"✨ 已沉淀进成就库\n**{task.title}**\n\nCV: {cv}\n（可在成就库补充细节）",
+        text=(
+            f"⏳ 已存为草稿：**{task.title}**\n\n"
+            f"对话里没有结果描述，已先存为待补草稿（不会进周报/月报/CV）。\n"
+            f"打开完成弹窗或在「成就库」补全结果描述与 CV 即可升级 ready。"
+        ),
         action="task_completed",
         data={"achievement": achievement.model_dump(mode="json") if achievement else None},
     )

@@ -129,3 +129,121 @@ async def test_api_complete_task_defers_ready_until_follow_ups_are_answered(clie
 
     assert res.status_code == 200, res.text
     assert res.json()["cv_status"] == "needs_data"
+
+
+# ===== 2026-08-23 v0.3 草稿降摩擦: outcome 可空 =====
+#
+# 背景: 用户报"完成任务时被弹窗卡住", 实际上后端三态 (pending/needs_data/ready)
+# 已支持"延后填"。本次 UX 改: outcome 改可选, outcome 完全空 → 后端强制
+# cv_status=pending (不走到 needs_data, 因为 outcome 空谈不上"已写 cv 差数据")。
+# 这条不动宪法 §2.4, 是 v0.3 沉淀智能化的体验落地。
+#
+# 锁住 3 件事:
+# 1. 空 outcome + 用户选 ready → 后端强制 pending (前端没法绕过质量门)
+# 2. 空 outcome + 用户选 pending → 仍 pending (用户明确选暂存)
+# 3. 空 outcome + 用户选 needs_data → 后端强制 pending (不是 needs_data)
+# 4. 短 outcome (1-9 字符) + 用户选 ready → 仍走 needs_data (现有降级路径)
+# 5. task 状态仍正确改成 已完成 (草稿跟"完成"动作不冲突)
+
+
+@pytest.mark.asyncio
+async def test_api_complete_task_empty_outcome_forces_pending(client: TestClient):
+    """outcome 完全空 → 即使前端选 ready, 后端强制 cv_status=pending。
+
+    设计意图 (AI_CTO §2.4 + lesson #14): "完成即沉淀" 不能被绕过, 但
+    用户当下如果只想"打勾"不该被强制卡。outcome 空 = 用户选了"暂存",
+    系统尊重, 但 achievement 不会进报告/CV 直到补全。
+    """
+    p = await storage.add_project(ProjectCreate(name="P_draft"))
+    t = await storage.add_task(TaskCreate(project=p.id, title="快速完成 X"))
+
+    res = client.post(
+        f"/api/tasks/{t.id}/complete",
+        json={
+            "outcome": "",   # ← 完全空
+            "cv": f"完成「{t.title}」",
+            "cv_status": "ready",  # ← 前端尝试选 ready
+            "confirmed_cv": True,  # ← 也尝试声明已确认
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    # 关键: outcome 空 → 后端强制 pending, 不让前端绕过
+    assert body["cv_status"] == "pending", (
+        f"outcome 空 + 前端选 ready 必须被后端强制降级到 pending, "
+        f"实际: {body['cv_status']!r} — 质量门失效"
+    )
+    # task 仍标记已完成 (草稿不阻塞"完成"动作本身)
+    task_after = client.get(f"/api/tasks/{t.id}").json()
+    assert task_after["status"] == "已完成", (
+        "outcome 为空时 task 仍应正确改 status=已完成 (草稿不影响完成动作)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_api_complete_task_empty_outcome_with_explicit_pending(client: TestClient):
+    """outcome 空 + 用户明确选 pending → 仍 pending (不变)。"""
+    p = await storage.add_project(ProjectCreate(name="P_explicit"))
+    t = await storage.add_task(TaskCreate(project=p.id, title="Y"))
+
+    res = client.post(
+        f"/api/tasks/{t.id}/complete",
+        json={
+            "outcome": "",
+            "cv": f"完成「{t.title}」",
+            "cv_status": "pending",
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["cv_status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_api_complete_task_empty_outcome_cannot_be_needs_data(client: TestClient):
+    """outcome 空 + 前端选 needs_data → 强制 pending (不是 needs_data)。
+
+    理由: needs_data 是"已写 cv 但还差数据"的中间态, outcome 都空就谈不上
+    "已写", 走 pending 更准确, 也不会让用户在 /report 看到一堆"差数据"
+    但其实根本没写的空条目。
+    """
+    p = await storage.add_project(ProjectCreate(name="P_no_needs_data"))
+    t = await storage.add_task(TaskCreate(project=p.id, title="Z"))
+
+    res = client.post(
+        f"/api/tasks/{t.id}/complete",
+        json={
+            "outcome": "",
+            "cv": f"完成「{t.title}」",
+            "cv_status": "needs_data",
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["cv_status"] == "pending", (
+        f"outcome 空不应被记成 needs_data, 实际: {res.json()['cv_status']!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_api_complete_task_short_outcome_still_needs_data(client: TestClient):
+    """outcome 1-9 字符 (非空) + cv 是 title 兜底 + 前端选 ready → needs_data。
+
+    保留现有降级逻辑: outcome 太短 + cv 没改 → 走 needs_data, 给用户提示
+    "你写了点东西, 但 cv 还是任务标题兜底, 需要润色或手填"。
+    这跟 outcome 完全空 走 pending 是不同信号, 不能合并。
+    """
+    p = await storage.add_project(ProjectCreate(name="P_short"))
+    t = await storage.add_task(TaskCreate(project=p.id, title="A"))
+
+    res = client.post(
+        f"/api/tasks/{t.id}/complete",
+        json={
+            "outcome": "修了一下",  # 4 字, 非空
+            "cv": f"完成「{t.title}」",  # title 兜底
+            "cv_status": "ready",
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["cv_status"] == "needs_data", (
+        f"outcome 短 + cv 兜底应降级 needs_data, "
+        f"实际: {res.json()['cv_status']!r}"
+    )

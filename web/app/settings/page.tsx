@@ -140,14 +140,16 @@ export default function SettingsPage() {
               <span>连接中...</span>
             </div>
           )}
-          {health?.data_recovery && (
-            <div className="mt-3 rounded border border-warning/40 bg-warning/5 p-3 text-sm text-warning">
-              <p>{health.data_recovery.message}</p>
-              <p className="mt-1 text-xs">当前库：{health.data_recovery.target}</p>
-              <p className="text-xs">历史副本：{health.data_recovery.misplaced}</p>
-              <p className="mt-2 text-xs">恢复完成前已暂停写入，请先备份并选择主库。</p>
-            </div>
-          )}
+          {health?.data_recovery &&
+            (health.data_recovery.kind === "conflict" ||
+              health.data_recovery.kind === "failed") && (
+              <div className="mt-3 rounded border border-warning/40 bg-warning/5 p-3 text-sm text-warning">
+                <p>{health.data_recovery.message}</p>
+                <p className="mt-1 text-xs">当前库：{health.data_recovery.target}</p>
+                <p className="text-xs">历史副本：{health.data_recovery.misplaced}</p>
+                <p className="mt-2 text-xs">恢复完成前已暂停写入，请先备份并选择主库。</p>
+              </div>
+            )}
         </section>
 
         {/* LLM 配置（用户可编辑） */}

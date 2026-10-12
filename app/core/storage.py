@@ -888,13 +888,24 @@ def _provenance_guardrail(
 ) -> dict[str, bool]:
     """Run the deterministic P0 fact guard against outcome plus structured answers."""
     answer_evidence = "\n".join(answer.strip() for answer in answers.values() if answer.strip())
+    combined_evidence = "\n".join(part for part in [outcome.strip(), answer_evidence] if part)
+    # 2026-08-23 v0.3 草稿降摩擦: outcome + answers 都空 = 用户选了"暂存",
+    # 没东西可校验 provenance (没有 0 字符声明, 自然也不会有无来源事实)。
+    # 直接返回全 False, 跳过 AchievementDistillationInput schema 校验 (min_length=1)
+    # — 这条路径在 derive_achievement_readiness 里早就 short-circuit 到 pending 了。
+    if not combined_evidence:
+        return {
+            "has_unsupported_number": False,
+            "has_unsupported_entity": False,
+            "ownership_violation": False,
+        }
     case = AchievementDistillationCase(
         id="runtime-readiness",
         category="boundary",
         severity="p0",
         input=AchievementDistillationInput(
             task_title=task_title,
-            outcome="\n".join(part for part in [outcome.strip(), answer_evidence] if part),
+            outcome=combined_evidence,
             reflection=reflection.strip() or None,
             language="zh-CN",
         ),
@@ -925,6 +936,14 @@ def derive_achievement_readiness(
     """Derive report eligibility from evidence, never from a caller's ready claim."""
     if requested_status == CVStatus.PENDING:
         return ReadinessDecision(CVStatus.PENDING, ["用户选择暂存草稿"])
+
+    # 2026-08-23: outcome 完全为空 = 用户选了"先存草稿稍后再补"。
+    # 强制走 PENDING (不是 needs_data) — needs_data 是"已写 cv 但还差数据"的中间态,
+    # outcome 都空就谈不上"已写", 走 PENDING 更准确, 也跟宪法 §2.4
+    # "完成即沉淀 — 复盘可以省略, 价值陈述不能省略" 的边界对齐: 用户明确选
+    # 暂存, 系统尊重, 但 achievement 不会进报告/CV, 直到用户在成就库补全 outcome+cv。
+    if not outcome.strip():
+        return ReadinessDecision(CVStatus.PENDING, ["结果描述为空，已存为草稿"])
 
     reasons: list[str] = []
     questions = [question.strip() for question in follow_up_questions if question.strip()]

@@ -32,12 +32,29 @@ def read_modal() -> str:
 
 
 def test_modal_has_outcome_required_marker():
-    """outcome 字段必须有 * 必填标记。"""
+    """outcome 字段必须有 * 必填标记。
+
+    2026-08-23 立标记: v0.3 草稿降摩擦后, outcome 改为「可选」, 后端强制
+    cv_status=pending 防绕过质量门。这条测试改成锁 outcome label 标「可选」,
+    不再回退到必填标记 (硬必填 = 阻塞用户, lesson #14 已修)。
+    同时锁「⏳ 之后补」快捷键必须在, 防止"可选" 但用户无低摩擦路径。
+    """
     src = read_modal()
-    # 必填标记: <span className="text-danger">*</span> 必须紧跟结果描述 label
-    assert '结果描述 <span className="text-danger">*</span>' in src, (
-        "outcome 必填标记缺失 — 完成弹窗必须有 1 个必填字段 (outcome), "
-        "不能回退到 4 字段全必填/全选填"
+    # 1. outcome label 必须标「(可选)」或「可选」
+    assert "结果描述" in src and "可选" in src, (
+        "outcome label 必须出现「结果描述」+ 「可选」标记 (2026-08-23 v0.3 草稿降摩擦), "
+        "outcome 不再是硬必填字段 — 留空提交会自动走 pending 草稿路径"
+    )
+    # 2. outcome 不再有 * 必填标记 (回归保护: 不能回退到硬必填)
+    assert '<span className="text-danger">*</span>' not in src, (
+        "outcome label 不再有 text-danger * 必填标记 — "
+        "2026-08-23 v0.3 草稿降摩擦后 outcome 是可选字段, "
+        "回退到硬必填会重新引入 lesson #14「完成时刻摩擦最大」bug"
+    )
+    # 3. 「⏳ 之后补」快捷键必须在 (outcome 留空时的低摩擦路径)
+    assert "⏳ 之后补" in src or "之后补" in src, (
+        "outcome 可选后必须保留「⏳ 之后补」快捷键, "
+        "不然用户只剩「填完 outcome 才能完成」一条路径, 草稿降摩擦形同虚设"
     )
 
 
@@ -90,19 +107,35 @@ def test_modal_advanced_section_collapsed_by_default():
 
 
 def test_modal_submit_disabled_only_when_outcome_and_cv_empty():
-    """submit 按钮 disabled 条件: outcome 空 或 cv 空。outcome 是唯一真必填, cv 有默认值不该空。"""
+    """submit 按钮 disabled 条件: cv 空 (outcome 已变可选, 不再阻塞)。
+
+    2026-08-23 改: outcome 改可选, 主按钮不再受 outcome 阻塞。
+    cv 仍有默认值 (完成「${task.title}」), 兜底防空。
+    「⏳ 之后补」快捷键独立启用 — 任何时候都能点, 显式走 pending 草稿。
+    """
     src = read_modal()
-    # 找 submit button 的 disabled 条件
+    # 1. 找主 submit button (onClick={() => submit(false)} — 跟 2026-08-23 footer 改动匹配)
     submit_match = re.search(
-        r"onClick=\{submit\}.*?disabled=\{([^}]+)\}",
+        r'onClick=\{\(\)\s*=>\s*submit\(false\)\}.*?disabled=\{([^}]+)\}',
         src,
         re.DOTALL,
     )
-    assert submit_match, "submit 按钮的 disabled 条件缺失"
+    assert submit_match, "submit 按钮的 disabled 条件缺失 (期望 onClick={() => submit(false)})"
     disabled_expr = submit_match.group(1)
-    # 必须包含 outcome 和 cv
-    assert "outcome.trim()" in disabled_expr, "disabled 必须检查 outcome (唯一真必填)"
-    assert "cv.trim()" in disabled_expr, "disabled 必须检查 cv (兜底, 理论不会空)"
+    # 2. 不应再包含 outcome.trim() (outcome 已可选, 不该阻塞主按钮)
+    assert "outcome.trim()" not in disabled_expr, (
+        "submit 按钮不应再被 outcome 阻塞 — 2026-08-23 v0.3 草稿降摩擦 "
+        "后 outcome 改可选, 主按钮始终可用, outcome 空时自动 pending"
+    )
+    # 3. cv 仍需兜底检查 (cv 有默认值但理论上不应为空, 兜底防空)
+    assert "cv.trim()" in disabled_expr, (
+        "submit 按钮 disabled 必须保留 cv.trim() 检查 (兜底防空, "
+        "cv 默认值 由 useState(`完成「${task.title}」`) 保证不空)"
+    )
+    # 4. submitting 状态必须包含 (防重复点击)
+    assert "submitting" in disabled_expr, (
+        "submit 按钮 disabled 必须包含 submitting (防重复提交)"
+    )
 
 
 def test_modal_explains_that_incomplete_evidence_is_not_report_ready():
@@ -250,12 +283,26 @@ def test_modal_renders_structured_follow_up_answers_when_non_empty():
 
 
 def test_modal_follow_up_answers_remain_structured_for_submit():
-    """提交时必须传原问题与按索引存储的答案。"""
+    """提交时必须传原问题与按索引存储的答案。
+
+    2026-08-23 改: submit 函数签名从 () => 变成 (forcePending = false) => ,
+    用更宽松的 regex 匹配, 但断言字段不变 — follow_up_questions/answers
+    始终透传到 onSave payload, 不管 forcePending 还是 false。
+    """
     src = read_modal()
-    submit_idx = src.find("const submit = async () =>")
-    submit_body = src[submit_idx : submit_idx + 900]
+    submit_match = re.search(
+        r"const\s+submit\s*=\s*async\s*\([^)]*\)\s*=>\s*\{",
+        src,
+    )
+    assert submit_match, "submit 函数定义缺失"
+    submit_body = src[submit_match.end() : submit_match.end() + 1200]
     assert "follow_up_questions: followUpQuestions" in submit_body
     assert "follow_up_answers: followUpAnswers" in submit_body
+    # 2026-08-23 新增: submit 必须支持 forcePending 参数 (outcome 空时强制 pending)
+    assert "forcePending" in submit_body, (
+        "submit 函数必须支持 forcePending 参数 — 2026-08-23 v0.3 草稿降摩擦, "
+        "outcome 空时强制 cv_status=pending 走草稿路径"
+    )
 
 
 def test_task_guidance_module_has_5_categories():

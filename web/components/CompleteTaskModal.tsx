@@ -139,25 +139,26 @@ export function CompleteTaskModal({
     setSuggestionDismissed(true);
   };
 
-  const submit = async () => {
+  const submit = async (forcePending = false) => {
     const o = outcome.trim();
     const c = cv.trim();
-    if (!o) {
-      outcomeRef.current?.focus();
-      return;
-    }
-    if (!c) return; // 理论上不会触发 (cv 有默认值), 留个保险
+    if (!c) return; // 兜底: cv 有默认值, 理论上不会空, 留个保险
+    // 2026-08-23: outcome 为空 = 用户选了"先存草稿稍后再补", 强制走 pending
+    // (即使前端选了 ready/needs_data 也会被后端 storage 兜底 — 见 storage.py:934)。
+    // 这条路径不破坏宪法 §2.4: 用户明确选了"暂存", 系统尊重,
+    // 但 achievement 不会进报告/CV, 直到用户在成就库补全 outcome + cv。
+    const finalCvStatus: CVStatus = forcePending || !o ? "pending" : cvStatus;
     setSubmitting(true);
     try {
       await onSave({
         outcome: o,
         cv: c,
         reflection: reflection.trim(),
-        cv_status: cvStatus,
+        cv_status: finalCvStatus,
         follow_up_questions: followUpQuestions,
         follow_up_answers: followUpAnswers,
         distillation_trace_id: distillationTraceId,
-        confirmed_cv: cvStatus !== "pending",
+        confirmed_cv: finalCvStatus !== "pending",
       });
     } finally {
       setSubmitting(false);
@@ -202,7 +203,12 @@ export function CompleteTaskModal({
 
   // CV 是否已经不是默认值 (决定是否显示重置按钮)
   const isCvModified = cv !== `完成「${task.title}」`;
+  const isOutcomeEmpty = !outcome.trim();
+  // 2026-08-23 拆 2 种延期原因:
+  //   - isDeferredByEmptyOutcome: outcome 空 → 强制 pending, 跟 cv_status 用户选择无关
+  //   - isDeferredByQualityGate: outcome 有内容, 但 cv 仍是兜底 / 追问未答 / 文字太短 → 走 needs_data 降级
   const isDeferredByQualityGate =
+    !isOutcomeEmpty &&
     cvStatus !== "pending" &&
     (followUpQuestions.length > 0 || !isCvModified || outcome.trim().length < 10);
 
@@ -242,12 +248,15 @@ export function CompleteTaskModal({
           </div>
         </div>
 
-        {/* outcome（必填）— 唯一主流程字段 */}
+        {/* outcome（可选）— 主流程字段, 但允许留空走"之后补" 草稿 (2026-08-23 改)
+            哲学: 沉淀质量 > 采集数量 (AI_CTO §2.1), 但用户当下如果只想"打勾",
+            不该被强制卡。空 outcome → 后端强制 cv_status=pending, 跟现有草稿流一致,
+            不会进报告/CV, 直到用户在成就库补全 outcome + cv。 */}
         <div className="px-5 pt-4">
           <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted mb-1.5">
-            结果描述 <span className="text-danger">*</span>
+            结果描述
             <span className="ml-2 normal-case font-normal text-fg-muted/70 tracking-normal">
-              这件事做完了什么、有什么结果
+              （可选）这件事做完了什么、有什么结果
             </span>
           </label>
           <textarea
@@ -467,11 +476,15 @@ export function CompleteTaskModal({
               {polishError}（已保留原文）
             </div>
           )}
-          {isDeferredByQualityGate && (
+          {isOutcomeEmpty ? (
+            <div className="mt-1.5 text-[11px] text-warning">
+              ⏳ 结果描述为空，提交后会存为草稿（不进入报告/CV），可在成就库稍后补全
+            </div>
+          ) : isDeferredByQualityGate ? (
             <div className="mt-1.5 text-[11px] text-warning">
               将保存为待补数据，不会进入报告；补全后自动可用
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* 高级选项 — 折叠, 默认收起 (reflection + cv_status) */}
@@ -552,7 +565,9 @@ export function CompleteTaskModal({
           )}
         </div>
 
-        {/* Footer — 2026-08-23 v2 改: 取消按钮玻璃化, 主按钮加 glow */}
+        {/* Footer — 2026-08-23 v3 改: outcome 可空 → 主按钮不再受 outcome 阻塞;
+            加「⏳ 之后补」快捷键, 显式声明"先存草稿稍后再补", 不走 LLM 润色
+            不打扰, 给用户最小摩擦路径。 */}
         <div className="flex items-center justify-end gap-2 px-5 py-4 mt-4 border-t border-glass-border/30">
           <button
             onClick={onClose}
@@ -562,8 +577,16 @@ export function CompleteTaskModal({
             取消
           </button>
           <button
-            onClick={submit}
-            disabled={!outcome.trim() || !cv.trim() || submitting}
+            onClick={() => submit(true)}
+            disabled={submitting || polishing}
+            title="先存为草稿，稍后在成就库补全 outcome 和 CV"
+            className="px-3 py-1.5 text-[13px] text-fg-secondary hover:text-fg rounded-glass-sm border border-glass-border/40 hover:border-warning/40 hover:text-warning transition disabled:opacity-40 flex items-center gap-1"
+          >
+            ⏳ 之后补
+          </button>
+          <button
+            onClick={() => submit(false)}
+            disabled={!cv.trim() || submitting}
             className="px-4 py-1.5 text-[13px] font-medium bg-accent text-bg rounded-glass-sm hover:bg-accent-hover shadow-glow-accent-sm hover:shadow-glow-accent disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none transition flex items-center gap-1.5"
           >
             <Check size={13} strokeWidth={2.5} />

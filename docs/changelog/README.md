@@ -15,6 +15,7 @@
 ### 现行版本
 
 | 日期 | 主题 | 关联 Lessons | 详情 |
+| 2026-08-23 | **草稿降摩擦 (outcome 可空 + ⏳ 之后补) v1 — 不动宪法 §2.4, 借已有 pending 状态机** | [#14](../lessons/01-frontend-ux-bugs.md) | [→](2026-08-23-v0.3-draft-defer.md) |
 | 2026-08-11 | **核心闭环收敛 — ready-only Composer、本地可迁移备份与反馈去重** | [#32](../lessons/02-llm-pitfalls.md) | [→](2026-08-11-core-loop-consolidation.md) |
 | 2026-08-11 | **视觉语义刷新 — indigo 交互 / gold 成就资产 / orange 风险，成就库去嵌套卡片** | [#31](../lessons/05-theme-system.md) · [#27](../lessons/05-theme-system.md) | [→](2026-08-11-visual-language-refresh.md) |
 | 2026-08-11 | **MainBoard 移动端单视图切换 — 看板默认、对话全屏可返回** | [#30](../lessons/01-frontend-ux-bugs.md) · [#27](../lessons/05-theme-system.md) | [→](2026-08-11-mobile-mainboard-layout.md) |
@@ -61,7 +62,7 @@
 遇到"为什么不能照 X 改"时，按这条链追溯：
 
 - **StatusMenu**: 2026-07-17 v2 → **2026-07-21 v3 推翻**（整行 click = 完成 反直觉）→ 2026-07-22 短进度条 v3 续 → 2026-07-22 状态融合 v3 续
-- **完成弹窗**: 2026-07-28 极简化 A+D → 2026-07-30 v4 任务引导 → 2026-07-30 v4.1 按钮位置
+- **完成弹窗**: 2026-07-28 极简化 A+D → 2026-07-30 v4 任务引导 → 2026-07-30 v4.1 按钮位置 → **2026-08-23 outcome 可空 + ⏳ 之后补 (草稿降摩擦)**
 - **Priority 视觉**: 2026-07-22 P0/P1/P2/P3 badge → 2026-07-23 P2 换冷色蓝
 
 ## 使用方式

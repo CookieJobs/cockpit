@@ -177,16 +177,23 @@ export function ChatWindow({
   const [input, setInput] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
+  // 2026-08-23 立: 仅当内容真的被钳制到 max-h 时才挂 overflow-y-auto,
+  // 避免空状态 / 单行时 (尤其 Safari / Chrome-on-macOS "始终显示滚动条"
+  // 模式) 出现 ghost 滚动条 + 桌面端滚轮 hover 误触滚动。
+  const [needsScroll, setNeedsScroll] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // 输入框自动撑高: 1 行 ~ 6 行 (40px ~ 144px)
-  // 重置 height=auto 让 scrollHeight 重新计算, 然后 clamp 到 max-h
+  // 重置 height=auto 让 scrollHeight 重新计算, 然后 clamp 到 max-h,
+  // 同时根据 scrollHeight 是否越过 max-h 决定是否需要内部滚动。
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
     const maxH = 144; // max-h-36
-    el.style.height = Math.min(el.scrollHeight, maxH) + "px";
+    const nextH = Math.min(el.scrollHeight, maxH);
+    el.style.height = nextH + "px";
+    setNeedsScroll(el.scrollHeight > maxH);
   }, [input]);
 
   // 监听全局 event 让外部组件 (e.g. FocusSection 空状态 CTA) 触发输入框 focus
@@ -499,7 +506,7 @@ export function ChatWindow({
             }}
             placeholder="说点什么... (Enter 发送 / Shift+Enter 换行)"
             rows={1}
-            className="flex-1 resize-none glass rounded-glass-sm px-3 py-2 text-sm leading-6 text-fg placeholder-fg-muted focus:outline-none focus:border-accent/50 focus:shadow-glow-accent-sm min-h-[2.5rem] max-h-36 overflow-y-auto transition"
+            className={`flex-1 resize-none glass rounded-glass-sm px-3 py-2 text-sm leading-6 text-fg placeholder-fg-muted focus:outline-none focus:border-accent/50 focus:shadow-glow-accent-sm min-h-[2.5rem] max-h-36 ${needsScroll ? "overflow-y-auto" : "overflow-y-hidden"} transition`}
             disabled={loading}
           />
           <button

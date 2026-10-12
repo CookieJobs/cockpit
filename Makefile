@@ -1,5 +1,11 @@
 .PHONY: help setup dev web all stop clean seed-demo harness project-gate synthetic-dogfood
 
+# Python interpreter inside the project venv.
+# Prefer .venv312 (matches docs/harness conventions, e.g. capability gates) and fall
+# back to .venv (what `make setup` creates by default). If neither exists, recipes
+# below will surface a clear "no such file" error rather than silently using `python`.
+VENV_PY := $(shell if [ -x .venv312/bin/python ]; then echo .venv312/bin/python; else echo .venv/bin/python; fi)
+
 # 默认 target：显示用法
 help:
 	@echo "Cockpit 启动快捷方式："
@@ -48,10 +54,10 @@ seed-demo:
 	@echo "==> 演示数据就绪"
 
 harness:
-	@.venv312/bin/python app/scripts/run_achievement_harness.py --fake-fixture
+	@$(VENV_PY) app/scripts/run_achievement_harness.py --fake-fixture
 
 project-gate:
-	@.venv312/bin/python app/scripts/run_project_gate.py
+	@$(VENV_PY) app/scripts/run_project_gate.py
 
 synthetic-dogfood:
-	@.venv312/bin/python app/scripts/run_synthetic_dogfooding.py
+	@$(VENV_PY) app/scripts/run_synthetic_dogfooding.py

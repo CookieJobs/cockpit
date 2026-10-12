@@ -514,3 +514,18 @@ v4 → v4.1 这 4 轮用户反馈暴露 **3 类"单测过但真实数据失败" 
   - `web/components/MainBoard.tsx`：直接声明移动端全屏对话 / 桌面右栏、移动端悬浮入口 / 桌面窄条的响应式契约；导航改为横向滚动；空状态文案与 CTA 对齐实际操作。
   - `web/tailwind.config.ts`：扫描 `web/lib/`。
   - `web/scripts/test-board-layout.mjs`：编译 `MainBoard` 的实际 CSS，锁住两种视图模式的定位规则；浏览器在 390×844 和 1280px 实测主路径。
+
+## #31. ChatWindow 输入框空状态 / 单行仍挂滚动条 + 桌面滚轮误触滚动 (修于 2026-08-23)
+
+- **症状**：AI 助手输入框在没文字或只输了一行时，依然显示 ghost 滚动条；macOS 用户把滚轮 hover 在输入框上，会触发 textarea 内部尝试滚动 — 滚不动却抢走了页面滚动事件，体感割裂。
+- **根因**：`ChatWindow.tsx` 的 textarea 上挂了 `min-h-[2.5rem] max-h-36 overflow-y-auto`，三段组合在边界条件下分歧：
+  1. useEffect 自动撑高逻辑是"重置 `style.height = auto` → 读 `scrollHeight` → clamp 到 `maxH`"。这层保证了"内容够时容器够"，但**`overflow-y-auto` 一直挂着**，浏览器 (Safari / Chrome on macOS 的 "始终显示滚动条" 模式) 即使不需要也保留滚动条轨道。
+  2. 空状态 `scrollHeight ≈ 40px` (由 `min-h-[2.5rem]` 兜底) ≪ `maxH=144`，逻辑上不需要滚动 — 但 `overflow-y-auto` 让浏览器把 textarea 当成"可滚动容器"，滚轮事件被它吞掉而页面不动。
+  3. className 没有把"是否需要滚动"和"内容是否撑满 maxH"绑在一起，UI 状态分裂。
+- **教训**：
+  - **`overflow-y-auto` 不是默认安全选项**：自带"预留滚动条"语义，对不需要滚动的容器也是。textarea / 卡片容器只要尺寸可被算法预测（高度自适应），就**先 hidden，内容真的溢出再 auto**。
+  - **可滚动判定 = "内容高度 > 容器高度"，而不是"内容非空"**：跟用户假设完全不同 — 单行文本框就是不可滚动的容器，跟 `<input>` 一档。
+  - **macOS "始终显示滚动条" 偏好是公开测试点**：cockpit 是桌面日用品，这种偏好用户基数不小，要靠 dev 模式手测或记 Lesson 入下一轮 dev audit。
+  - **`scrollHeight` 是内容真实高度**，跟 `style.height` 是两件事，先 `auto` 再读 → 再 `min(scrollHeight, maxH)` 设回去是稳定套路；同步返回 `scrollHeight > maxH` 给上层决定 overflow 行为。
+- **修法位置**：
+  - `web/components/ChatWindow.tsx`：新增 `needsScroll` state，在原 useEffect 里同步 `setNeedsScroll(el.scrollHeight > maxH)`；textarea className 从 `overflow-y-auto` 改成 `${needsScroll ? "overflow-y-auto" : "overflow-y-hidden"}`。
