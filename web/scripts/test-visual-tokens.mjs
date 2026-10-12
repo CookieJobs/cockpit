@@ -254,6 +254,19 @@ check("project title clips only its text, not the emoji trigger",
     boardSource.includes('<span className="min-w-0 truncate">{project.name}</span>'),
   "emoji trigger must be outside the truncate element");
 
+section("interactive nesting");
+// 2026-10-13 立：项目卡整行 toggle 曾经是 <button>，把 ProjectEmojiPicker
+// (它自己渲染 <button>) 和重命名 <input> 一起包进去 → HTML 非法嵌套，React 控制台报
+// "<button> cannot contain a nested <button>"。注意这个嵌套是跨文件的
+// (子组件里才有那个 button)，所以纯扫 MainBoard 源码里的标签深度永远抓不到它 —
+// 真正可断言的不变量是"行级 toggle 不能是 <button>"。
+check("no row-level toggle is wrapped in a <button>",
+  !/<button\b[^>]*onClick=\{onToggle\}/s.test(boardSource),
+  "a row <button> would nest the emoji picker + rename <input>, which React rejects");
+check("project row toggle keeps the div affordance",
+  boardSource.includes('onClick={onToggle}\n            className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer"'),
+  "row toggle must be a clickable div, matching the TaskRow pattern");
+
 section("report value and recovery hierarchy");
 const reportSource = readFileSync("app/report/page.tsx", "utf8");
 const reportAssetUtilities = reportSource.match(/\b(?:bg|text|border)-asset(?:\b|\/)/g) ?? [];

@@ -1025,17 +1025,35 @@ function ProjectCard({
               opacity-60 提示可拖, 自身 hover 时 opacity-100 强调。整行 click
               走 onToggle (展开/收起), 句柄 stopPropagation 阻止冒泡。 */}
           {dragHandle}
-          <button
+          {/* 2026-10-13 修: 整行 toggle 从 <button> 改成 <div>。
+              原实现把 ProjectEmojiPicker (它自己是 <button>) 和重命名用的 <input>
+              一起塞进 <button> → HTML 非法嵌套, React 报 "<button> cannot contain a
+              nested <button>"。现在跟 TaskRow 同一套模式: 行 div 只负责 click 展开/收起,
+              内层控件各自 stopPropagation; 同时把 chevron 提成独立 button 保住键盘
+              可达 (aria-expanded / aria-label), 不因为去掉外层 button 而丢键盘入口。 */}
+          <div
             onClick={onToggle}
-            className="flex items-center gap-2.5 flex-1 min-w-0"
+            className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer"
           >
-            <ChevronRight
-              size={14}
-              strokeWidth={2}
-              className={`text-fg-muted transition-transform flex-shrink-0 ${
-                expanded ? "rotate-90" : ""
-              }`}
-            />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+              }}
+              aria-expanded={expanded}
+              aria-label={`${project.name} — ${expanded ? "收起" : "展开"}`}
+              title={expanded ? "收起项目" : "展开项目"}
+              className="flex-shrink-0 text-fg-muted hover:text-fg transition-colors"
+            >
+              <ChevronRight
+                size={14}
+                strokeWidth={2}
+                className={`transition-transform ${
+                  expanded ? "rotate-90" : ""
+                }`}
+              />
+            </button>
             {editingName ? (
               <input
                 type="text"
@@ -1089,7 +1107,7 @@ function ProjectCard({
             ) : (
               <span className="text-[12px] text-fg-muted flex-shrink-0">0</span>
             )}
-          </button>
+          </div>
           {project.id && !editingName && (
             <div className="flex items-center gap-0.5 flex-shrink-0 opacity-40 group-hover:opacity-100 transition-opacity">
               <button
